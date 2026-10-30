@@ -17,12 +17,12 @@ jobs:
           node-version: 26.13.0
       - name: secret-guard
         run: bash scripts/secret-guard.sh
-      - name: node --test tests/
+      - name: node --test tests/ledger.test.js
         shell: bash
         run: |
           set +e
           set -o pipefail
-          node --test tests/ | tee "$RUNNER_TEMP/unit.txt"
+          node --test tests/ledger.test.js | tee "$RUNNER_TEMP/unit.txt"
           status=${PIPESTATUS[0]}
           set -e
           pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/unit.txt" | tail -1 | grep -oE '[0-9]+$' || true)
@@ -72,5 +72,38 @@ jobs:
           fails=$(grep -c '^FAIL ' "$RUNNER_TEMP/browser.txt" || true)
           echo "browser checks: ${pass:-missing} pass, ${fails:-missing} fail"
           if [[ "$status" -ne 0 || -z "$pass" || "$fails" != "0" || "$pass" -lt 38 ]]; then
+            exit 1
+          fi
+
+  emulator:
+    name: emulator rules and sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: secret-guard
+        run: bash scripts/secret-guard.sh
+      - name: install
+        run: npm ci
+      - name: emulators:exec
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          npx firebase emulators:exec --only auth,firestore --project ahl-aljazeera-accounting \
+            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js" \
+            | tee "$RUNNER_TEMP/emulator.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/emulator.txt" | tail -1 | grep -oE '[0-9]+$' || true)
+          fail=$(grep -E '[[:space:]]fail [0-9]+$' "$RUNNER_TEMP/emulator.txt" | tail -1 | grep -oE '[0-9]+$' || true)
+          echo "emulator tests: ${pass:-missing} pass, ${fail:-missing} fail"
+          if [[ "$status" -ne 0 || -z "$pass" || -z "$fail" || "$fail" != "0" || "$pass" -lt 17 ]]; then
             exit 1
           fi

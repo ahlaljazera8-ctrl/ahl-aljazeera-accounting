@@ -1,9 +1,15 @@
-# AJ-P0 Step B — offline prototype (example data only)
-Run: `python3 -m http.server 8765 --bind 127.0.0.1` here, open http://127.0.0.1:8765/
-Tests: `node --test tests/` (logic) · `node --experimental-websocket tests/browser-check.js` (headless Chrome, needs the server running; writes shots/)
-Storage: localStorage (aj.*). Outbox = `aj.outbox` (ids not yet "sent"); no syncState field. "إرسال الآن" = fake sync.
-Policy flags in ledger.js DEFAULT_POLICY follow data-model.md §4 (doc wins); see conflicts:
-1. 'expense' (مصروف) added per Architect; data-model §2 needs updating.
-2. Site creating دفعة عميل: doc §4/§6 default = no; Ameer = yes. Flag siteCanCreateClientPayment=true (Ameer overrides).
-3. Reversal: doc §4 lets site reverse its own entries; brief = owner only. Flag siteCanReverseOwn=true (Ameer: site reverses own only; owner any). One reversal per original via id rev_<originalId>. Rules: firestore.rules.draft.
-4. Doc §6 (site reads expense only) overridden: site also reads its OWN client payments; no received/profit totals for site.
+# حسابات أهل الجزيرة
+
+Offline-first ledger. Example data stays on this device. Login uses Firebase Email/Password; the outbox is a local queue of ids (no `syncState`) and flushes to Firestore when the connection returns. The ledger is append-only.
+
+```bash
+npm test                 # ledger unit tests
+npm run test:browser     # headless Chrome; serve the folder on 127.0.0.1:8765 first
+npm run test:emulator    # Firestore + Auth emulators, rules and sync (does not deploy)
+```
+
+`index.html?role=owner` or `?role=site` opens the local demo (no Firebase). A normal visit shows the login screen. `?emulator=1` points that login at the local emulators.
+
+The first `users/{uid}` document is created by an admin (the rules cannot bootstrap the owner). After that, only an owner can write `users/`. Do not commit service-account keys or passwords.
+
+Security rules: `firestore.rules`. Emulator config only: `firebase.json`, `.firebaserc`. Nothing here deploys.

@@ -2,7 +2,15 @@
   "name": "ahl-aljazeera-accounting",
   "private": true,
   "scripts": {
-    "test": "node --test tests/",
-    "test:browser": "node tests/browser-check.js"
+    "test": "node --test tests/ledger.test.js",
+    "test:browser": "node tests/browser-check.js",
+    "test:emulator": "firebase emulators:exec --only auth,firestore --project ahl-aljazeera-accounting \"node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js\""
+  },
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase": "^13.1.0"
+  },
+  "devDependencies": {
+    "firebase-tools": "^15.34.2"
   }
 }
