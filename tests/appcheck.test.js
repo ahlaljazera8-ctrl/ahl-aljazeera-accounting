@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const AppCheck = require('../appcheck.js');
+const AppCheck = require('../public/appcheck.js');
 
 test('a placeholder or empty site key does not initialize App Check', async () => {
   let calls = 0;
@@ -38,7 +38,7 @@ test('a site key loads reCAPTCHA v3 App Check from gstatic 13.1.0 and does not e
 });
 
 test('firebase-config publishes only a placeholder site key', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../firebase-config.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../public/firebase-config.js'), 'utf8');
   assert.match(src, /appCheckSiteKey:\s*'REPLACE_WITH_RECAPTCHA_V3_SITE_KEY'/);
   assert.equal(src.includes('RECAPTCHA_SECRET'), false);
 });

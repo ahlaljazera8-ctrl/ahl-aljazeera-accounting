@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const Sync = require('../sync.js');
-const Status = require('../sync-status.js');
+const Sync = require('../public/sync.js');
+const Status = require('../public/sync-status.js');
 
 function local(over) {
   return Object.assign({
