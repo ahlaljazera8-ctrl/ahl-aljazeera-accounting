@@ -2,7 +2,7 @@
 // Storage: IndexedDB "aj-p0" (stores: projects, entries, outbox, meta). Loaded into memory at boot; every write is
 // persisted to IndexedDB (write-through, serialized). "Server" is simulated; outbox = ids not sent yet (no syncState).
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark' };
+const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark' };
 const demoRole = () => { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; };
 const LIST = { projects:1, entries:1, outbox:1 };
 const cache = {};
@@ -69,8 +69,8 @@ function seed() {
     { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[], createdAtServer:t, createdBy:'u-ameer' },
     { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'], createdAtServer:t, createdBy:'u-ameer' },
   ];
-  const P = (id, name, clientName, contractAmount) => ({ id, name, clientName, location:'مثال', contractAmount, currency:'IQD', status:'active', createdAtDevice:t, createdAtServer:t, createdBy:'u-ameer', deviceId:'seed', isExample:true });
-  const projects = [P('p-school','مشروع المدرسة','زبون مثال 1',60000000), P('p-road','مشروع الطريق','زبون مثال 2',20000000), P('p-market','بناية السوق','زبون مثال 3',15000000)];
+  const P = (id, name, clientName) => ({ id, name, clientName, location:'مثال', currency:'IQD', status:'active', createdAtDevice:t, createdAtServer:t, createdBy:'u-ameer', deviceId:'seed', isExample:true });
+  const projects = [P('p-school','مشروع المدرسة','زبون مثال 1'), P('p-road','مشروع الطريق','زبون مثال 2'), P('p-market','بناية السوق','زبون مثال 3')];
   let n = 0;
   const E = (projectId, entryType, amount, description, by, extra = {}) => {
     const row = { id:'seed-' + (++n), projectId, direction:L.ENTRY_TYPES[entryType].direction, entryType, amount, currency:'IQD', entryDate:'2026-10-' + String(n).padStart(2,'0'), description: description + ' (مثال)', partyName:'', isReversal:false, createdAtDevice:t + n*1000, createdAtServer:t + n*1000, createdBy:by, deviceId:'seed', ...extra };
@@ -98,9 +98,12 @@ function seed() {
   const pend1 = E('p-school','materials',250000,'إسمنت','u-ahmed'), pend2 = E('p-school','labour',100000,'سلفة عامل','u-ahmed');
   pend1.createdAtServer = pend2.createdAtServer = null;
   lg.append(pend1, { user:users[1], projects, policy:POLICY }); lg.append(pend2, { user:users[1], projects, policy:POLICY });
-  set(K.users, users); set(K.projects, projects); set(K.entries, lg.all()); set(K.outbox, [pend1.id, pend2.id]); set(K.seeded, true);
+  set(K.users, users); set(K.projects, projects); set(K.entries, lg.all()); set(K.outbox, [pend1.id, pend2.id]);
+  set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
+  set(K.seeded, true);
 }
 const state = { type: 'materials', amount: 0, formId: uuid(), backStack: [] };
+let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
   const role = get(K.role, demoRole() || 'owner');
@@ -201,8 +204,46 @@ async function loadFirebase() {
       const snap = await fsMod.getDoc(fsMod.doc(fdb, 'users', uid));
       return snap.exists() ? snap.data() : null;
     },
-    writeLocal(local) {
-      return fsMod.setDoc(fsMod.doc(fdb, S.collectionFor(local), local.id), S.withServerTime(local, fsMod.serverTimestamp()));
+    async listUsers() {
+      const snap = await fsMod.getDocsFromServer(fsMod.collection(fdb, 'users'));
+      return snap.docs.map(d => {
+        const row = profileFrom(d.id, d.data());
+        const ts = d.data().createdAtServer;
+        if (ts && typeof ts.toMillis === 'function') row.createdAtServer = ts.toMillis();
+        else if (ts && typeof ts.seconds === 'number') row.createdAtServer = ts.seconds * 1000;
+        return row;
+      });
+    },
+    async saveUser(uid, value, existing) {
+      const createdAt = existing && typeof existing.createdAtServer === 'number'
+        ? fsMod.Timestamp.fromMillis(existing.createdAtServer)
+        : fsMod.serverTimestamp();
+      await fsMod.setDoc(fsMod.doc(fdb, 'users', uid), {
+        displayName: value.displayName,
+        email: value.email,
+        role: value.role,
+        active: value.active,
+        assignedProjectIds: value.assignedProjectIds,
+        createdBy: existing && existing.createdBy ? existing.createdBy : auth.currentUser.uid,
+        createdAtServer: createdAt,
+      });
+    },
+    async writeLocal(local) {
+      const clean = S.withoutContractAmount(local);
+      const col = S.collectionFor(clean);
+      await fsMod.setDoc(fsMod.doc(fdb, col, clean.id), S.withServerTime(clean, fsMod.serverTimestamp()));
+      if (col !== 'projects') return;
+      const user = get(K.sessionUser, null);
+      if (!user || user.role !== 'owner') return;
+      const stored = get(K.finance, {})[clean.id];
+      const explicit = stored && Number.isInteger(stored.contractAmount) ? stored.contractAmount : undefined;
+      const saved = S.splitProjectSave(local, explicit);
+      if (!saved.finance) return;
+      await fsMod.setDoc(fsMod.doc(fdb, 'projectFinance', clean.id), saved.finance);
+      const fin = get(K.finance, {});
+      fin[clean.id] = { contractAmount: saved.finance.contractAmount };
+      set(K.finance, fin);
+      set(K.projects, get(K.projects, []).map(p => p.id === clean.id ? S.withoutContractAmount(p) : p));
     },
     async exists(local) {
       const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, S.collectionFor(local), local.id));
@@ -229,9 +270,19 @@ async function loadFirebase() {
         localProjects: get(K.projects, []),
         read: readSpec,
       });
-      set(K.projects, result.projects);
+      set(K.projects, S.projectsForClient(user, result.projects));
       set(K.entries, result.entries);
       set(K.pullWatermark, result.watermark);
+      const fin = get(K.finance, {});
+      let changed = false;
+      for (const spec of S.financeReads(user, (result.projects || []).map(p => p && p.id))) {
+        const rows = await readSpec(spec);
+        const amount = rows[0] && rows[0].contractAmount;
+        if (!Number.isInteger(amount) || (fin[spec.id] && fin[spec.id].pending)) continue;
+        fin[spec.id] = { contractAmount: amount };
+        changed = true;
+      }
+      if (changed) set(K.finance, fin);
     },
   };
 }
@@ -290,6 +341,7 @@ function flushRemote() {
   return flushing;
 }
 async function closeUserDb() {
+  directoryPromise = null;
   if (db) {
     set(K.sessionUser, null);
     await writing.catch(() => {});
@@ -370,6 +422,109 @@ const ledger = () => L.createLedger(get(K.entries, []));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = n => `<b class="num">${L.fmt(n)} د.ع</b>`;
 const $ = s => document.querySelector(s);
+const roleLabel = role => role === 'owner' ? 'مالك' : 'مستخدم موقع';
+function shownContract(id, project) {
+  const fin = (get(K.finance, {}) || {})[id];
+  if (fin && Number.isInteger(fin.contractAmount)) return fin.contractAmount;
+  return window.Sync.contractAmountOf(project);
+}
+function assignBox(project, on) {
+  const attr = window.DomSafe && DomSafe.projectAttr(project.id);
+  if (!attr) return '';
+  return '<label class="check"><input type="checkbox" data-assign="' + attr + '"' + (on ? ' checked' : '') + '>' + esc(project.name) + '</label>';
+}
+function personLink(person) {
+  const attr = window.DomSafe && DomSafe.projectAttr(person.uid);
+  const name = esc(person.displayName || person.uid);
+  const meta = esc(roleLabel(person.role) + (person.active ? '' : ' · موقوف'));
+  if (!attr) return '<div class="card"><h2>' + name + '</h2><span>' + meta + '</span></div>';
+  return '<a class="card proj" href="#person/' + attr + '"><div class="kv"><h2>' + name + '</h2><span>‹</span></div><span>' + meta + '</span></a>';
+}
+const UID_HELP = 'الحساب يُنشأ في وحدة تحكم Firebase، لا من هذا التطبيق. المسار: Authentication ثم Users ثم عمود User UID. انسخ المعرّف والصقه هنا.';
+function contractFields(project) {
+  const amount = shownContract(project.id, project);
+  const value = amount === null ? '' : String(amount);
+  return `<div class="kv"><span>قيمة العقد</span>${amount === null ? '<b>غير محددة</b>' : money(amount)}</div>
+    <label class="field">تعديل قيمة العقد<input id="contract" class="full" inputmode="numeric" value="${esc(value)}"></label>
+    <button type="button" class="btn ghost" id="save-contract">حفظ قيمة العقد</button>
+    <div id="contract-msg" class="msg"></div>
+    <div class="note">قيمة العقد لا تظهر لمستخدم الموقع. الحفظ ينقلها إلى سجل المالك ويمسحها من المشروع.</div>`;
+}
+function saveContract(u) {
+  if (!u || u.role !== 'owner') return;
+  const id = (location.hash.slice(1).split('/')[1]) || '';
+  const project = get(K.projects, []).find(p => p.id === id);
+  const msg = $('#contract-msg');
+  if (!project) return;
+  const raw = ($('#contract') && $('#contract').value || '').replace(/[^\d]/g, '');
+  if (!raw) { if (msg) msg.textContent = 'أدخل قيمة العقد'; return; }
+  const amount = Number(raw);
+  if (!Number.isInteger(amount) || amount > 10000000000) { if (msg) msg.textContent = 'قيمة العقد غير صالحة'; return; }
+  const saved = window.Sync.splitProjectSave(project, amount);
+  set(K.projects, get(K.projects, []).map(p => p.id === id ? saved.project : p));
+  const fin = get(K.finance, {});
+  fin[id] = { contractAmount: amount, pending: true };
+  set(K.finance, fin);
+  const out = get(K.outbox, []);
+  if (!out.includes(id)) set(K.outbox, out.concat([id]));
+  if (!demoRole()) flushRemote();
+  render();
+}
+function readPersonForm() {
+  const boxes = [...document.querySelectorAll('[data-assign]:checked')].map(el => el.dataset.assign);
+  return window.Sync.personInput({
+    uid: ($('#person-uid') && $('#person-uid').value) || '',
+    displayName: ($('#person-name') && $('#person-name').value) || '',
+    email: ($('#person-email') && $('#person-email').value) || '',
+    role: ($('#person-role') && $('#person-role').value) || '',
+    active: !!($('#person-active') && $('#person-active').checked),
+    assignedProjectIds: boxes,
+  });
+}
+function storePerson(value, existing, editor) {
+  const row = {
+    uid: value.uid, displayName: value.displayName, email: value.email, role: value.role, active: value.active,
+    assignedProjectIds: value.assignedProjectIds.slice(),
+    createdAtServer: existing && existing.createdAtServer ? existing.createdAtServer : Date.now(),
+    createdBy: existing && existing.createdBy ? existing.createdBy : editor.uid,
+  };
+  set(K.users, get(K.users, []).filter(x => x.uid !== row.uid).concat([row]));
+  if (!demoRole() && get(K.sessionUser, null) && get(K.sessionUser).uid === row.uid) {
+    set(K.sessionUser, Object.assign({}, get(K.sessionUser), row));
+  }
+  return row;
+}
+async function savePerson(u) {
+  if (!u || u.role !== 'owner') return;
+  const btn = $('#save-person');
+  const msg = $('#person-msg');
+  const built = readPersonForm();
+  if (!built.ok) { if (msg) msg.textContent = built.errors[0]; return; }
+  if (btn) btn.disabled = true;
+  const existing = get(K.users, []).find(x => x.uid === built.value.uid);
+  try {
+    if (demoRole()) storePerson(built.value, existing, u);
+    else {
+      const fb = await ensureFirebase();
+      await fb.saveUser(built.value.uid, built.value, existing);
+      directoryPromise = null;
+      await ensureDirectory();
+      const fresh = get(K.users, []).find(x => x.uid === built.value.uid) || storePerson(built.value, existing, u);
+      if (get(K.sessionUser, null) && get(K.sessionUser).uid === built.value.uid) set(K.sessionUser, Object.assign({}, get(K.sessionUser), fresh));
+    }
+    location.hash = '#people';
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    if (msg) msg.textContent = 'تعذر حفظ الشخص';
+  }
+}
+function ensureDirectory() {
+  if (demoRole()) return Promise.resolve();
+  if (!directoryPromise) {
+    directoryPromise = ensureFirebase().then(fb => fb.listUsers()).then(rows => { set(K.users, rows || []); }).catch(err => { directoryPromise = null; throw err; });
+  }
+  return directoryPromise;
+}
 
 function commit(entry) {
   const lg = ledger();
@@ -464,11 +619,38 @@ const views = {
     const p = projects.find(x => x.id === id); if (!p) return '<div class="card">المشروع غير متاح</div>';
     const es = entries.filter(e => e.projectId === id); const s = L.projectSummary(u, es);
     const card = u.role === 'owner'
-      ? `<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
+      ? `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     return `<div class="card">${card}</div><div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
       <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>`;
+  },
+  people() {
+    const u = me();
+    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    const rows = get(K.users, []).map(personLink).join('');
+    return `<div class="card"><p class="note">${esc(UID_HELP)}</p></div>${rows}<a class="btn" href="#person">إضافة شخص</a>`;
+  },
+  person(uid) {
+    const u = me();
+    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    if (uid && !(window.DomSafe && DomSafe.isSafeId(uid))) return '<div class="card">معرّف غير صالح</div>';
+    const existing = uid ? get(K.users, []).find(x => x.uid === uid) : null;
+    const person = existing || { uid: uid || '', displayName: '', email: '', role: 'site', active: true, assignedProjectIds: [] };
+    const projects = get(K.projects, []);
+    const boxes = projects.map(p => assignBox(p, (person.assignedProjectIds || []).includes(p.id))).join('');
+    const locked = uid ? ' readonly' : '';
+    return `<div class="card"><p class="note">${esc(UID_HELP)}</p>
+      <label class="field">معرّف المستخدم (User UID)<input id="person-uid" class="full" maxlength="64" autocomplete="off" value="${esc(person.uid)}"${locked}></label>
+      <label class="field">الاسم<input id="person-name" class="full" maxlength="80" value="${esc(person.displayName)}"></label>
+      <label class="field">البريد<input id="person-email" class="full" maxlength="200" value="${esc(person.email)}"></label>
+      <label class="field">الدور<select id="person-role" class="full"><option value="site"${person.role === 'site' ? ' selected' : ''}>مستخدم موقع</option><option value="owner"${person.role === 'owner' ? ' selected' : ''}>مالك</option></select></label>
+      <label class="check"><input id="person-active" type="checkbox"${person.active ? ' checked' : ''}>الحساب نشط</label>
+      <div class="step">المشاريع</div>
+      <p class="note">اختر كل مشروع بالاسم. التعيين يقتصر على المشاريع المحددة.</p>
+      ${boxes || '<div class="note">لا توجد مشاريع بعد.</div>'}
+      <button type="button" class="btn" id="save-person">حفظ</button>
+      <div id="person-msg" class="msg"></div></div>`;
   },
   detail(id) {
     const { projects, entries } = data();
@@ -499,7 +681,23 @@ const views = {
       ${linked}</div>`;
   },
 };
-const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', detail:'تفاصيل القيد' };
+const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
+
+function syncPeopleTab(u) {
+  const tabs = document.querySelector('.tabs');
+  if (!tabs) return;
+  let a = tabs.querySelector('[data-tab="people"]');
+  if (!u || u.role !== 'owner') { if (a) a.remove(); return; }
+  if (!a) {
+    a = document.createElement('a');
+    a.href = '#people';
+    a.dataset.tab = 'people';
+    const span = document.createElement('span');
+    span.textContent = 'الأشخاص';
+    a.append(document.createTextNode('●'), span);
+    tabs.appendChild(a);
+  }
+}
 
 function render() {
   const u = me(); if (!u) return;
@@ -512,9 +710,19 @@ function render() {
     ? (u.role === 'owner' ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)')
     : ((u.role === 'owner' ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
   $('#outbox').textContent = 'لم يُرسل بعد: ' + get(K.outbox, []).length;
+  syncPeopleTab(u);
+  const tab = v === 'project' ? 'projects' : (v === 'person' ? 'people' : v);
+  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
+  if (!demoRole() && u.role === 'owner' && (v === 'people' || v === 'person') && !directoryPromise) {
+    $('#title').textContent = titles[v] || 'الأشخاص';
+    $('#main').innerHTML = '<div class="card">' + esc('جارٍ تحميل الأشخاص') + '</div>';
+    ensureDirectory().then(() => { if (me() && me().role === 'owner') render(); }).catch(() => {
+      const main = $('#main'); if (main) main.innerHTML = '<div class="card">' + esc('تعذر تحميل الأشخاص') + '</div>';
+    });
+    return;
+  }
   $('#title').textContent = v === 'project' ? ((data().projects.find(p => p.id === arg) || {}).name || 'مشروع') : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
   $('#main').innerHTML = views[v](arg);
-  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === (v === 'project' ? 'projects' : v)));
 }
 
 document.addEventListener('click', ev => {
@@ -556,7 +764,8 @@ document.addEventListener('click', ev => {
     const p = { id: uuid(), name, clientName, location: '', currency: 'IQD', status: 'active', createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
     set(K.projects, [...get(K.projects, []), p]); set(K.outbox, [...get(K.outbox, []), p.id]); render();
     if (!demoRole()) flushRemote();
-  }
+  } else if (b.id === 'save-contract') saveContract(u);
+  else if (b.id === 'save-person') savePerson(u);
 });
 document.addEventListener('input', ev => { if (ev.target.id === 'amt') { state.amount = parseInt(ev.target.value.replace(/[^\d]/g, ''), 10) || 0; } });
 $('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, ev.target.value); render(); });
