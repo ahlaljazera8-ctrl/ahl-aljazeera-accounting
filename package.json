@@ -1,0 +1,8 @@
+{
+  "name": "ahl-aljazeera-accounting",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/",
+    "test:browser": "node tests/browser-check.js"
+  }
+}

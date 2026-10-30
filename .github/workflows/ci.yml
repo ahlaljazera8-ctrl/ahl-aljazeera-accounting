@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  ledger:
+    name: ledger tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.0
+      - name: secret-guard
+        run: bash scripts/secret-guard.sh
+      - name: node --test tests/
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          node --test tests/ | tee "$RUNNER_TEMP/unit.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/unit.txt" | tail -1 | grep -oE '[0-9]+$' || true)
+          fail=$(grep -E '[[:space:]]fail [0-9]+$' "$RUNNER_TEMP/unit.txt" | tail -1 | grep -oE '[0-9]+$' || true)
+          echo "unit tests: ${pass:-missing} pass, ${fail:-missing} fail"
+          if [[ "$status" -ne 0 || -z "$pass" || -z "$fail" || "$fail" != "0" || "$pass" -lt 20 ]]; then
+            exit 1
+          fi
+
+  browser:
+    name: browser checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.0
+      - name: secret-guard
+        run: bash scripts/secret-guard.sh
+      - name: browser checks
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          mkdir -p shots
+          python3 -m http.server 8765 --bind 127.0.0.1 >"$RUNNER_TEMP/http.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 50); do
+            if curl -sf -o /dev/null http://127.0.0.1:8765/index.html; then
+              ready=1
+              break
+            fi
+            sleep 0.2
+          done
+          if [[ "$ready" -ne 1 ]]; then
+            echo "static server did not start"
+            cat "$RUNNER_TEMP/http.log" || true
+            exit 1
+          fi
+          node tests/browser-check.js | tee "$RUNNER_TEMP/browser.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          summary=$(grep 'browser checks:' "$RUNNER_TEMP/browser.txt" | tail -1 || true)
+          pass=$(printf '%s\n' "$summary" | sed -n 's/.*browser checks: \([0-9][0-9]*\)\/[0-9][0-9]* passed/\1/p')
+          fails=$(grep -c '^FAIL ' "$RUNNER_TEMP/browser.txt" || true)
+          echo "browser checks: ${pass:-missing} pass, ${fails:-missing} fail"
+          if [[ "$status" -ne 0 || -z "$pass" || "$fails" != "0" || "$pass" -lt 38 ]]; then
+            exit 1
+          fi
