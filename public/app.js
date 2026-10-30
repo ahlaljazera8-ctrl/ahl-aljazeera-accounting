@@ -116,8 +116,39 @@ function loginError(err) {
 // still leaves the assertion reachable, so a newer FB_VER is not available to upgrade to.
 const FB_VER = '13.1.0';
 let fbPromise = null;
+function isImportFailure(err) {
+  const text = String((err && err.message) || err || '');
+  return /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(text);
+}
+// One reload if the module scripts themselves failed. Does not touch aj-u-* or the outbox.
+async function recoverModuleOnce() {
+  if (sessionStorage.getItem('aj-sw-heal') === '1') return;
+  if (new URL(location.href).searchParams.has('sw')) return;
+  sessionStorage.setItem('aj-sw-heal', '1');
+  try {
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) {}
+  location.reload();
+}
 function ensureFirebase() {
-  if (!fbPromise) fbPromise = loadFirebase();
+  if (fbPromise) return fbPromise;
+  fbPromise = (async () => {
+    try { return await loadFirebase(); }
+    catch (err1) {
+      try { return await loadFirebase(); }
+      catch (err2) {
+        if (isImportFailure(err2)) await recoverModuleOnce();
+        throw err2;
+      }
+    }
+  })().catch(err => { fbPromise = null; throw err; });
   return fbPromise;
 }
 async function loadFirebase() {
@@ -543,7 +574,8 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
     } catch (e) {
       if (token !== sessionEpoch) return;
       showLogin();
-      if (isPoison(e)) { const m = $('#login-msg'); if (m) m.textContent = e.message || REPAIR_MSG; }
+      const m = $('#login-msg');
+      if (m && e && (isPoison(e) || isImportFailure(e))) m.textContent = e.message || REPAIR_MSG;
     }
     return;
   }

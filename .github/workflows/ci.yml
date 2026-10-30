@@ -55,7 +55,7 @@ jobs:
           set +e
           set -o pipefail
           mkdir -p shots
-          python3 -m http.server 8765 --bind 127.0.0.1 >"$RUNNER_TEMP/http.log" 2>&1 &
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory public >"$RUNNER_TEMP/http.log" 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           ready=0
@@ -100,13 +100,36 @@ jobs:
         run: bash scripts/secret-guard.sh
       - name: install
         run: npm ci
+      - name: install webkit
+        timeout-minutes: 15
+        run: |
+          set -euxo pipefail
+          # Playwright's own unzip of this archive does not finish on the runner.
+          # curl + system unzip lands the same tree Playwright expects, including
+          # the empty INSTALLATION_COMPLETE marker that marks a finished install.
+          REV=2215
+          DEST="${HOME}/.cache/ms-playwright/webkit-${REV}"
+          URL="https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit/${REV}/webkit-ubuntu-24.04.zip"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          curl -fsSL --retry 3 --retry-delay 2 -o /tmp/webkit.zip "$URL"
+          unzip -q /tmp/webkit.zip -d "$DEST"
+          rm -f /tmp/webkit.zip
+          : > "$DEST/INSTALLATION_COMPLETE"
+          test -x "$DEST/pw_run.sh"
+          test -x "$DEST/minibrowser-wpe/MiniBrowser"
+          export DEBIAN_FRONTEND=noninteractive
+          # Headless WebKit is the WPE build; Playwright also ldd-checks the GTK build.
+          sudo --preserve-env=DEBIAN_FRONTEND bash "$DEST/minibrowser-wpe/install-dependencies.sh" --autoinstall
+          sudo --preserve-env=DEBIAN_FRONTEND bash "$DEST/minibrowser-gtk/install-dependencies.sh" --autoinstall
+          node -e "const {webkit}=require('playwright'); const p=webkit.executablePath(); if(!p.endsWith('/pw_run.sh')) throw new Error(p); console.log(p)"
       - name: emulators:exec
         shell: bash
         run: |
           set +e
           set -o pipefail
           npx firebase emulators:exec --only auth,firestore --project ahl-aljazeera-accounting \
-            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/login-relogin.test.js tests/sw-cache.test.js" \
+            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/login-relogin.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js" \
             | tee "$RUNNER_TEMP/emulator.txt"
           status=${PIPESTATUS[0]}
           set -e

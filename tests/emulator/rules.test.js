@@ -11,7 +11,7 @@ const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp,
   collection, query, where, getDocs,
 } = require('firebase/firestore');
-const Sync = require('../../sync.js');
+const Sync = require('../../public/sync.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const OWNER = 'owner-1';

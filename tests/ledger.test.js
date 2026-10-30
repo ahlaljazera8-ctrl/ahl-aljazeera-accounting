@@ -1,5 +1,5 @@
 const test = require('node:test'); const assert = require('node:assert/strict');
-const L = require('../ledger.js');
+const L = require('../public/ledger.js');
 const owner = { uid:'o', role:'owner', active:true }, site = { uid:'s', role:'site', active:true, assignedProjectIds:['a'] };
 const projects = [{ id:'a', name:'مشروع أ' }, { id:'b', name:'مشروع ب' }];
 let n = 0;

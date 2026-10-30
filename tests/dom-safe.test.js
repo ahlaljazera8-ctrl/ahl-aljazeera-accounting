@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const Dom = require('../dom-safe.js');
+const Dom = require('../public/dom-safe.js');
 
 const HOSTILE = '"><img src=x onerror=alert(1)>';
 
@@ -31,7 +31,7 @@ test('a safe project id stays in the attribute and the name is escaped', () => {
 });
 
 test('app.js puts project ids through DomSafe, not raw into attributes', () => {
-  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
   assert.match(app, /DomSafe\.projectButton/);
   assert.match(app, /DomSafe\.projectHref\('project'/);
   assert.match(app, /DomSafe\.projectHref\('entry'/);

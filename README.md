@@ -4,7 +4,7 @@ Offline-first ledger. Example data stays on this device. Login uses Firebase Ema
 
 ```bash
 npm test                 # ledger unit tests
-npm run test:browser     # headless Chrome; serve the folder on 127.0.0.1:8765 first
+npm run test:browser     # headless Chrome; serve public/ on 127.0.0.1:8765 first
 npm run test:emulator    # Firestore + Auth emulators, rules and sync (does not deploy)
 ```
 

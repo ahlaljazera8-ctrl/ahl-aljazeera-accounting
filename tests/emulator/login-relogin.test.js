@@ -238,7 +238,7 @@ test.before(async () => {
     });
   });
   await deleteApp(app);
-  server = spawn('python3', ['-m', 'http.server', '8765', '--bind', '127.0.0.1'], { cwd: path.join(__dirname, '../..'), stdio: 'ignore' });
+  server = spawn('python3', ['-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', path.join(__dirname, '../../public')], { stdio: 'ignore' });
   let up = false;
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(BASE)).ok) { up = true; break; } } catch (e) {}

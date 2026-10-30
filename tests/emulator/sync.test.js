@@ -13,7 +13,7 @@ const {
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 const fs = require('fs');
 const path = require('path');
-const Sync = require('../../sync.js');
+const Sync = require('../../public/sync.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const PASS = 'emulator-only-pass';
