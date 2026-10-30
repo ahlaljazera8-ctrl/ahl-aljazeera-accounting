@@ -287,6 +287,10 @@ async function loadFirebase() {
   };
 }
 let flushing = null;
+let syncNotice = '';
+const FLUSH_MS = 20000;
+const SEND_RETRY = 'تعذر الإرسال. أعد المحاولة';
+const PULL_RETRY = 'تعذر التحديث. أعد المحاولة';
 const REPAIR_MSG = 'تعذر الدخول بعد إصلاح الذاكرة المحلية. تحقق من الاتصال وأعد المحاولة';
 async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
@@ -304,50 +308,74 @@ function flushRemote() {
   if (demoRole() || !get(K.sessionUser)) return Promise.resolve();
   if (flushing) return flushing;
   const token = sessionEpoch;
+  // Store the lock before the body runs. An offline save used to return inside
+  // the async function before this assignment, so finally cleared a lock that
+  // was not set yet and the finished promise was what later calls reused.
+  let begin;
+  const run = new Promise((resolve, reject) => {
+    begin = () => { performFlush(token, run).then(resolve, reject); };
+  });
+  flushing = run;
+  begin();
+  const timer = setTimeout(() => {
+    if (flushing !== run || token !== sessionEpoch) return;
+    flushing = null;
+    syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
+    if (get(K.sessionUser) && !$('#shell').hidden) render();
+  }, FLUSH_MS);
+  run.then(() => clearTimeout(timer), () => clearTimeout(timer));
+  return run;
+}
+async function performFlush(token, run) {
   let started = null;
-  flushing = (async () => {
+  try {
+    if (token !== sessionEpoch || navigator.onLine === false) return;
+    const fb = await ensureFirebase();
+    if (token !== sessionEpoch) return;
+    const user = get(K.sessionUser);
+    if (!user) return;
+    const ids = get(K.outbox, []).slice();
+    started = new Set(ids);
+    const entries = get(K.entries, []); const projects = get(K.projects, []);
+    if (ids.length) {
+      const result = await window.Sync.flushOutbox({
+        ids,
+        load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
+        write: local => fb.writeLocal(local),
+        exists: local => fb.exists(local),
+        readServer: async local => {
+          try {
+            if (typeof fb.readServer === 'function') return await fb.readServer(local);
+            if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
+          } catch (e) {}
+          return null;
+        },
+      });
+      if (token !== sessionEpoch) return;
+      if (window.SyncStatus) {
+        const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
+        set(K.outbox, next.outbox);
+        set(K.syncErrors, next.errors);
+      } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id)));
+      if ((result.kept || []).length) syncNotice = SEND_RETRY;
+      else if (!(result.failed || []).length) syncNotice = '';
+    }
+    if (token !== sessionEpoch) return;
     try {
-      if (token !== sessionEpoch || navigator.onLine === false) return;
-      const fb = await ensureFirebase();
-      if (token !== sessionEpoch) return;
-      const user = get(K.sessionUser);
-      if (!user) return;
-      const ids = get(K.outbox, []).slice();
-      started = new Set(ids);
-      const entries = get(K.entries, []); const projects = get(K.projects, []);
-      if (ids.length) {
-        const result = await window.Sync.flushOutbox({
-          ids,
-          load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
-          write: local => fb.writeLocal(local),
-          exists: local => fb.exists(local),
-          readServer: async local => {
-            try {
-              if (typeof fb.readServer === 'function') return await fb.readServer(local);
-              if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
-            } catch (e) {}
-            return null;
-          },
-        });
-        if (token !== sessionEpoch) return;
-        if (window.SyncStatus) {
-          const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
-          set(K.outbox, next.outbox);
-          set(K.syncErrors, next.errors);
-        } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id)));
-      }
-      if (token !== sessionEpoch) return;
       await fb.pull(user);
-      if (token !== sessionEpoch) return;
-      render();
-    } finally {
-      flushing = null;
+      if (token === sessionEpoch && !get(K.outbox, []).length) syncNotice = '';
+    } catch (err) {
+      if (token === sessionEpoch) syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
     }
-    if (started && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser) && get(K.outbox, []).some(id => !started.has(id))) {
-      return flushRemote();
-    }
-  })();
-  return flushing;
+  } catch (err) {
+    if (token === sessionEpoch) syncNotice = SEND_RETRY;
+  } finally {
+    if (flushing === run) flushing = null;
+    if (token === sessionEpoch && get(K.sessionUser) && !$('#shell').hidden) render();
+  }
+  if (started && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser) && get(K.outbox, []).some(id => !started.has(id))) {
+    return flushRemote();
+  }
 }
 async function closeUserDb() {
   directoryPromise = null;
@@ -719,6 +747,8 @@ function render() {
     ? (u.role === 'owner' ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)')
     : ((u.role === 'owner' ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
   $('#outbox').textContent = 'لم يُرسل بعد: ' + get(K.outbox, []).length;
+  const note = $('#sync-msg');
+  if (note) { note.hidden = !syncNotice; note.textContent = syncNotice || ''; }
   syncPeopleTab(u);
   const tab = v === 'project' ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
