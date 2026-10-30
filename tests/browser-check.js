@@ -1,0 +1,63 @@
+// Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
+const { spawn } = require('child_process'); const fs = require('fs'); const path = require('path');
+const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
+const chrome = spawn('google-chrome', ['--headless=new', '--no-sandbox', '--remote-debugging-port=9333', '--user-data-dir=/tmp/aj-chrome-' + Date.now(), 'about:blank'], { stdio: 'ignore' });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  let tgt; for (let i = 0; i < 50 && !tgt; i++) { try { tgt = (await (await fetch('http://127.0.0.1:9333/json')).json()).find(t => t.type === 'page'); } catch {} await sleep(200); }
+  const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
+  let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
+  const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
+  const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
+  await send('Page.enable'); await send('Runtime.enable');
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  const go = async url => { await send('Page.navigate', { url }); await sleep(900); for (let i = 0; i < 30 && !(await ev('document.body&&document.body.dataset.ready')); i++) await sleep(100); };
+  const results = [];
+  const check = (name, ok) => { results.push([name, !!ok]); console.log((ok ? 'PASS ' : 'FAIL ') + name); };
+  const screens = [['o1-home','owner','home'],['o2-entry','owner','entry'],['o3-projects','owner','projects'],['o4-profit','owner','project/p-school'],
+                   ['s1-home','site','home'],['s2-entry','site','entry'],['s3-projects','site','projects'],['s4-profit','site','project/p-school']];
+  await go(BASE + 'index.html'); await ev(`new Promise(r=>{const q=indexedDB.deleteDatabase('aj-p0');q.onsuccess=q.onerror=q.onblocked=()=>r(1)})`);
+  for (const [name, role, hash] of screens) {
+    await go(`${BASE}index.html?role=${role}#${hash}`); await ev('dispatchEvent(new HashChangeEvent("hashchange"))'); await sleep(300);
+    const shot = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(shot.result.data, 'base64'));
+    const info = await ev(`({dir:document.documentElement.dir, text:document.querySelector('main').innerText, hz:document.documentElement.scrollWidth>innerWidth})`);
+    check(`${name}: dir=rtl`, info.dir === 'rtl'); check(`${name}: no horizontal overflow`, !info.hz);
+    if (role === 'site') check(`${name}: no profit/received/loss text`, !/ربح|المقبوض|خسارة/.test(info.text));
+    if (role === 'site' && hash === 'entry') check('s2: all 5 types offered', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)));
+    if (role === 'site') check(`${name}: reverse buttons only on own non-reversed entries`, await ev(`(()=>{const es=AJ.get('entries');const bs=[...document.querySelectorAll('[data-rev]')].map(b=>b.dataset.rev);return bs.every(id=>{const e=es.find(x=>x.id===id);return e.createdBy==='u-ahmed'&&!e.isReversal&&!es.some(x=>x.reversesEntryId===id)})&&(location.hash!=='#project/p-school'||bs.length>0)})()`));
+    if (role === 'site' && hash === 'home') check('s1: own client payment listed', /دفعة عميل/.test(info.text));
+    if (role === 'site' && hash === 'projects') check('s3: only assigned projects', !info.text.includes('بناية السوق') && info.text.includes('مشروع المدرسة'));
+    if (role === 'owner' && hash === 'entry') check('o2: all 5 types offered', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)));
+    if (role === 'owner' && hash === 'home') check('o1: totals shown', /صافي الربح/.test(info.text));
+  }
+  // functional: save expense as site -> outbox +1; send now drains
+  await go(`${BASE}index.html?role=site#entry`);
+  const before = await ev(`AJ.get('outbox').length`);
+  await ev(`document.querySelector('[data-add="1000"]').click(); document.querySelector('#save').click(); 1`);
+  const after = await ev(`AJ.get('outbox').length`);
+  check(`save adds to outbox (${before}->${after})`, after === before + 1);
+  await ev('AJ.flush().then(()=>1)');
+  const idb = async () => ev(`new Promise(r=>{const q=indexedDB.open('aj-p0');q.onsuccess=()=>{const d=q.result,t=d.transaction(['entries','outbox','projects']);const out={};let n=3;for(const s of ['entries','outbox','projects']){const g=t.objectStore(s).count();g.onsuccess=()=>{out[s]=g.result;if(!--n)r(out)}}}})`);
+  const ls = await ev('localStorage.length');
+  const i1 = await idb();
+  check(`data in IndexedDB (entries ${i1.entries}, outbox ${i1.outbox}, projects ${i1.projects}), localStorage empty (${ls})`, i1.entries > 10 && i1.outbox === after && i1.projects === 3 && ls === 0);
+  await send('Page.reload', {}); await sleep(1200);
+  const i2 = await idb(); const after2 = await ev(`AJ.get('outbox').length`);
+  check('IndexedDB data survives reload', i2.entries === i1.entries && i2.outbox === i1.outbox && after2 === after);
+  check('navigator.storage.persist called (result: ' + (await ev('String(AJ.persisted)')) + ')', (await ev('typeof navigator.storage.persist')) === 'function');
+  check('header counter updated', (await ev(`document.querySelector('#outbox').innerText`)).includes(String(after)));
+  // offline reload: SW must control page, then block network
+  await ev(`navigator.serviceWorker.ready.then(()=>1)`); await go(`${BASE}index.html?role=owner#home`);
+  check('service worker controls page', await ev('!!navigator.serviceWorker.controller'));
+  await send('Network.enable'); await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await send('Page.reload', { ignoreCache: false }); await sleep(1500);
+  const off = await ev(`({t:document.querySelector('main')?.innerText||'', ob:document.querySelector('#outbox')?.innerText, on:navigator.onLine})`);
+  check('offline reload renders app with data', off.t.includes('صافي الربح') && off.ob.includes(String(after)));
+  await send('Page.captureScreenshot', { format: 'png' }).then(s => fs.writeFileSync(path.join(SHOTS, 'offline-reload-owner-home.png'), Buffer.from(s.result.data, 'base64')));
+  await ev(`document.querySelector('#send').click(); AJ.flush().then(()=>1)`);
+  check('send now drains outbox', (await ev(`AJ.get('outbox').length`)) === 0 && (await ev(`document.querySelector('#outbox').innerText`)).includes('0'));
+  const csv = await ev(`(()=>{let got=null;const o=URL.createObjectURL;URL.createObjectURL=b=>{got=b;return 'blob:x'};document.querySelector('#csv').click();URL.createObjectURL=o;return got?got.text():null})()`);
+  check('owner CSV export produces rows', csv && csv.split('\r\n').length > 10 && csv.includes('reversesEntryId'));
+  const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
+  ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
+})().catch(e => { console.error(e); chrome.kill(); process.exit(2); });

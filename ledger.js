@@ -1,0 +1,134 @@
+// Pure ledger logic (no DOM). Follows /workspace/accounting/docs/data-model.md.
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.Ledger = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+  // data-model.md §2 types + general 'expense' (مصروف), added by Architect decision (not yet in the doc).
+  const ENTRY_TYPES = {
+    expense:       { label: 'مصروف',       direction: 'expense' },
+    materials:     { label: 'مواد',        direction: 'expense' },
+    labour:        { label: 'عمالة/سلفة',  direction: 'expense' },
+    subcontractor: { label: 'مقاول',       direction: 'expense' },
+    clientPayment: { label: 'دفعة عميل',   direction: 'income'  },
+  };
+  // Policy flags. Defaults follow data-model.md §4 (doc wins); Ameer's decisions differ -> see README.
+  const DEFAULT_POLICY = {
+    siteCanCreateClientPayment: true,  // Ameer's decision overrides doc §4 default "لا"
+    siteCanReverseOwn: true,           // Ameer: site corrects its OWN entries by reversal (= doc §4)
+    siteSeesOnlyAssigned: true,        // doc §4 allows "المسندة له فقط"
+  };
+
+  function sign(e) { return e.isReversal ? -1 : 1; }
+
+  function totals(entries) {
+    let income = 0, expense = 0; const byType = {};
+    for (const e of entries) {
+      const v = e.amount * sign(e);
+      if (e.direction === 'income') income += v; else expense += v;
+      if (e.direction === 'expense') byType[e.entryType] = (byType[e.entryType] || 0) + v;
+    }
+    return { received: income, spent: expense, profit: income - expense, byType };
+  }
+
+  function canSeeProject(user, project, policy = DEFAULT_POLICY) {
+    if (user.role === 'owner') return true;
+    if (user.role !== 'site' || !user.active) return false;
+    return !policy.siteSeesOnlyAssigned || (user.assignedProjectIds || []).includes(project.id);
+  }
+  function visibleProjects(user, projects, policy) { return projects.filter(p => canSeeProject(user, p, policy)); }
+  // Site reads expense entries + its OWN income entries (Ameer override of rules §6). Never totals of income.
+  function visibleEntries(user, entries, projects, policy) {
+    const ok = new Set(visibleProjects(user, projects, policy).map(p => p.id));
+    return entries.filter(e => ok.has(e.projectId) && (user.role === 'owner' || e.direction === 'expense' || e.createdBy === user.uid));
+  }
+  // What a user's project card may show. Site: spending only.
+  function projectSummary(user, entries) {
+    const t = totals(entries);
+    if (user.role === 'owner') return t;
+    return { spent: totals(entries.filter(e => e.direction === 'expense')).spent, byType: t.byType };
+  }
+
+  function isPosInt(n) { return Number.isInteger(n) && n > 0; }
+
+  function validateEntry(entry, ctx) {
+    const { user, ledger, projects, policy = DEFAULT_POLICY } = ctx;
+    const errs = [];
+    if (!user || !user.active || !['owner', 'site'].includes(user.role)) errs.push('مستخدم غير مسموح');
+    if (!entry.id) errs.push('id مطلوب');
+    if (ledger.some(e => e.id === entry.id)) errs.push('DUPLICATE');
+    const project = projects.find(p => p.id === entry.projectId);
+    if (!project) errs.push('المشروع غير موجود');
+    else if (user && !canSeeProject(user, project, policy)) errs.push('مشروع غير مسند');
+    const t = ENTRY_TYPES[entry.entryType];
+    if (!t) errs.push('نوع غير معروف');
+    else if (t.direction !== entry.direction) errs.push('الاتجاه لا يطابق النوع');
+    if (!['income', 'expense'].includes(entry.direction)) errs.push('direction غير صالح');
+    if (!isPosInt(entry.amount)) errs.push('المبلغ يجب أن يكون رقماً صحيحاً موجباً');
+    if (entry.currency !== 'IQD') errs.push('العملة IQD فقط');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.entryDate || '')) errs.push('entryDate بصيغة YYYY-MM-DD');
+    if (user && entry.createdBy !== user.uid) errs.push('createdBy يجب أن يساوي المستخدم');
+    if (typeof entry.isReversal !== 'boolean') errs.push('isReversal مطلوب');
+    if (user && user.role === 'site' && entry.direction === 'income' && !policy.siteCanCreateClientPayment) errs.push('دفعة عميل للمالك فقط');
+    if (entry.isReversal) {
+      const orig = ledger.find(e => e.id === entry.reversesEntryId);
+      if (entry.id !== reversalId(entry.reversesEntryId)) errs.push('معرّف قيد العكس يجب أن يكون rev_<id الأصلي>');
+      if (!orig) errs.push('القيد الأصلي غير موجود');
+      else {
+        if (orig.isReversal) errs.push('لا يُعكس قيد عكس');
+        if (ledger.some(e => e.isReversal && e.reversesEntryId === orig.id)) errs.push('القيد معكوس مسبقاً');
+        for (const k of ['projectId', 'direction', 'entryType', 'amount']) if (orig[k] !== entry[k]) errs.push('قيد العكس يجب أن ينسخ ' + k);
+        if (user && user.role === 'site' && !(policy.siteCanReverseOwn && orig.createdBy === user.uid)) errs.push('العكس غير مسموح');
+      }
+      if (!entry.reversalReason) errs.push('سبب التصحيح مطلوب');
+    } else if ('reversesEntryId' in entry || 'reversalReason' in entry) errs.push('حقول العكس فقط لقيد العكس');
+    if ('syncState' in entry) errs.push('syncState لا يُخزَّن');
+    return errs;
+  }
+
+  // Append-only ledger: frozen entries, no update/delete API at all.
+  function createLedger(initial = []) {
+    const rows = initial.map(e => Object.freeze({ ...e }));
+    return Object.freeze({
+      all: () => rows.slice(),
+      append(entry, ctx) {
+        const errs = validateEntry(entry, { ...ctx, ledger: rows });
+        if (errs.length) { const err = new Error(errs.join('؛ ')); err.errors = errs; throw err; }
+        const e = Object.freeze({ ...entry });
+        rows.push(e); return e;
+      },
+    });
+  }
+
+  // Deterministic id => one reversal per original (a 2nd create hits the same doc and is refused).
+  function reversalId(originalId) { return 'rev_' + originalId; }
+  function makeReversal(orig, { user, reason, now, deviceId, entryDate }) {
+    return { id: reversalId(orig.id), projectId: orig.projectId, direction: orig.direction, entryType: orig.entryType,
+      amount: orig.amount, currency: 'IQD', entryDate, description: 'تصحيح: ' + (orig.description || ''),
+      partyName: orig.partyName || '', isReversal: true, reversesEntryId: orig.id, reversalReason: reason,
+      createdAtDevice: now, createdAtServer: null, createdBy: user.uid, deviceId };
+  }
+
+  const CSV_COLS = ['id','projectId','projectName','entryDate','direction','entryType','amount','signedAmount','currency','description','partyName','isReversal','reversesEntryId','reversalReason','createdBy','createdAtDevice','deviceId'];
+  function csvCell(v) {
+    let s = v == null ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(s) && isNaN(Number(s))) s = "'" + s; // formula-injection guard
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function toCSV(entries, projects) {
+    const name = Object.fromEntries(projects.map(p => [p.id, p.name]));
+    const lines = [CSV_COLS.join(',')];
+    for (const e of entries) {
+      const r = { ...e, projectName: name[e.projectId] || '', signedAmount: e.amount * sign(e) };
+      lines.push(CSV_COLS.map(c => csvCell(r[c])).join(','));
+    }
+    return '\uFEFF' + lines.join('\r\n') + '\r\n'; // BOM so Excel reads Arabic UTF-8
+  }
+  function canExportCSV(user) { return user.role === 'owner' && user.active; }
+  function canCreateProject(user) { return user.role === 'owner' && user.active; }
+
+  function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
+
+  return { ENTRY_TYPES, DEFAULT_POLICY, sign, totals, canSeeProject, visibleProjects, visibleEntries,
+    projectSummary, validateEntry, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt };
+});
