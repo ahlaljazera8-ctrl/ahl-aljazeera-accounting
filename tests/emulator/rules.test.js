@@ -303,6 +303,59 @@ testSeq('document ids are restricted to a short safe alphabet', () => seeded(asy
   await assertFails(setDoc(doc(db(OWNER), 'users', 'user id'), userDoc('user id')));
 }));
 
+testSeq('site can write a trimmed partyName on an assigned project', () => seeded(async () => {
+  await assertSucceeds(putEntry(SITE, 'payee-ok', { partyName: 'مكتب الأنوار' }));
+  await assertSucceeds(putEntry(SITE, 'payee-100', { partyName: 'a'.repeat(100) }));
+  await assertSucceeds(putEntry(SITE, 'payee-empty', { partyName: '' }));
+  await assertSucceeds(putEntry(SITE, 'payee-omit', {}));
+  const snap = await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'payee-ok')));
+  assert.equal(snap.data().partyName, 'مكتب الأنوار');
+  await assertFails(putEntry(SITE, 'payee-p2', { projectId: 'p2', partyName: 'مكتب الأنوار' }));
+}));
+
+testSeq('partyName is rejected when too long, untrimmed, or not a string', () => seeded(async () => {
+  await assertFails(putEntry(SITE, 'payee-101', { partyName: 'a'.repeat(101) }));
+  await assertFails(putEntry(OWNER, 'payee-101-owner', { partyName: 'a'.repeat(101) }));
+  await assertFails(putEntry(SITE, 'payee-lead', { partyName: ' مكتب' }));
+  await assertFails(putEntry(SITE, 'payee-tail', { partyName: 'مكتب ' }));
+  await assertFails(putEntry(SITE, 'payee-blank', { partyName: '   ' }));
+  await assertFails(putEntry(SITE, 'payee-type', { partyName: 12 }));
+}));
+
+testSeq('createdByName must equal the writer displayName and be at most 60 characters', () => seeded(async () => {
+  await assertSucceeds(putEntry(SITE, 'named', { createdByName: 'أحمد', partyName: 'مورد' }));
+  await assertSucceeds(putEntry(OWNER, 'named-owner', { createdByName: 'أمير' }));
+  await assertSucceeds(putEntry(SITE, 'unnamed', {}));
+  await assertFails(putEntry(SITE, 'wrong-name', { createdByName: 'سامي' }));
+  await assertFails(putEntry(SITE, 'owner-name', { createdByName: 'أمير' }));
+  await assertFails(putEntry(SITE, 'blank-name', { createdByName: '' }));
+  await assertFails(putEntry(SITE, 'padded-name', { createdByName: 'أحمد ' }));
+  await assertFails(putEntry(SITE, 'name-type', { createdByName: 1 }));
+  const sixty = 'ن'.repeat(60);
+  const sixtyOne = 'ن'.repeat(61);
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: sixty }));
+  await assertSucceeds(putEntry(SITE, 'name-60', { createdByName: sixty }));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: sixtyOne }));
+  await assertFails(putEntry(SITE, 'name-61', { createdByName: sixtyOne }));
+  await assertFails(putEntry(SITE, 'name-stale', { createdByName: sixty }));
+  await assertFails(updateDoc(doc(db(SITE), 'ledgerEntries', 'own-exp'), { createdByName: 'أحمد', partyName: 'مورد' }));
+}));
+
+testSeq('a site user reads the recorder name from the entry, not from another user doc', () => seeded(async () => {
+  await assertSucceeds(putEntry(OTHER, 'named-other', { createdByName: 'سامي', partyName: 'مورد حديد', amount: 70 }));
+  const snap = await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'named-other')));
+  assert.equal(snap.data().createdByName, 'سامي');
+  assert.equal(snap.data().partyName, 'مورد حديد');
+  await assertFails(getDoc(doc(db(SITE), 'users', OTHER)));
+  await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'inc-other')));
+}));
+
+testSeq('partyName and createdByName do not admit extra fields', () => seeded(async () => {
+  await assertFails(putEntry(SITE, 'extra-payee', { partyName: 'مورد', note: 'x' }));
+  await assertFails(putEntry(SITE, 'extra-name', { createdByName: 'أحمد', createdByEmail: 'site@example.invalid' }));
+  await assertFails(putEntry(SITE, 'extra-both', { partyName: 'مورد', createdByName: 'أحمد', recorder: 'أحمد' }));
+}));
+
 testSeq('entries, projects, and users reject unknown fields and wrong types', () => seeded(async () => {
   await assertFails(putEntry(SITE, 'extra-entry', { note: 'x' }));
   await assertFails(putEntry(SITE, 'bad-desc', { description: 12 }));
