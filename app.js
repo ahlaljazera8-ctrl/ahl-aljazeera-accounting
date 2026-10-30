@@ -2,13 +2,14 @@
 // Storage: IndexedDB "aj-p0" (stores: projects, entries, outbox, meta). Loaded into memory at boot; every write is
 // persisted to IndexedDB (write-through, serialized). "Server" is simulated; outbox = ids not sent yet (no syncState).
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded' };
+const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser' };
+const demoRole = () => { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; };
 const LIST = { projects:1, entries:1, outbox:1 };
 const cache = {};
 let db, writing = Promise.resolve();
 const req = r => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
-function openDB() {
-  const r = indexedDB.open('aj-p0', 1);
+function openDB(name) {
+  const r = indexedDB.open(name, 1);
   r.onupgradeneeded = () => { const d = r.result;
     d.createObjectStore('projects', { keyPath:'id' }); d.createObjectStore('entries', { keyPath:'id' });
     d.createObjectStore('outbox', { keyPath:'id' }); d.createObjectStore('meta'); };
@@ -71,7 +72,126 @@ function seed() {
   set(K.users, users); set(K.projects, projects); set(K.entries, lg.all()); set(K.outbox, [pend1.id, pend2.id]); set(K.seeded, true);
 }
 const state = { type: 'materials', amount: 0, formId: uuid() };
-const me = () => get(K.users, []).find(u => u.uid === (get(K.role, 'owner') === 'site' ? 'u-ahmed' : 'u-ameer'));
+const me = () => {
+  if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
+  const role = get(K.role, demoRole() || 'owner');
+  return get(K.users, []).find(u => u.uid === (role === 'site' ? 'u-ahmed' : 'u-ameer'));
+};
+const showLogin = () => { $('#login').hidden = false; $('#shell').hidden = true; };
+const showApp = () => { $('#login').hidden = true; $('#shell').hidden = false; };
+function profileFrom(uid, data) {
+  return { uid, displayName: data.displayName || '', email: data.email || '', role: data.role, active: data.active === true,
+    assignedProjectIds: Array.isArray(data.assignedProjectIds) ? data.assignedProjectIds : [], createdAtServer: data.createdAtServer || null, createdBy: data.createdBy || '' };
+}
+function loginError(err) {
+  const code = err && err.code;
+  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found' || code === 'auth/invalid-email') return 'البريد أو كلمة المرور غير صحيحة';
+  if (code === 'auth/too-many-requests') return 'محاولات كثيرة. انتظر ثم أعد المحاولة';
+  if (code === 'auth/network-request-failed') return 'تعذر الاتصال. تحقق من الإنترنت';
+  return 'تعذر الدخول';
+}
+const FB_VER = '13.1.0';
+let fbPromise = null;
+function ensureFirebase() {
+  if (!fbPromise) fbPromise = loadFirebase();
+  return fbPromise;
+}
+async function loadFirebase() {
+  const base = 'https://www.gstatic.com/firebasejs/' + FB_VER + '/';
+  const [{ initializeApp }, authMod, fsMod] = await Promise.all([
+    import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js'),
+  ]);
+  const app = initializeApp(window.FIREBASE_CONFIG);
+  const auth = authMod.getAuth(app);
+  const emulator = new URLSearchParams(location.search).get('emulator') === '1';
+  if (emulator) authMod.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  let fdb;
+  try {
+    fdb = fsMod.initializeFirestore(app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentSingleTabManager() }) });
+  } catch (e) { fdb = fsMod.getFirestore(app); }
+  if (emulator) fsMod.connectFirestoreEmulator(fdb, '127.0.0.1', 8080);
+  const S = window.Sync;
+  return {
+    auth, db: fdb,
+    signIn: (email, password) => authMod.signInWithEmailAndPassword(auth, email, password),
+    signOut: () => authMod.signOut(auth),
+    onAuth: cb => authMod.onAuthStateChanged(auth, cb),
+    async profile(uid) {
+      const snap = await fsMod.getDoc(fsMod.doc(fdb, 'users', uid));
+      return snap.exists() ? snap.data() : null;
+    },
+    writeLocal(local) {
+      return fsMod.setDoc(fsMod.doc(fdb, S.collectionFor(local), local.id), S.withServerTime(local, fsMod.serverTimestamp()));
+    },
+    async exists(local) {
+      const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, S.collectionFor(local), local.id));
+      return snap.exists();
+    },
+    async pull(user) {
+      const incoming = [];
+      const projects = [];
+      if (user.role === 'owner') {
+        (await fsMod.getDocs(fsMod.collection(fdb, 'ledgerEntries'))).forEach(d => incoming.push(S.fromRemote(d.data())));
+        (await fsMod.getDocs(fsMod.collection(fdb, 'projects'))).forEach(d => projects.push(S.fromRemote(d.data())));
+      } else {
+        for (const spec of S.siteReads(user.uid, user.assignedProjectIds || [])) {
+          const q = fsMod.query(fsMod.collection(fdb, spec.collection), ...spec.where.map(([f, op, v]) => fsMod.where(f, op, v)));
+          (await fsMod.getDocs(q)).forEach(d => incoming.push(S.fromRemote(d.data())));
+        }
+        for (const pid of user.assignedProjectIds || []) {
+          const snap = await fsMod.getDoc(fsMod.doc(fdb, 'projects', pid));
+          if (snap.exists()) projects.push(S.fromRemote(snap.data()));
+        }
+      }
+      const pending = get(K.outbox, []);
+      set(K.projects, S.mergeById(get(K.projects, []), projects, pending));
+      set(K.entries, S.mergeById(get(K.entries, []), incoming, pending));
+    },
+  };
+}
+let flushing = null;
+function flushRemote() {
+  if (demoRole() || !get(K.sessionUser)) return Promise.resolve();
+  if (flushing) return flushing;
+  flushing = (async () => {
+    if (navigator.onLine === false) return;
+    const fb = await ensureFirebase();
+    const user = get(K.sessionUser);
+    const ids = get(K.outbox, []).slice();
+    const entries = get(K.entries, []); const projects = get(K.projects, []);
+    if (ids.length) {
+      const result = await window.Sync.flushOutbox({
+        ids,
+        load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
+        write: local => fb.writeLocal(local),
+        exists: local => fb.exists(local),
+      });
+      const drop = new Set(result.synced);
+      set(K.outbox, get(K.outbox, []).filter(id => !drop.has(id)));
+    }
+    await fb.pull(user);
+    render();
+  })().finally(() => { flushing = null; });
+  return flushing;
+}
+async function openUserDb(uid) {
+  db = await openDB('aj-u-' + uid);
+  await loadAll();
+  if (!get(K.device)) set(K.device, uuid());
+  deviceId = get(K.device);
+}
+async function enterSession(fb, uid, data) {
+  const profile = profileFrom(uid, data);
+  if (!profile.active || !['owner', 'site'].includes(profile.role)) {
+    await fb.signOut();
+    throw new Error(data && data.active === false ? 'هذا الحساب موقوف' : 'لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب');
+  }
+  await openUserDb(uid);
+  set(K.sessionUser, profile);
+  showApp();
+  render();
+  flushRemote();
+}
 const ledger = () => L.createLedger(get(K.entries, []));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = n => `<b class="num">${L.fmt(n)} د.ع</b>`;
@@ -81,6 +201,7 @@ function commit(entry) {
   const lg = ledger();
   lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY });
   set(K.entries, lg.all()); set(K.outbox, [...get(K.outbox, []), entry.id]);
+  if (!demoRole()) flushRemote();
 }
 function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending the same id is a no-op.
   const out = new Set(get(K.outbox, [])); if (!out.size) return;
@@ -109,8 +230,10 @@ function entryRow(e, u, all) {
 const views = {
   home() {
     const { u, projects, entries } = data(); const out = get(K.outbox, []).length;
-    const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${navigator.onLine ? 'متصل (محاكاة)' : 'بدون إنترنت'}</span><b style="font-size:14px">${out} قيود محفوظة على الهاتف</b></div><div class="note">لم تُرسل بعد. اضغط «إرسال الآن» للمحاكاة (لا يوجد خادم حقيقي).</div></div>`;
-    const ex = '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>';
+    const onlineLabel = !demoRole() ? (navigator.onLine ? 'متصل' : 'بدون إنترنت') : (navigator.onLine ? 'متصل (محاكاة)' : 'بدون إنترنت');
+    const syncNote = !demoRole() ? (navigator.onLine ? 'يُرسل تلقائياً عند الاتصال.' : 'محفوظ على الهاتف. يُرسل عند عودة الاتصال.') : 'لم تُرسل بعد. اضغط «إرسال الآن» للمحاكاة (لا يوجد خادم حقيقي).';
+    const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${onlineLabel}</span><b style="font-size:14px">${out} قيود محفوظة على الهاتف</b></div><div class="note">${syncNote}</div></div>`;
+    const ex = (demoRole() || get(K.entries, []).some(e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
     if (u.role === 'owner') {
       const t = L.totals(entries);
       return ex + sync + `<div class="card"><h2>ملخص كل المشاريع</h2>
@@ -165,10 +288,15 @@ const views = {
 const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'' };
 
 function render() {
-  const u = me(); const [view, arg] = (location.hash.slice(1) || 'home').split('/');
+  const u = me(); if (!u) return;
+  const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   const v = views[view] ? view : 'home';
   $('#role').value = u.role;
-  $('#who').textContent = u.role === 'owner' ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)';
+  $('#role-label').hidden = !demoRole();
+  $('#logout').hidden = !!demoRole();
+  $('#who').textContent = demoRole()
+    ? (u.role === 'owner' ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)')
+    : ((u.role === 'owner' ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
   $('#outbox').textContent = 'لم يُرسل بعد: ' + get(K.outbox, []).length;
   $('#title').textContent = v === 'project' ? ((data().projects.find(p => p.id === arg) || {}).name || 'مشروع') : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
   $('#main').innerHTML = views[v](arg);
@@ -177,11 +305,13 @@ function render() {
 
 document.addEventListener('click', ev => {
   const b = ev.target.closest('button'); if (!b) return;
+  if (!$('#login').hidden) return;
   const u = me();
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
   else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
   else if (b.dataset.add != null) { state.amount = b.dataset.add === '0' ? 0 : state.amount + Number(b.dataset.add); render(); }
-  else if (b.id === 'send') sendNow();
+  else if (b.id === 'send') { if (demoRole()) sendNow(); else flushRemote(); }
+  else if (b.id === 'logout') ensureFirebase().then(fb => fb.signOut()).then(() => { showLogin(); });
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
     const desc = $('#desc').value.trim();
@@ -204,13 +334,50 @@ document.addEventListener('click', ev => {
     const name = prompt('اسم المشروع:'); if (!name) return; const clientName = prompt('اسم الزبون:') || '';
     const p = { id: uuid(), name, clientName, location: '', currency: 'IQD', status: 'active', createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
     set(K.projects, [...get(K.projects, []), p]); set(K.outbox, [...get(K.outbox, []), p.id]); render();
+    if (!demoRole()) flushRemote();
   }
 });
 document.addEventListener('input', ev => { if (ev.target.id === 'amt') { state.amount = parseInt(ev.target.value.replace(/[^\d]/g, ''), 10) || 0; } });
-$('#role').addEventListener('change', ev => { set(K.role, ev.target.value); render(); });
-addEventListener('hashchange', render); addEventListener('online', render); addEventListener('offline', render);
+$('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, ev.target.value); render(); });
+$('#login-form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const btn = $('#login-btn'); btn.disabled = true;
+  const msg = $('#login-msg'); msg.textContent = '';
+  const email = $('#login-email').value.trim(); const password = $('#login-password').value;
+  try {
+    if (!email || !password) throw new Error('أدخل البريد وكلمة المرور');
+    const fb = await ensureFirebase();
+    const cred = await fb.signIn(email, password);
+    const data = await fb.profile(cred.user.uid);
+    if (!data) { await fb.signOut(); throw new Error('لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب'); }
+    await enterSession(fb, cred.user.uid, data);
+  } catch (err) { msg.textContent = err.code ? loginError(err) : (err.message || 'تعذر الدخول'); }
+  finally { btn.disabled = false; document.body.dataset.loginAttempt = '1'; }
+});
+addEventListener('hashchange', render);
+addEventListener('online', () => { if (!demoRole() && get(K.sessionUser)) flushRemote(); else if (!$('#shell').hidden) render(); });
+addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
 (async () => {
-  db = await openDB(); await loadAll();
+  if (!demoRole()) {
+    showLogin();
+    document.body.dataset.ready = '1';
+    try {
+      const fb = await ensureFirebase();
+      const user = await new Promise(resolve => { const unsub = fb.onAuth(u => { unsub(); resolve(u); }); });
+      if (!user) return;
+      await openUserDb(user.uid);
+      let profile = get(K.sessionUser, null);
+      try {
+        const data = await fb.profile(user.uid);
+        if (data) { profile = profileFrom(user.uid, data); set(K.sessionUser, profile); }
+      } catch (e) { /* offline: the cached profile is enough */ }
+      if (!profile || profile.active === false) return;
+      showApp(); render(); flushRemote();
+    } catch (e) { showLogin(); }
+    return;
+  }
+  showApp();
+  db = await openDB('aj-p0'); await loadAll();
   if (!get(K.device)) set(K.device, uuid()); deviceId = get(K.device);
   seed();
   const qs = new URLSearchParams(location.search); if (qs.get('role')) set(K.role, qs.get('role'));

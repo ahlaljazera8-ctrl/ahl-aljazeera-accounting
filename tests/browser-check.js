@@ -16,7 +16,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const check = (name, ok) => { results.push([name, !!ok]); console.log((ok ? 'PASS ' : 'FAIL ') + name); };
   const screens = [['o1-home','owner','home'],['o2-entry','owner','entry'],['o3-projects','owner','projects'],['o4-profit','owner','project/p-school'],
                    ['s1-home','site','home'],['s2-entry','site','entry'],['s3-projects','site','projects'],['s4-profit','site','project/p-school']];
-  await go(BASE + 'index.html'); await ev(`new Promise(r=>{const q=indexedDB.deleteDatabase('aj-p0');q.onsuccess=q.onerror=q.onblocked=()=>r(1)})`);
+  await go(BASE + 'index.html');
+  const login = await ev(`({dir:document.documentElement.dir, email:!!document.querySelector('#login-email'), pass:!!document.querySelector('#login-password'), btn:(document.querySelector('#login-btn')||{}).textContent||'', loginHidden:document.querySelector('#login').hidden, shellHidden:document.querySelector('#shell').hidden, text:document.querySelector('#login').innerText, hz:document.documentElement.scrollWidth>innerWidth})`);
+  check('login: dir=rtl', login.dir === 'rtl');
+  check('login: form shown, ledger hidden', login.email && login.pass && login.btn.includes('دخول') && login.loginHidden === false && login.shellHidden === true);
+  check('login: no profit or received text', !/ربح|المقبوض|خسارة/.test(login.text));
+  check('login: no horizontal overflow', !login.hz);
+  await ev(`document.querySelector('#login-btn').click()`);
+  await sleep(150);
+  check('login: empty submit stays on the login screen', await ev(`document.querySelector('#shell').hidden === true && document.querySelector('#login').hidden === false && (document.querySelector('#login-msg').innerText||'').length > 0`));
+  await ev(`new Promise(r=>{const q=indexedDB.deleteDatabase('aj-p0');q.onsuccess=q.onerror=q.onblocked=()=>r(1)})`);
   for (const [name, role, hash] of screens) {
     await go(`${BASE}index.html?role=${role}#${hash}`); await ev('dispatchEvent(new HashChangeEvent("hashchange"))'); await sleep(300);
     const shot = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(shot.result.data, 'base64'));

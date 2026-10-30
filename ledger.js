@@ -1,10 +1,10 @@
-// Pure ledger logic (no DOM). Follows /workspace/accounting/docs/data-model.md.
+// Pure ledger logic (no DOM). Field rules follow data-model.md.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Ledger = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  // data-model.md §2 types + general 'expense' (مصروف), added by Architect decision (not yet in the doc).
+  // data-model.md §2: expense, materials, labour, subcontractor, clientPayment.
   const ENTRY_TYPES = {
     expense:       { label: 'مصروف',       direction: 'expense' },
     materials:     { label: 'مواد',        direction: 'expense' },
@@ -12,11 +12,11 @@
     subcontractor: { label: 'مقاول',       direction: 'expense' },
     clientPayment: { label: 'دفعة عميل',   direction: 'income'  },
   };
-  // Policy flags. Defaults follow data-model.md §4 (doc wins); Ameer's decisions differ -> see README.
+  // data-model.md §4 (2026-10-30): site may record client payments, reverse only its own entries, and see assigned projects.
   const DEFAULT_POLICY = {
-    siteCanCreateClientPayment: true,  // Ameer's decision overrides doc §4 default "لا"
-    siteCanReverseOwn: true,           // Ameer: site corrects its OWN entries by reversal (= doc §4)
-    siteSeesOnlyAssigned: true,        // doc §4 allows "المسندة له فقط"
+    siteCanCreateClientPayment: true,
+    siteCanReverseOwn: true,
+    siteSeesOnlyAssigned: true,
   };
 
   function sign(e) { return e.isReversal ? -1 : 1; }
@@ -37,7 +37,7 @@
     return !policy.siteSeesOnlyAssigned || (user.assignedProjectIds || []).includes(project.id);
   }
   function visibleProjects(user, projects, policy) { return projects.filter(p => canSeeProject(user, p, policy)); }
-  // Site reads expense entries + its OWN income entries (Ameer override of rules §6). Never totals of income.
+  // Site sees its own entries and expenses on visible projects. Never received/profit totals.
   function visibleEntries(user, entries, projects, policy) {
     const ok = new Set(visibleProjects(user, projects, policy).map(p => p.id));
     return entries.filter(e => ok.has(e.projectId) && (user.role === 'owner' || e.direction === 'expense' || e.createdBy === user.uid));
