@@ -2,7 +2,7 @@
 // Storage: IndexedDB "aj-p0" (stores: projects, entries, outbox, meta). Loaded into memory at boot; every write is
 // persisted to IndexedDB (write-through, serialized). "Server" is simulated; outbox = ids not sent yet (no syncState).
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors' };
+const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark' };
 const demoRole = () => { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; };
 const LIST = { projects:1, entries:1, outbox:1 };
 const cache = {};
@@ -202,24 +202,29 @@ async function loadFirebase() {
       return snap.exists();
     },
     async pull(user) {
-      const incoming = [];
-      const projects = [];
-      if (user.role === 'owner') {
-        (await fsMod.getDocs(fsMod.collection(fdb, 'ledgerEntries'))).forEach(d => incoming.push(S.fromRemote(d.data())));
-        (await fsMod.getDocs(fsMod.collection(fdb, 'projects'))).forEach(d => projects.push(S.fromRemote(d.data())));
-      } else {
-        for (const spec of S.siteReads(user.uid, user.assignedProjectIds || [])) {
-          const q = fsMod.query(fsMod.collection(fdb, spec.collection), ...spec.where.map(([f, op, v]) => fsMod.where(f, op, v)));
-          (await fsMod.getDocs(q)).forEach(d => incoming.push(S.fromRemote(d.data())));
+      const readSpec = async spec => {
+        if (spec.id) {
+          const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, spec.collection, spec.id));
+          return snap.exists() ? [snap.data()] : [];
         }
-        for (const pid of user.assignedProjectIds || []) {
-          const snap = await fsMod.getDoc(fsMod.doc(fdb, 'projects', pid));
-          if (snap.exists()) projects.push(S.fromRemote(snap.data()));
-        }
-      }
-      const pending = get(K.outbox, []);
-      set(K.projects, S.mergeById(get(K.projects, []), projects, pending));
-      set(K.entries, S.mergeById(get(K.entries, []), incoming, pending));
+        const col = fsMod.collection(fdb, spec.collection);
+        const clauses = (spec.where || []).map(([field, op, value]) => fsMod.where(
+          field, op, field === 'createdAtServer' ? fsMod.Timestamp.fromMillis(value) : value));
+        const src = clauses.length ? fsMod.query(col, ...clauses) : col;
+        const snap = await fsMod.getDocsFromServer(src);
+        return snap.docs.map(d => d.data());
+      };
+      const result = await S.pullChanges({
+        user,
+        watermark: get(K.pullWatermark, null),
+        pendingIds: get(K.outbox, []),
+        localEntries: get(K.entries, []),
+        localProjects: get(K.projects, []),
+        read: readSpec,
+      });
+      set(K.projects, result.projects);
+      set(K.entries, result.entries);
+      set(K.pullWatermark, result.watermark);
     },
   };
 }
