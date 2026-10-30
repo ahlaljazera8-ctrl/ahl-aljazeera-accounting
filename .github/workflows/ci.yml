@@ -101,7 +101,7 @@ jobs:
       - name: install
         run: npm ci
       - name: install webkit
-        timeout-minutes: 12
+        timeout-minutes: 20
         run: npx playwright install webkit
       - name: emulators:exec
         shell: bash
