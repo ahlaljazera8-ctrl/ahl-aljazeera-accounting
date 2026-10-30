@@ -353,3 +353,115 @@ testSeq('site sync stays on assigned projects and does not re-read the ledger', 
     projects: store.projects.map(p => p.id),
   }));
 });
+
+testSeq('a missing index falls back to a full site pull and keeps the watermark', async () => {
+  await testEnv.clearFirestore();
+  const pending = entryDoc('pend-idx', {
+    projectId: 'p-ok', createdBy: SITE, createdAtServer: null, description: 'محلي', amount: 70,
+  });
+  const store = freshStore(pending);
+  const site = { uid: SITE, role: 'site', active: true, assignedProjectIds: ['p-ok'] };
+
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    const d = ctx.firestore();
+    await setDoc(doc(d, 'users', SITE), userDoc(SITE, {
+      displayName: 'أحمد', email: 'site.idx@example.invalid', assignedProjectIds: ['p-ok'],
+    }));
+    await setDoc(doc(d, 'users', OTHER), userDoc(OTHER, {
+      displayName: 'سامي', email: 'other.idx@example.invalid', assignedProjectIds: ['p-ok'],
+    }));
+    await setDoc(doc(d, 'projects', 'p-ok'), projectDoc('p-ok', 'المشروع المعيّن', at(1)));
+    await setDoc(doc(d, 'projects', 'p-no'), projectDoc('p-no', 'مشروع آخر', at(2)));
+    const rows = [
+      ['idx-exp', { projectId: 'p-ok', createdBy: OTHER, direction: 'expense', entryType: 'materials', createdAtServer: at(3), amount: 300 }],
+      ['idx-own', { projectId: 'p-ok', createdBy: SITE, direction: 'income', entryType: 'clientPayment', createdAtServer: at(5), amount: 2500 }],
+      ['idx-hid-inc', { projectId: 'p-ok', createdBy: OTHER, direction: 'income', entryType: 'clientPayment', createdAtServer: at(6), amount: 9000 }],
+      ['idx-hid-pno', { projectId: 'p-no', createdBy: SITE, direction: 'expense', entryType: 'materials', createdAtServer: at(7), amount: 40 }],
+    ];
+    for (const [id, over] of rows) await setDoc(doc(d, 'ledgerEntries', id), entryDoc(id, over));
+  });
+
+  const siteDb = authed(SITE);
+  const first = await pull(siteDb, site, store);
+  assert.equal(copies(store.entries, 'idx-exp'), 1);
+  assert.equal(copies(store.entries, 'idx-own'), 1);
+  assert.equal(copies(store.entries, 'idx-hid-inc'), 0);
+  assert.equal(copies(store.entries, 'idx-hid-pno'), 0);
+  assert.equal(copies(store.entries, 'pend-idx'), 1);
+  const markEntries = store.watermark.entries;
+  const markProjects = store.watermark.projects;
+  assert.equal(typeof markEntries, 'number');
+
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    const d = ctx.firestore();
+    await setDoc(doc(d, 'ledgerEntries', 'idx-new'), entryDoc('idx-new', {
+      projectId: 'p-ok', createdBy: OTHER, direction: 'expense', entryType: 'labour',
+      createdAtServer: at(30), amount: 880,
+    }));
+    await setDoc(doc(d, 'ledgerEntries', 'idx-new-hid'), entryDoc('idx-new-hid', {
+      projectId: 'p-no', createdBy: OTHER, direction: 'expense', entryType: 'materials',
+      createdAtServer: at(31), amount: 50,
+    }));
+  });
+
+  let rangeAttempts = 0;
+  let fullEntryReads = 0;
+  const result = await Sync.pullChanges({
+    user: site,
+    watermark: store.watermark,
+    pendingIds: store.pendingIds,
+    localEntries: store.entries,
+    localProjects: store.projects,
+    read: async spec => {
+      const ranged = (spec.where || []).some(part => part[0] === 'createdAtServer');
+      if (ranged) {
+        rangeAttempts += 1;
+        const err = new Error('The query requires an index.');
+        err.code = 'failed-precondition';
+        throw err;
+      }
+      const rows = await readSpec(siteDb, spec);
+      if (spec.collection === 'ledgerEntries') fullEntryReads += rows.length;
+      return rows;
+    },
+  });
+  assert.ok(rangeAttempts >= 1);
+  assert.ok(fullEntryReads >= 3);
+  assert.equal(result.watermark.entries, markEntries);
+  assert.equal(result.watermark.projects, markProjects);
+  assert.equal(copies(result.entries, 'idx-new'), 1);
+  assert.equal(copies(result.entries, 'idx-exp'), 1);
+  assert.equal(copies(result.entries, 'idx-own'), 1);
+  assert.equal(copies(result.entries, 'idx-hid-inc'), 0);
+  assert.equal(copies(result.entries, 'idx-hid-pno'), 0);
+  assert.equal(copies(result.entries, 'idx-new-hid'), 0);
+  assert.equal(copies(result.entries, 'pend-idx'), 1);
+  assert.equal(result.entries.find(e => e.id === 'pend-idx').createdAtServer, null);
+  assert.equal(copies(result.projects, 'p-ok'), 1);
+  assert.equal(copies(result.projects, 'p-no'), 0);
+  assertUnique(result.entries);
+
+  store.entries = result.entries;
+  store.projects = result.projects;
+  await assert.rejects(() => Sync.pullChanges({
+    user: site,
+    watermark: store.watermark,
+    pendingIds: store.pendingIds,
+    localEntries: store.entries,
+    localProjects: store.projects,
+    read: async () => {
+      const err = new Error('The query requires an index.');
+      err.code = 'failed-precondition';
+      throw err;
+    },
+  }));
+  assert.equal(store.watermark.entries, markEntries);
+  assert.equal(copies(store.entries, 'idx-new'), 1);
+
+  console.log('missing-index fallback ' + JSON.stringify({
+    rangeAttempts,
+    fullEntryReads,
+    watermarkEntries: result.watermark.entries,
+    ledger: result.entries.length,
+  }));
+});

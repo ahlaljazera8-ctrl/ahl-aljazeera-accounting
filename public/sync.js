@@ -128,29 +128,50 @@
     return max;
   }
 
+  function isBounded(specs) {
+    return (specs || []).some(spec => (spec.where || []).some(part => part[0] === 'createdAtServer'));
+  }
+
+  async function readSpecs(specs, read) {
+    const out = [];
+    for (let i = 0; i < specs.length; i++) {
+      const rows = await read(specs[i]);
+      for (let j = 0; j < rows.length; j++) out.push(fromRemote(rows[j]));
+    }
+    return out;
+  }
+
   // read(spec) returns raw documents for one query or one id. Watermarks advance
-  // only from those server rows, never from a local pending entry.
+  // only from a successful incremental read, never from a local pending entry.
+  // A failed incremental query (missing index or any other error) repeats the
+  // sync as a full pull and leaves the stored watermark where it was.
   async function pullChanges(opts) {
     const user = opts.user;
     const mark = opts.watermark || {};
-    const incoming = [];
-    const projects = [];
     const entrySpecs = entryReads(user, mark.entries);
     const projectSpecs = projectReads(user, mark.projects);
-    for (let i = 0; i < entrySpecs.length; i++) {
-      const rows = await opts.read(entrySpecs[i]);
-      for (let j = 0; j < rows.length; j++) incoming.push(fromRemote(rows[j]));
-    }
-    for (let i = 0; i < projectSpecs.length; i++) {
-      const rows = await opts.read(projectSpecs[i]);
-      for (let j = 0; j < rows.length; j++) projects.push(fromRemote(rows[j]));
+    const bounded = isBounded(entrySpecs) || isBounded(projectSpecs);
+    let incoming;
+    let projects;
+    let advance = true;
+    try {
+      incoming = await readSpecs(entrySpecs, opts.read);
+      projects = await readSpecs(projectSpecs, opts.read);
+    } catch (err) {
+      if (!bounded) throw err;
+      incoming = await readSpecs(entryReads(user, null), opts.read);
+      projects = await readSpecs(projectReads(user, null), opts.read);
+      advance = false;
     }
     return {
       entries: mergeById(opts.localEntries, incoming, opts.pendingIds),
       projects: mergeById(opts.localProjects, projects, opts.pendingIds),
-      watermark: {
+      watermark: advance ? {
         entries: nextWatermark(mark.entries, incoming),
         projects: nextWatermark(mark.projects, projects),
+      } : {
+        entries: finiteMillis(mark.entries),
+        projects: finiteMillis(mark.projects),
       },
     };
   }
