@@ -128,14 +128,14 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          npx firebase emulators:exec --only auth,firestore --project ahl-aljazeera-accounting \
-            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/login-relogin.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js" \
+          npx firebase emulators:exec --only auth,firestore,hosting --project ahl-aljazeera-accounting \
+            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/login-relogin.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js tests/emulator/security-headers.test.js" \
             | tee "$RUNNER_TEMP/emulator.txt"
           status=${PIPESTATUS[0]}
           set -e
           pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/emulator.txt" | tail -1 | grep -oE '[0-9]+$' || true)
           fail=$(grep -E '[[:space:]]fail [0-9]+$' "$RUNNER_TEMP/emulator.txt" | tail -1 | grep -oE '[0-9]+$' || true)
           echo "emulator tests: ${pass:-missing} pass, ${fail:-missing} fail"
-          if [[ "$status" -ne 0 || -z "$pass" || -z "$fail" || "$fail" != "0" || "$pass" -lt 33 ]]; then
+          if [[ "$status" -ne 0 || -z "$pass" || -z "$fail" || "$fail" != "0" || "$pass" -lt 37 ]]; then
             exit 1
           fi
