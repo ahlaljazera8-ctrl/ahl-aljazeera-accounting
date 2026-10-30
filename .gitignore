@@ -1,4 +1,5 @@
 node_modules/
+firebase.emulator.json
 shots/
 .firebase/
 firebase-debug.log

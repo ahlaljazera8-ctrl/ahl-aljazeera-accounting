@@ -23,12 +23,24 @@ const DESC = 'فحص الترويسات';
 const LIVE = /https:\/\/(?:firestore|identitytoolkit|securetoken)\.googleapis\.com/;
 const CSP_VIOLATION = /content security policy|refused to .* because it violates/i;
 
-// Allowlist is what public/ and the Firebase JS SDK it imports actually request:
-// gstatic modules, identitytoolkit/securetoken/firestore under *.googleapis.com,
-// the Auth iframe (gapi + authDomain, or the Auth emulator iframe when ?emulator=1),
-// and the Auth/Firestore emulator ports hardcoded in app.js. style-src allows
+// Production allowlist: gstatic modules, Auth/Firestore under *.googleapis.com,
+// and the Auth iframe (gapi + the project's authDomain). style-src allows
 // 'unsafe-inline' because the ledger renders style attributes.
-const CSP = [
+// Loopback emulator origins are not part of this policy. The emulator job
+// serves a copy that adds them; see scripts/emulator-csp-config.js.
+const PRODUCTION_CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://www.gstatic.com https://apis.google.com",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "frame-src https://ahl-aljazeera-accounting.firebaseapp.com",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
+const EMULATOR_CSP = [
   "default-src 'self'",
   "script-src 'self' https://www.gstatic.com https://apis.google.com",
   "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com http://127.0.0.1:9099 http://127.0.0.1:8080",
@@ -42,7 +54,7 @@ const CSP = [
 ].join('; ');
 
 const SECURITY_HEADERS = {
-  'content-security-policy': CSP,
+  'content-security-policy': EMULATOR_CSP,
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'strict-origin-when-cross-origin',
   'permissions-policy': 'camera=(), microphone=(), geolocation=()',
@@ -195,6 +207,10 @@ test('security headers still let the app boot, log in, sync an entry, and regist
   const authHost = localHost('FIREBASE_AUTH_EMULATOR_HOST');
   const fsHost = localHost('FIRESTORE_EMULATOR_HOST');
   const origin = await hostingOrigin();
+  const deployed = JSON.parse(fs.readFileSync(path.join(__dirname, '../../firebase.json'), 'utf8'));
+  const deployedCsp = deployed.hosting.headers.find(h => h.source === '**').headers.find(h => h.key === 'Content-Security-Policy').value;
+  assert.equal(deployedCsp, PRODUCTION_CSP);
+  assert.equal(/127\.0\.0\.1/.test(deployedCsp), false);
   const pageRes = await fetch(origin + '/index.html');
   const swRes = await fetch(origin + '/sw.js');
   const cssRes = await fetch(origin + '/style.css');
