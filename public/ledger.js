@@ -51,11 +51,11 @@
 
   function isPosInt(n) { return Number.isInteger(n) && n > 0; }
 
-  // Copy of users/{uid}.displayName. Rules require an exact match and at most 60
+  // Copy of users/{uid}.displayName. Rules require an exact match and at most 80
   // characters, so a missing or longer name is left off the entry.
   function recorderName(user) {
     const name = user && user.displayName;
-    if (typeof name !== 'string' || name.length < 1 || name.length > 60) return '';
+    if (typeof name !== 'string' || name.length < 1 || name.length > 80) return '';
     return name;
   }
   function displayRecorder(entry) {
