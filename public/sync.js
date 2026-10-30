@@ -39,8 +39,62 @@
     }
     const out = copyFields(doc, ['id', 'name', 'clientName', 'currency', 'status', 'createdAtDevice', 'createdBy', 'deviceId']);
     if (doc.location) out.location = doc.location;
-    if (typeof doc.contractAmount === 'number') out.contractAmount = doc.contractAmount;
     return out;
+  }
+
+  const MAX_CONTRACT = 10000000000;
+  const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+  function contractAmountOf(doc) {
+    if (!doc || !Number.isInteger(doc.contractAmount)) return null;
+    if (doc.contractAmount < 0 || doc.contractAmount > MAX_CONTRACT) return null;
+    return doc.contractAmount;
+  }
+
+  function withoutContractAmount(doc) {
+    if (!doc || !Object.prototype.hasOwnProperty.call(doc, 'contractAmount')) return doc;
+    const out = Object.assign({}, doc);
+    delete out.contractAmount;
+    return out;
+  }
+
+  // Owner save: the number moves to projectFinance and is not part of the project write.
+  function splitProjectSave(project, amount) {
+    const chosen = Number.isInteger(amount) ? amount : contractAmountOf(project);
+    const next = withoutContractAmount(project || {});
+    if (!Number.isInteger(chosen) || chosen < 0 || chosen > MAX_CONTRACT) return { project: next, finance: null };
+    return { project: next, finance: { contractAmount: chosen } };
+  }
+
+  function projectsForClient(user, projects) {
+    const rows = projects || [];
+    if (user && user.role === 'owner') return rows.map(row => Object.assign({}, row));
+    return rows.map(withoutContractAmount);
+  }
+
+  function financeReads(user, projectIds) {
+    if (!user || user.role !== 'owner' || user.active !== true) return [];
+    return validProjectIds(projectIds).map(id => ({ collection: 'projectFinance', id }));
+  }
+
+  function personInput(input) {
+    const src = input || {};
+    const uid = typeof src.uid === 'string' ? src.uid.trim() : '';
+    const displayName = typeof src.displayName === 'string' ? src.displayName.trim() : '';
+    const email = typeof src.email === 'string' ? src.email.trim() : '';
+    const ids = Array.isArray(src.assignedProjectIds) ? src.assignedProjectIds : null;
+    const errors = [];
+    if (!ID_RE.test(uid)) errors.push('معرّف المستخدم غير صالح');
+    if (!displayName || displayName.length > 80) errors.push('الاسم مطلوب وبحد أقصى 80 حرفاً');
+    if (email.length < 4 || email.length > 200 || !/.+@.+\..+/.test(email)) errors.push('البريد غير صالح');
+    if (src.role !== 'site' && src.role !== 'owner') errors.push('الدور غير صالح');
+    if (typeof src.active !== 'boolean') errors.push('حالة الحساب غير صالحة');
+    if (!ids || ids.length > 20 || ids.some(id => typeof id !== 'string' || !ID_RE.test(id))) errors.push('اختر مشاريع محددة بحد أقصى 20');
+    if (errors.length) return { ok: false, errors };
+    return {
+      ok: true,
+      value: { uid, displayName, email, role: src.role, active: src.active, assignedProjectIds: ids.slice() },
+    };
   }
 
   function withServerTime(doc, sentinel) {
@@ -219,5 +273,8 @@
     return { synced, kept, failed };
   }
 
-  return { isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox };
+  return {
+    isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
+    contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
+  };
 });

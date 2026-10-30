@@ -15,8 +15,29 @@ service cloud.firestore {
     function projectPath(id) { return /databases/$(database)/documents/projects/$(id); }
     function MAX_AMOUNT_IQD() { return 10000000000; }
     function idOk(id) { return id is string && id.matches('^[A-Za-z0-9_-]{1,64}$'); }
+    // Each item uses idOk. Rules have no loop, so the twenty slots are spelled out.
     function idListOk(xs) {
-      return xs is list && xs.size() <= 20;
+      return xs is list && xs.size() <= 20
+        && (xs.size() < 1 || idOk(xs[0]))
+        && (xs.size() < 2 || idOk(xs[1]))
+        && (xs.size() < 3 || idOk(xs[2]))
+        && (xs.size() < 4 || idOk(xs[3]))
+        && (xs.size() < 5 || idOk(xs[4]))
+        && (xs.size() < 6 || idOk(xs[5]))
+        && (xs.size() < 7 || idOk(xs[6]))
+        && (xs.size() < 8 || idOk(xs[7]))
+        && (xs.size() < 9 || idOk(xs[8]))
+        && (xs.size() < 10 || idOk(xs[9]))
+        && (xs.size() < 11 || idOk(xs[10]))
+        && (xs.size() < 12 || idOk(xs[11]))
+        && (xs.size() < 13 || idOk(xs[12]))
+        && (xs.size() < 14 || idOk(xs[13]))
+        && (xs.size() < 15 || idOk(xs[14]))
+        && (xs.size() < 16 || idOk(xs[15]))
+        && (xs.size() < 17 || idOk(xs[16]))
+        && (xs.size() < 18 || idOk(xs[17]))
+        && (xs.size() < 19 || idOk(xs[18]))
+        && (xs.size() < 20 || idOk(xs[19]));
     }
     function entryDateOk(s) {
       return s is string
@@ -111,19 +132,23 @@ service cloud.firestore {
       allow read: if isSite() && assigned(resource.data.projectId) && resource.data.direction == 'expense';
     }
 
+    // Money is projectFinance/{projectId}. A project write that includes
+    // contractAmount is denied. A document saved before the split can still
+    // hold that field until the owner saves the project again: rules cannot
+    // remove a field on read, and a full owner rewrite is what drops it.
     match /projects/{projectId} {
       function p() { return request.resource.data; }
       function optString(name, max) {
         return !(name in p()) || (p()[name] is string && p()[name].size() <= max);
       }
       function projectShape() {
-        return p().keys().hasOnly(['id', 'name', 'clientName', 'location', 'contractAmount', 'currency', 'status', 'createdAtDevice', 'createdAtServer', 'createdBy', 'deviceId'])
+        return p().keys().hasOnly(['id', 'name', 'clientName', 'location', 'currency', 'status', 'createdAtDevice', 'createdAtServer', 'createdBy', 'deviceId'])
           && p().id == projectId
           && idOk(projectId)
+          && !('contractAmount' in p())
           && p().name is string && p().name.size() > 0 && p().name.size() <= 200
           && p().clientName is string && p().clientName.size() <= 200
           && optString('location', 200)
-          && (!('contractAmount' in p()) || (p().contractAmount is int && p().contractAmount >= 0 && p().contractAmount <= MAX_AMOUNT_IQD()))
           && p().currency == 'IQD'
           && p().status in ['active', 'closed']
           && p().createdAtDevice is int
@@ -154,6 +179,18 @@ service cloud.firestore {
       allow read: if allowlisted() && (request.auth.uid == uid || isOwner());
       allow create: if isOwner() && idOk(uid) && userShape() && u().createdBy == request.auth.uid;
       allow update: if isOwner() && idOk(uid) && userShape() && u().createdBy == resource.data.createdBy;
+    }
+
+    match /projectFinance/{projectId} {
+      function f() { return request.resource.data; }
+      function financeShape() {
+        return f().keys().hasOnly(['contractAmount'])
+          && f().contractAmount is int
+          && f().contractAmount >= 0
+          && f().contractAmount <= MAX_AMOUNT_IQD();
+      }
+      allow read: if isOwner() && idOk(projectId);
+      allow create, update: if isOwner() && idOk(projectId) && financeShape();
     }
   }
 }

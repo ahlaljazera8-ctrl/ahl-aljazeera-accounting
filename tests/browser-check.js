@@ -15,6 +15,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
   const check = (name, ok) => { results.push([name, !!ok]); console.log((ok ? 'PASS ' : 'FAIL ') + name); };
   const screens = [['o1-home','owner','home'],['o2-entry','owner','entry'],['o3-projects','owner','projects'],['o4-profit','owner','project/p-school'],
+                   ['o5-people','owner','person/u-ahmed'],
                    ['s1-home','site','home'],['s2-entry','site','entry'],['s3-projects','site','projects'],['s4-profit','site','project/p-school']];
   await go(BASE + 'index.html');
   const login = await ev(`({dir:document.documentElement.dir, email:!!document.querySelector('#login-email'), pass:!!document.querySelector('#login-password'), btn:(document.querySelector('#login-btn')||{}).textContent||'', loginHidden:document.querySelector('#login').hidden, shellHidden:document.querySelector('#shell').hidden, text:document.querySelector('#login').innerText, hz:document.documentElement.scrollWidth>innerWidth})`);
@@ -30,7 +31,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await ev(`new Promise(r=>{const q=indexedDB.deleteDatabase('aj-p0');q.onsuccess=q.onerror=q.onblocked=()=>r(1)})`);
   for (const [name, role, hash] of screens) {
     await go(`${BASE}index.html?role=${role}#${hash}`); await ev('dispatchEvent(new HashChangeEvent("hashchange"))'); await sleep(300);
-    const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }); fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(shot.result.data, 'base64'));
+    const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const png = Buffer.from(shot.result.data, 'base64');
+    fs.writeFileSync(path.join(SHOTS, name + '.png'), png);
+    if (name === 'o4-profit') fs.writeFileSync(path.join(SHOTS, 'owner-project-contract.png'), png);
+    if (name === 'o5-people') {
+      fs.writeFileSync(path.join(SHOTS, 'owner-people-top.png'), png);
+      await ev(`document.querySelector('#save-person').scrollIntoView({block:'center'})`);
+      await sleep(250);
+      const form = await send('Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(path.join(SHOTS, 'owner-people.png'), Buffer.from(form.result.data, 'base64'));
+    }
+    if (name === 's4-profit') fs.writeFileSync(path.join(SHOTS, 'site-project-no-contract.png'), png);
     if (name === 'o2-entry') {
       await ev(`document.querySelector('#party').scrollIntoView({block:'center'})`);
       await sleep(250);
@@ -49,6 +61,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     if (role === 'owner' && hash === 'project/p-school') {
       check('o4: rows show the recorder name', info.text.includes('أمير'));
       check('o4: old entry without a name shows a dash', await ev(`(()=>{const row=[...document.querySelectorAll('.entry')].find(el=>el.innerText.includes('إدخال خاطئ')&&!el.innerText.includes('تصحيح'));return !!row&&row.innerText.includes('—')&&!row.innerText.includes('أحمد')})()`));
+      check('o4: owner project shows the contract value', info.text.includes('قيمة العقد') && info.text.includes('60,000,000') && await ev(`document.querySelector('#contract') && document.querySelector('#contract').value==='60000000'`));
+    }
+    if (role === 'owner' && hash === 'person/u-ahmed') {
+      check('o5: instructions name the Firebase UID column', info.text.includes('Firebase') && info.text.includes('Authentication') && info.text.includes('Users') && info.text.includes('User UID'));
+      check('o5: projects are named checkboxes', await ev(`(()=>{const boxes=[...document.querySelectorAll('[data-assign]')]; const ids=boxes.map(b=>b.dataset.assign).slice().sort().join(); const on=boxes.filter(b=>b.checked).map(b=>b.dataset.assign).slice().sort().join(); const text=document.querySelector('#main').innerText; return ids==='p-market,p-road,p-school' && on==='p-road,p-school' && text.includes('مشروع المدرسة') && text.includes('مشروع الطريق') && text.includes('بناية السوق') && !text.includes('كل المشاريع') && document.querySelector('#person-uid').readOnly && document.querySelector('#person-name').value==='أحمد' && document.querySelector('#person-role').value==='site' && document.querySelector('#person-active').checked===true})()`));
+    }
+    if (role === 'site' && hash === 'project/p-school') {
+      check('s4: site project hides the contract', !info.text.includes('قيمة العقد') && !info.text.includes('60,000,000') && await ev(`!document.querySelector('#contract') && !document.body.innerHTML.includes('projectFinance')`));
     }
     if (role === 'site' && hash === 'home') check('s1: own rows show the recorder', info.text.includes('أحمد'));
     if (role === 'owner' && hash === 'home') check('o1: totals shown', /صافي الربح/.test(info.text));
@@ -132,6 +152,34 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await sleep(150);
   const xss = await ev(`({img:!!document.querySelector('#main img'), script:!!document.querySelector('#main script'), html:document.querySelector('#main').innerHTML, text:document.querySelector('#main').innerText})`);
   check('details escape payee and description', xss.img === false && xss.script === false && !xss.html.includes('<img') && !xss.html.includes('<script') && xss.text.includes('<img') && xss.text.includes('alert(1)'));
+  await ev(`document.querySelector('#role').value='owner'; location.hash='#person/u-ahmed'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  await ev(`document.querySelector('[data-assign="p-road"]').checked=false; document.querySelector('[data-assign="p-market"]').checked=true; document.querySelector('#person-name').value='أحمد الموقع'; document.querySelector('#save-person').click(); 1`);
+  await sleep(250);
+  check('editing a person stores the name and exactly the checked projects', await ev(`(()=>{const u=AJ.get('users').find(x=>x.uid==='u-ahmed'); const ids=(u.assignedProjectIds||[]).slice().sort().join(); return location.hash==='#people' && u.displayName==='أحمد الموقع' && u.active===true && u.role==='site' && ids==='p-market,p-school'})()`));
+  await ev(`location.hash='#person'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const hostile = '<img src=x onerror=alert(1)>';
+  await ev(`document.querySelector('#person-uid').value='u-new'; document.querySelector('#person-name').value=${JSON.stringify(hostile)}; document.querySelector('#person-email').value='new@example.invalid'; document.querySelector('#person-role').value='owner'; document.querySelector('#person-active').checked=false; document.querySelector('[data-assign="p-school"]').checked=true; document.querySelector('#save-person').click(); 1`);
+  await sleep(250);
+  const made = await ev(`(()=>{const u=AJ.get('users').find(x=>x.uid==='u-new'); const html=document.querySelector('#main').innerHTML; return {ok:!!u && u.role==='owner' && u.active===false && u.assignedProjectIds.join()==='p-school' && u.displayName===${JSON.stringify(hostile)}, img:!!document.querySelector('#main img'), raw:html.includes('<img'), text:document.querySelector('#main').innerText.includes('<img')}})()`);
+  check('a new person is stored and the name is escaped', made.ok && made.img === false && made.raw === false && made.text === true);
+  await ev(`document.querySelector('#role').value='site'; location.hash='#projects'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  const siteProjects = await ev(`({text:document.querySelector('#main').innerText, tab:!!document.querySelector('[data-tab="people"]')})`);
+  check('site sees exactly the projects assigned in the owner screen', siteProjects.text.includes('مشروع المدرسة') && siteProjects.text.includes('بناية السوق') && !siteProjects.text.includes('مشروع الطريق') && siteProjects.tab === false);
+  await ev(`location.hash='#people'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  check('site person screen does not list people', await ev(`document.querySelector('#main').innerText.includes('هذه الشاشة للمالك') && !document.querySelector('#person-uid') && !document.querySelector('[data-assign]')`));
+  await ev(`document.querySelector('#role').value='owner'; location.hash='#project/p-school'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  await ev(`document.querySelector('#contract').value='1234567'; document.querySelector('#save-contract').click(); 1`);
+  await sleep(200);
+  check('owner save stores the contract away from the project', await ev(`(()=>{const p=AJ.get('projects').find(x=>x.id==='p-school'); const f=(AJ.get('projectFinance')||{})['p-school']; return !!p && !('contractAmount' in p) && f.contractAmount===1234567 && f.pending===true && (AJ.get('outbox')||[]).includes('p-school') && document.querySelector('#main').innerText.includes('1,234,567')})()`));
+  await ev(`document.querySelector('#role').value='site'; location.hash='#project/p-school'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  const hiddenContract = await ev(`document.querySelector('#main').innerText`);
+  check('site project still has no contract after the owner save', !hiddenContract.includes('قيمة العقد') && !hiddenContract.includes('1,234,567') && !hiddenContract.includes('60,000,000') && await ev(`!document.querySelector('#contract')`));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); chrome.kill(); process.exit(2); });

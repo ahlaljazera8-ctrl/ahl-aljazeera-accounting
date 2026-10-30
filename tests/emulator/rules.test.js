@@ -367,6 +367,71 @@ testSeq('partyName and createdByName do not admit extra fields', () => seeded(as
   await assertFails(putEntry(SITE, 'extra-both', { partyName: 'مورد', createdByName: 'أحمد', recorder: 'أحمد' }));
 }));
 
+testSeq('a site user cannot read projectFinance', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'projectFinance', 'p1'), { contractAmount: 60000000 }));
+  const owner = await assertSucceeds(getDoc(doc(db(OWNER), 'projectFinance', 'p1')));
+  assert.equal(owner.data().contractAmount, 60000000);
+  await assertFails(getDoc(doc(db(SITE), 'projectFinance', 'p1')));
+  await assertFails(getDocs(collection(db(SITE), 'projectFinance')));
+  await assertFails(setDoc(doc(db(SITE), 'projectFinance', 'p1'), { contractAmount: 1 }));
+  await assertFails(setDoc(doc(db(OWNER), 'projectFinance', 'p1'), { contractAmount: -1 }));
+  await assertFails(setDoc(doc(db(OWNER), 'projectFinance', 'p1'), { contractAmount: 1.5 }));
+  await assertFails(setDoc(doc(db(OWNER), 'projectFinance', 'p-extra'), { contractAmount: 1, note: 'x' }));
+  await assertFails(deleteDoc(doc(db(OWNER), 'projectFinance', 'p1')));
+  await assertFails(getDoc(doc(db(null), 'projectFinance', 'p1')));
+}));
+
+testSeq('a site user can read an assigned project that has no money field', () => seeded(async () => {
+  const snap = await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p1')));
+  assert.equal(snap.data().name, 'مشروع المدرسة');
+  assert.equal(snap.data().id, 'p1');
+  assert.equal(Object.prototype.hasOwnProperty.call(snap.data(), 'contractAmount'), false);
+  await assertFails(getDoc(doc(db(SITE), 'projects', 'p2')));
+  await assertFails(setDoc(doc(db(OWNER), 'projects', 'p-money'), Object.assign(projectDoc('p-money', 'مال'), { contractAmount: 5 })));
+  await assertFails(updateDoc(doc(db(OWNER), 'projects', 'p1'), { contractAmount: 5 }));
+}));
+
+testSeq('a project keeps a leftover contractAmount until the owner rewrites it', () => seeded(async () => {
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), 'projects', 'p-old'), Object.assign(projectDoc('p-old', 'قديم'), { contractAmount: 123 }));
+  });
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: ['p-old'] }));
+  const before = await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p-old')));
+  assert.equal(before.data().contractAmount, 123);
+  await assertSucceeds(setDoc(doc(db(OWNER), 'projects', 'p-old'), projectDoc('p-old', 'قديم')));
+  const after = await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p-old')));
+  assert.equal(after.data().name, 'قديم');
+  assert.equal(Object.prototype.hasOwnProperty.call(after.data(), 'contractAmount'), false);
+  await assertFails(getDoc(doc(db(SITE), 'projectFinance', 'p-old')));
+}));
+
+testSeq('a non-owner cannot write users', () => seeded(async () => {
+  await assertFails(setDoc(doc(db(SITE), 'users', 'stranger'), userDoc('stranger', { assignedProjectIds: ['p1'] })));
+  await assertFails(updateDoc(doc(db(SITE), 'users', SITE), { displayName: 'لا', assignedProjectIds: ['p1', 'p2'] }));
+  await assertFails(setDoc(doc(db(null), 'users', 'stranger'), userDoc('stranger')));
+  await assertFails(setDoc(doc(db(INACTIVE), 'users', 'stranger'), userDoc('stranger')));
+  await assertSucceeds(getDoc(doc(db(SITE), 'users', SITE)));
+}));
+
+testSeq('assignment to specific projects grants exactly those projects', () => seeded(async () => {
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: ['p1'] }));
+  await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p1')));
+  await assertFails(getDoc(doc(db(SITE), 'projects', 'p2')));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: ['p2'] }));
+  await assertFails(getDoc(doc(db(SITE), 'projects', 'p1')));
+  await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p2')));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: ['p1', 'p2'] }));
+  await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p1')));
+  await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p2')));
+  const twenty = Array.from({ length: 20 }, (_, i) => 'p' + i);
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: twenty }));
+  await assertFails(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: twenty.concat('p20') }));
+  await assertFails(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: ['bad id'] }));
+  await assertFails(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: ['p.1'] }));
+  await assertFails(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: [''] }));
+  await assertFails(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: [1] }));
+}));
+
 testSeq('entries, projects, and users reject unknown fields and wrong types', () => seeded(async () => {
   await assertFails(putEntry(SITE, 'extra-entry', { note: 'x' }));
   await assertFails(putEntry(SITE, 'bad-desc', { description: 12 }));
