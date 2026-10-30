@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '../public');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const badHits = new Map();
 

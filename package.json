@@ -4,13 +4,14 @@
   "scripts": {
     "test": "node --test tests/ledger.test.js",
     "test:browser": "node tests/browser-check.js",
-    "test:emulator": "firebase emulators:exec --only auth,firestore --project ahl-aljazeera-accounting \"node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/login-relogin.test.js tests/sw-cache.test.js\""
+    "test:emulator": "firebase emulators:exec --only auth,firestore --project ahl-aljazeera-accounting \"node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/login-relogin.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js\""
   },
   "dependencies": {
     "@firebase/rules-unit-testing": "^6.0.0",
     "firebase": "^13.1.0"
   },
   "devDependencies": {
-    "firebase-tools": "^15.34.2"
+    "firebase-tools": "^15.34.2",
+    "playwright": "^1.56.1"
   }
 }
