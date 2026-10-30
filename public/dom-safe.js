@@ -26,11 +26,16 @@
     return '#' + kind + '/' + escapeHtml(id);
   }
 
+  function entryHref(id) {
+    if (!isSafeId(id)) return '#home';
+    return '#detail/' + escapeHtml(id);
+  }
+
   function projectButton(id, name, selected) {
     const attr = projectAttr(id);
     if (!attr) return '';
     return '<button class="' + (selected ? 'pill on' : 'pill') + '" data-proj="' + attr + '">' + escapeHtml(name) + '</button>';
   }
 
-  return { ID_RE, escapeHtml, isSafeId, projectAttr, projectHref, projectButton };
+  return { ID_RE, escapeHtml, isSafeId, projectAttr, projectHref, projectButton, entryHref };
 });

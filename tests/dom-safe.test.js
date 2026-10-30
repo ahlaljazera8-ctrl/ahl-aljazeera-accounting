@@ -18,6 +18,14 @@ test('a hostile project id is omitted from attributes', () => {
   assert.equal(html.includes(HOSTILE), false);
 });
 
+test('entry detail href keeps a safe id and drops a hostile one', () => {
+  assert.equal(Dom.entryHref('seed-4'), '#detail/seed-4');
+  assert.equal(Dom.entryHref('rev_seed-4'), '#detail/rev_seed-4');
+  assert.equal(Dom.entryHref(HOSTILE), '#home');
+  assert.equal(Dom.entryHref('bad id'), '#home');
+  assert.equal(Dom.entryHref('a'.repeat(65)), '#home');
+  assert.equal(Dom.entryHref(HOSTILE).includes('onerror'), false);
+});
 test('a safe project id stays in the attribute and the name is escaped', () => {
   const html = Dom.projectButton('p-school', 'مدرسة <script>', true);
   assert.match(html, /data-proj="p-school"/);

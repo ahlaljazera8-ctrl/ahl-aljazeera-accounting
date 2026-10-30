@@ -94,6 +94,18 @@ test('an offline write stays pending and keeps the لم يُرسل label', async
   assert.match(html, /data-sync="pending"/);
 });
 
+test('recorder name and payee are part of the synced entry', () => {
+  const named = local({ partyName: 'مورد', createdByName: 'أحمد' });
+  const remote = Sync.toRemote(named);
+  assert.equal(remote.partyName, 'مورد');
+  assert.equal(remote.createdByName, 'أحمد');
+  const plain = Sync.toRemote(local());
+  assert.equal(Object.prototype.hasOwnProperty.call(plain, 'createdByName'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(plain, 'partyName'), false);
+  assert.equal(Status.sameContent(named, Object.assign({}, named)), true);
+  assert.equal(Status.sameContent(named, Object.assign({}, named, { createdByName: 'سامي' })), false);
+  assert.equal(Status.sameContent(named, Object.assign({}, named, { partyName: 'جهة أخرى' })), false);
+});
 test('readRemote loads the 13.1.0 gstatic Firestore build', async () => {
   let seen = '';
   const remote = { amount: 5, projectId: 'p1', description: '' };
