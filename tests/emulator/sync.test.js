@@ -70,6 +70,11 @@ async function flush(db, ids, load) {
       if (!online) throw new Error('offline');
       return (await getDocFromServer(doc(db, Sync.collectionFor(local), local.id))).exists();
     },
+    readServer: async local => {
+      if (!online) throw new Error('offline');
+      const snap = await getDocFromServer(doc(db, Sync.collectionFor(local), local.id));
+      return snap.exists() ? snap.data() : null;
+    },
   });
 }
 
@@ -167,6 +172,22 @@ test('the same id flushed twice, even concurrently, is stored once', { timeout: 
   const found = (await serverRows()).filter(r => r.id === row.id);
   assert.equal(found.length, 1);
   assert.equal(found[0].amount, 3200);
+});
+
+test('an existing server document is synced only when its content matches', { timeout: 30000 }, async () => {
+  const id = 'conflict-' + crypto.randomUUID();
+  const local = entry(siteUid, id, { amount: 2000, description: 'محلي' });
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    const planted = entry(siteUid, id, { amount: 1000, description: 'خادم' });
+    planted.createdAtServer = new Date();
+    await setDoc(doc(ctx.firestore(), 'ledgerEntries', id), planted);
+  });
+  const result = await flush(clientDb, [id], () => local);
+  assert.equal(result.synced.includes(id), false, 'different server content must not be treated as synced');
+  assert.ok((result.failed || []).some(row => row.id === id && row.message.includes('محتوى مختلف')));
+  const rows = (await serverRows()).filter(r => r.id === id);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].amount, 1000);
 });
 
 test('seed and example rows in the outbox are not uploaded', { timeout: 30000 }, async () => {
