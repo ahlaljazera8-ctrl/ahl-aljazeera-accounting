@@ -92,7 +92,7 @@ jobs:
       - name: install
         run: npm ci
       - name: install webkit
-        run: npx playwright install webkit --with-deps
+        run: npx playwright install webkit
       - name: emulators:exec
         shell: bash
         run: |
