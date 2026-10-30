@@ -360,7 +360,7 @@ testSeq('logout removes synced income from the device and keeps an unsent entry'
   } finally { stopBrowser(session); fs.rmSync(dir, { recursive: true, force: true }); }
 }, 80000);
 
-testSeq('an unsent entry blocks logout and stays on the device', async () => {
+testSeq('an unsent entry blocks logout, and a refused entry stays on the device without staying pending', async () => {
   const dir = '/tmp/aj-relogin-' + (portSeq++);
   const session = await openBrowser(dir);
   try {
@@ -374,41 +374,56 @@ testSeq('an unsent entry blocks logout and stays on the device', async () => {
     assert.equal(await login(session, 20000), true, 'login. ' + detail(session));
     const sawProject = await waitFor(session, `location.hash='#projects', dispatchEvent(new HashChangeEvent('hashchange')), document.querySelector('#main').innerText.includes(${JSON.stringify(PROJECT_NAME)})`, 15000);
     assert.equal(sawProject, true, 'the project should arrive from the emulator');
-    await testEnv.withSecurityRulesDisabled(async ctx => {
-      await deleteDoc(doc(ctx.firestore(), 'projects', PROJECT_ID));
-    });
+    await session.send('Network.enable');
+    await session.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    assert.equal(await waitFor(session, `navigator.onLine === false`, 5000), true, 'the phone is offline');
     await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
     const form = await waitFor(session, `document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')})`, 5000);
     assert.equal(form, true, 'entry form should render');
     await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); 1`);
     await session.ev(`document.querySelector('[data-add="1000"]').click(); 1`);
     await session.ev(`document.querySelector('#desc').value=${JSON.stringify(UNSENT)}; document.querySelector('#save').click(); 1`);
-    const queued = await waitFor(session, `document.querySelector('#outbox').textContent.includes('1')`, 8000);
-    assert.equal(queued, true, 'the entry should stay unsent when the server rejects it');
-    await session.ev(`AJ.flush().then(()=>1)`);
-    await sleep(1000);
-    assert.match(await session.ev(`document.querySelector('#outbox').textContent`), /1/);
-
+    const queued = await waitFor(session, `(AJ.get('outbox')||[]).length === 1 && document.querySelector('#outbox').textContent.includes('1')`, 8000);
+    assert.equal(queued, true, 'an offline save stays in the pending count');
     session.dialogs = [];
     await session.ev(`document.querySelector('#logout').click(); 1`);
     await sleep(400);
     assert.equal(await session.ev(`document.querySelector('#shell').hidden`), false, 'logout with an unsent entry stays in the ledger');
     assert.match(session.dialogs.join('\n'), /[\u0600-\u06FF]/, 'the warning is Arabic: ' + session.dialogs.join(' '));
     assert.match(session.dialogs.join('\n'), /أرسل/);
+
+    await session.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await session.ev(`dispatchEvent(new Event('online')); 1`);
+    const drained = await waitFor(session, `(AJ.get('outbox')||[]).length === 0`, 20000);
+    assert.equal(drained, true, 'the offline entry sends once the phone is back. ' + detail(session));
+
+    await testEnv.withSecurityRulesDisabled(async ctx => {
+      await deleteDoc(doc(ctx.firestore(), 'projects', PROJECT_ID));
+    });
+    const refusedNote = 'مرفوض بعد حذف المشروع';
+    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); document.querySelector('#amt').value='1000'; document.querySelector('#desc').value=${JSON.stringify(refusedNote)}; document.querySelector('#save').click(); 1`);
+    const refused = await waitFor(session, `(()=>{
+      const row = (AJ.get('entries')||[]).find(e => e && e.description === ${JSON.stringify(refusedNote)});
+      if (!row) return false;
+      const pending = (AJ.get('outbox')||[]).includes(row.id);
+      const err = (AJ.get('syncErrors')||{})[row.id] || '';
+      return !pending && /رُفض|محتوى/.test(err) && document.querySelector('#outbox').textContent.trim().endsWith(': 0');
+    })()`, 20000);
+    assert.equal(refused, true, 'a definitive refusal leaves the pending count and keeps an error. ' + detail(session));
     await session.send('Page.reload', {});
     const ready = await waitFor(session, `document.body && document.body.dataset.ready === '1' && document.querySelector('#shell').hidden === false`, 20000);
-    assert.equal(ready, true, 'the session should reopen with the unsent entry. ' + detail(session));
+    assert.equal(ready, true, 'the session should reopen. ' + detail(session));
     const still = await waitFor(session, `(async () => {
-      if (!document.querySelector('#outbox').textContent.includes('1')) return false;
       const dbs = await indexedDB.databases();
       for (const info of dbs) {
         if (!info.name || !String(info.name).startsWith('aj-u-')) continue;
         const rows = await new Promise((ok, no) => { const r = indexedDB.open(info.name); r.onerror = () => no(r.error); r.onsuccess = () => { const d = r.result; const g = d.transaction('entries').objectStore('entries').getAll(); g.onsuccess = () => { d.close(); ok(g.result || []); }; g.onerror = () => { d.close(); no(g.error); }; }; });
-        if (rows.some(row => row && row.description === ${JSON.stringify(UNSENT)})) return true;
+        if (rows.some(row => row && row.description === ${JSON.stringify(refusedNote)})) return true;
       }
       return false;
     })()`, 10000);
-    assert.equal(still, true, 'the unsent entry is still on the device');
+    assert.equal(still, true, 'the refused entry is still on the device');
     assert.equal(session.production, '');
   } finally { stopBrowser(session); fs.rmSync(dir, { recursive: true, force: true }); }
 }, 80000);

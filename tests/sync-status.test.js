@@ -30,7 +30,8 @@ test('a rejected write with no server document shows an Arabic error and is not 
   assert.equal(result.failed[0].id, row.id);
   assert.equal(result.failed[0].message, Status.REJECTED);
   const applied = Status.applyFlush([row.id], {}, result);
-  assert.deepEqual(applied.outbox, [row.id]);
+  assert.deepEqual(applied.outbox, [], 'a definitive refusal leaves the pending count');
+  assert.equal(applied.errors[row.id], Status.REJECTED);
   const html = Status.badgeHtml(row.id, applied.outbox, applied.errors);
   assert.match(html, /رُفض الإرسال/);
   assert.equal(html.includes('لم يُرسل'), false);
@@ -48,8 +49,11 @@ test('document already exists is synced only when the server content matches', a
   });
   assert.deepEqual(mismatch.synced, []);
   assert.equal(mismatch.failed[0].message, Status.CONFLICT);
-  assert.match(Status.badgeHtml(row.id, [row.id], { [row.id]: mismatch.failed[0].message }), /محتوى مختلف/);
-  assert.equal(Status.badgeHtml(row.id, [row.id], { [row.id]: mismatch.failed[0].message }).includes('لم يُرسل'), false);
+  const mismatchApplied = Status.applyFlush([row.id], {}, mismatch);
+  assert.deepEqual(mismatchApplied.outbox, [], 'already-exists with different content leaves the pending count');
+  assert.equal(mismatchApplied.errors[row.id], Status.CONFLICT);
+  assert.match(Status.badgeHtml(row.id, mismatchApplied.outbox, mismatchApplied.errors), /محتوى مختلف/);
+  assert.equal(Status.badgeHtml(row.id, mismatchApplied.outbox, mismatchApplied.errors).includes('لم يُرسل'), false);
 
   const match = await Sync.flushOutbox({
     ids: [row.id],
@@ -94,6 +98,29 @@ test('an offline write stays pending and keeps the لم يُرسل label', async
   assert.match(html, /data-sync="pending"/);
 });
 
+test('a lost reversal race resolves onto the server row and leaves the pending list', async () => {
+  const row = local({
+    id: 'rev_e1', isReversal: true, reversesEntryId: 'e1', reversalReason: 'سبب الجهاز',
+    description: 'تصحيح: محلي', createdBy: 'site-loser', createdByName: 'الخاسر',
+  });
+  const remote = Object.assign({}, row, {
+    reversalReason: 'سبب الخادم', description: 'تصحيح: خادم', createdBy: 'site-winner', createdByName: 'الفائز',
+  });
+  const result = await Sync.flushOutbox({
+    ids: [row.id],
+    load: () => row,
+    write: async () => { throw deny('permission-denied', 'Missing or insufficient permissions.'); },
+    readServer: async () => remote,
+  });
+  assert.deepEqual(result.kept, []);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.synced, [row.id]);
+  assert.equal(result.adopted && result.adopted[0] && result.adopted[0].remote.reversalReason, 'سبب الخادم');
+  assert.equal(result.adopted[0].remote.createdByName, 'الفائز');
+  const applied = Status.applyFlush([row.id], { [row.id]: Status.CONFLICT }, result);
+  assert.deepEqual(applied.outbox, []);
+  assert.deepEqual(applied.errors, {});
+});
 test('recorder name and payee are part of the synced entry', () => {
   const named = local({ partyName: 'مورد', createdByName: 'أحمد' });
   const remote = Sync.toRemote(named);

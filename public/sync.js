@@ -221,6 +221,8 @@
     return {
       entries: mergeById(opts.localEntries, incoming, opts.pendingIds),
       projects: mergeById(opts.localProjects, projects, opts.pendingIds),
+      incomingEntries: incoming,
+      incomingProjects: projects,
       watermark: advance ? {
         entries: nextWatermark(mark.entries, incoming),
         projects: nextWatermark(mark.projects, projects),
@@ -244,6 +246,7 @@
     const synced = [];
     const kept = [];
     const failed = [];
+    const adopted = [];
     const seen = new Set();
     for (const id of ids) {
       if (seen.has(id)) continue;
@@ -267,10 +270,15 @@
           unverified = true;
         }
         if (remote && Status.sameContent(local, remote)) { synced.push(id); continue; }
+        if (remote && Status.sameReversal(local, remote)) {
+          synced.push(id);
+          adopted.push({ id, remote });
+          continue;
+        }
         failed.push({ id, message: Status.failureMessage(err, local, remote, unverified && !remote) });
       }
     }
-    return { synced, kept, failed };
+    return { synced, kept, failed, adopted };
   }
 
   return {
