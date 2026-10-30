@@ -67,11 +67,19 @@
     return Array.from(map.values());
   }
 
+  function validProjectIds(ids) {
+    return (ids || []).filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id));
+  }
+
+  function finiteMillis(v) {
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  }
+
   // Queries a site client is allowed to run. Rules are not a filter.
   // Own rows are limited to assigned projects (F11); an unconstrained createdBy query is denied.
   function siteReads(uid, projectIds) {
     const reads = [];
-    const ids = (projectIds || []).filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id));
+    const ids = validProjectIds(projectIds);
     for (let i = 0; i < ids.length; i += 10) {
       const chunk = ids.slice(i, i + 10);
       reads.push({
@@ -84,6 +92,67 @@
       });
     }
     return reads;
+  }
+
+  // First sync (since == null) reads the whole allowed set. Later syncs add
+  // createdAtServer >= watermark. The inclusive bound re-reads the last instant;
+  // mergeById drops ids already stored, and a strict > would skip a row that
+  // shares that server time. Null createdAtServer (still offline) is not a bound.
+  function sinceClause(specs, since) {
+    const ms = finiteMillis(since);
+    if (ms === null) return specs;
+    return specs.map(spec => spec.id ? spec : {
+      collection: spec.collection,
+      where: (spec.where || []).concat([['createdAtServer', '>=', ms]]),
+    });
+  }
+
+  function entryReads(user, since) {
+    const specs = user && user.role === 'owner'
+      ? [{ collection: 'ledgerEntries', where: [] }]
+      : siteReads(user && user.uid, user && user.assignedProjectIds);
+    return sinceClause(specs, since);
+  }
+
+  function projectReads(user, since) {
+    if (user && user.role === 'owner') return sinceClause([{ collection: 'projects', where: [] }], since);
+    return validProjectIds(user && user.assignedProjectIds).map(id => ({ collection: 'projects', id }));
+  }
+
+  function nextWatermark(previous, rows) {
+    let max = finiteMillis(previous);
+    (rows || []).forEach(row => {
+      const t = finiteMillis(row && row.createdAtServer);
+      if (t !== null && (max === null || t > max)) max = t;
+    });
+    return max;
+  }
+
+  // read(spec) returns raw documents for one query or one id. Watermarks advance
+  // only from those server rows, never from a local pending entry.
+  async function pullChanges(opts) {
+    const user = opts.user;
+    const mark = opts.watermark || {};
+    const incoming = [];
+    const projects = [];
+    const entrySpecs = entryReads(user, mark.entries);
+    const projectSpecs = projectReads(user, mark.projects);
+    for (let i = 0; i < entrySpecs.length; i++) {
+      const rows = await opts.read(entrySpecs[i]);
+      for (let j = 0; j < rows.length; j++) incoming.push(fromRemote(rows[j]));
+    }
+    for (let i = 0; i < projectSpecs.length; i++) {
+      const rows = await opts.read(projectSpecs[i]);
+      for (let j = 0; j < rows.length; j++) projects.push(fromRemote(rows[j]));
+    }
+    return {
+      entries: mergeById(opts.localEntries, incoming, opts.pendingIds),
+      projects: mergeById(opts.localProjects, projects, opts.pendingIds),
+      watermark: {
+        entries: nextWatermark(mark.entries, incoming),
+        projects: nextWatermark(mark.projects, projects),
+      },
+    };
   }
 
   function statusApi() {
@@ -128,5 +197,5 @@
     return { synced, kept, failed };
   }
 
-  return { isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, flushOutbox };
+  return { isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox };
 });
