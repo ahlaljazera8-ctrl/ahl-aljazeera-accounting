@@ -35,8 +35,23 @@ service cloud.firestore {
       function optString(name, max) {
         return !(name in d()) || (d()[name] is string && d()[name].size() <= max);
       }
+      // Optional payee. Stored trimmed, at most 100 characters.
+      function partyNameOk() {
+        return !('partyName' in d())
+          || (d().partyName is string
+              && d().partyName.size() <= 100
+              && d().partyName == d().partyName.trim());
+      }
+      // Optional copy of the writer's displayName (max 60). Checked against
+      // users/{auth.uid} so site users need no read access to other user docs.
+      function createdByNameOk() {
+        return !('createdByName' in d())
+          || (d().createdByName is string
+              && d().createdByName.size() <= 60
+              && d().createdByName == me().displayName);
+      }
       function shapeOk() {
-        return d().keys().hasOnly(['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'description', 'partyName', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'deviceId'])
+        return d().keys().hasOnly(['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'description', 'partyName', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'createdByName', 'deviceId'])
           && d().id == entryId
           && idOk(entryId)
           && idOk(d().projectId)
@@ -54,7 +69,8 @@ service cloud.firestore {
           && d().deviceId.size() > 0
           && d().deviceId.size() <= 128
           && optString('description', 500)
-          && optString('partyName', 200);
+          && partyNameOk()
+          && createdByNameOk();
       }
       function typeOk() {
         return (d().direction == 'expense' && d().entryType in ['expense', 'materials', 'labour', 'subcontractor'])
