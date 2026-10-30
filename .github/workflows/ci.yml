@@ -92,6 +92,7 @@ jobs:
       - name: install
         run: npm ci
       - name: install webkit
+        # Host libraries are already present; --with-deps hangs apt on this runner.
         run: npx playwright install webkit
       - name: emulators:exec
         shell: bash
