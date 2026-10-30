@@ -22,6 +22,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('login: form shown, ledger hidden', login.email && login.pass && login.btn.includes('دخول') && login.loginHidden === false && login.shellHidden === true);
   check('login: no profit or received text', !/ربح|المقبوض|خسارة/.test(login.text));
   check('login: no horizontal overflow', !login.hz);
+  check('hostile project id is not written into HTML', await ev(`DomSafe.projectButton(${JSON.stringify('"><img src=x onerror=alert(1)>')},'اسم',false)==='' && DomSafe.projectHref('project',${JSON.stringify('"><img src=x onerror=alert(1)>')})==='#projects'`));
+  check('rejected sync shows an Arabic error, not لم يُرسل', await ev(`(()=>{const h=SyncStatus.badgeHtml('e1',['e1'],{e1:'رُفض الإرسال'});return h.includes('رُفض الإرسال')&&!h.includes('لم يُرسل')&&h.includes('data-sync="error"')})()`));
   await ev(`document.querySelector('#login-btn').click()`);
   await sleep(150);
   check('login: empty submit stays on the login screen', await ev(`document.querySelector('#shell').hidden === true && document.querySelector('#login').hidden === false && (document.querySelector('#login-msg').innerText||'').length > 0`));

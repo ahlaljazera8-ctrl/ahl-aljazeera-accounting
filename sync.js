@@ -68,21 +68,37 @@
   }
 
   // Queries a site client is allowed to run. Rules are not a filter.
+  // Own rows are limited to assigned projects (F11); an unconstrained createdBy query is denied.
   function siteReads(uid, projectIds) {
-    const reads = [{ collection: 'ledgerEntries', where: [['createdBy', '==', uid]] }];
-    const ids = (projectIds || []).filter(Boolean);
+    const reads = [];
+    const ids = (projectIds || []).filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id));
     for (let i = 0; i < ids.length; i += 10) {
+      const chunk = ids.slice(i, i + 10);
       reads.push({
         collection: 'ledgerEntries',
-        where: [['direction', '==', 'expense'], ['projectId', 'in', ids.slice(i, i + 10)]],
+        where: [['direction', '==', 'expense'], ['projectId', 'in', chunk]],
+      });
+      reads.push({
+        collection: 'ledgerEntries',
+        where: [['createdBy', '==', uid], ['projectId', 'in', chunk]],
       });
     }
     return reads;
   }
 
-  async function flushOutbox({ ids, load, write, exists }) {
+  function statusApi() {
+    if (typeof require === 'function') {
+      try { return require('./sync-status.js'); } catch (e) {}
+    }
+    const g = typeof globalThis !== 'undefined' ? globalThis : {};
+    return g.SyncStatus || null;
+  }
+
+  async function flushOutbox({ ids, load, write, exists, readServer }) {
+    const Status = statusApi();
     const synced = [];
     const kept = [];
+    const failed = [];
     const seen = new Set();
     for (const id of ids) {
       if (seen.has(id)) continue;
@@ -95,13 +111,21 @@
         await write(local);
         synced.push(id);
       } catch (err) {
-        let there = false;
-        try { there = await exists(local); } catch (e) { there = false; }
-        if (there) synced.push(id);
-        else kept.push(id);
+        if (!Status || Status.isTransient(err)) { kept.push(id); continue; }
+        let remote = null;
+        let unverified = false;
+        try {
+          if (typeof readServer === 'function') remote = await readServer(local);
+          else if (typeof exists === 'function' && await exists(local)) unverified = true;
+        } catch (readErr) {
+          if (Status.isTransient(readErr)) { kept.push(id); continue; }
+          unverified = true;
+        }
+        if (remote && Status.sameContent(local, remote)) { synced.push(id); continue; }
+        failed.push({ id, message: Status.failureMessage(err, local, remote, unverified && !remote) });
       }
     }
-    return { synced, kept };
+    return { synced, kept, failed };
   }
 
   return { isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, flushOutbox };
