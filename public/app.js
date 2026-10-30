@@ -304,40 +304,49 @@ function flushRemote() {
   if (demoRole() || !get(K.sessionUser)) return Promise.resolve();
   if (flushing) return flushing;
   const token = sessionEpoch;
+  let started = null;
   flushing = (async () => {
-    if (token !== sessionEpoch || navigator.onLine === false) return;
-    const fb = await ensureFirebase();
-    if (token !== sessionEpoch) return;
-    const user = get(K.sessionUser);
-    if (!user) return;
-    const ids = get(K.outbox, []).slice();
-    const entries = get(K.entries, []); const projects = get(K.projects, []);
-    if (ids.length) {
-      const result = await window.Sync.flushOutbox({
-        ids,
-        load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
-        write: local => fb.writeLocal(local),
-        exists: local => fb.exists(local),
-        readServer: async local => {
-          try {
-            if (typeof fb.readServer === 'function') return await fb.readServer(local);
-            if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
-          } catch (e) {}
-          return null;
-        },
-      });
+    try {
+      if (token !== sessionEpoch || navigator.onLine === false) return;
+      const fb = await ensureFirebase();
       if (token !== sessionEpoch) return;
-      if (window.SyncStatus) {
-        const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
-        set(K.outbox, next.outbox);
-        set(K.syncErrors, next.errors);
-      } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id)));
+      const user = get(K.sessionUser);
+      if (!user) return;
+      const ids = get(K.outbox, []).slice();
+      started = new Set(ids);
+      const entries = get(K.entries, []); const projects = get(K.projects, []);
+      if (ids.length) {
+        const result = await window.Sync.flushOutbox({
+          ids,
+          load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
+          write: local => fb.writeLocal(local),
+          exists: local => fb.exists(local),
+          readServer: async local => {
+            try {
+              if (typeof fb.readServer === 'function') return await fb.readServer(local);
+              if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
+            } catch (e) {}
+            return null;
+          },
+        });
+        if (token !== sessionEpoch) return;
+        if (window.SyncStatus) {
+          const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
+          set(K.outbox, next.outbox);
+          set(K.syncErrors, next.errors);
+        } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id)));
+      }
+      if (token !== sessionEpoch) return;
+      await fb.pull(user);
+      if (token !== sessionEpoch) return;
+      render();
+    } finally {
+      flushing = null;
     }
-    if (token !== sessionEpoch) return;
-    await fb.pull(user);
-    if (token !== sessionEpoch) return;
-    render();
-  })().finally(() => { flushing = null; });
+    if (started && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser) && get(K.outbox, []).some(id => !started.has(id))) {
+      return flushRemote();
+    }
+  })();
   return flushing;
 }
 async function closeUserDb() {
