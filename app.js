@@ -10,11 +10,32 @@ let db, writing = Promise.resolve();
 const req = r => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
 function openDB(name) {
   const r = indexedDB.open(name, 1);
+  r.onblocked = () => console.warn('IndexedDB open blocked by an older connection:', name);
   r.onupgradeneeded = () => { const d = r.result;
     d.createObjectStore('projects', { keyPath:'id' }); d.createObjectStore('entries', { keyPath:'id' });
     d.createObjectStore('outbox', { keyPath:'id' }); d.createObjectStore('meta'); };
-  return req(r);
+  return req(r).then(d => {
+    d.onversionchange = () => { d.close(); if (db === d) db = null; };
+    return d;
+  });
 }
+const LOGIN_MS = 20000;
+function withTimeout(p, ms, step) {
+  let t;
+  const err = new Error('انتهت المهلة (' + step + '). تحقق من الاتصال وأعد المحاولة');
+  err.timeout = true;
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise((_, no) => { t = setTimeout(() => no(err), ms); }),
+  ]).finally(() => clearTimeout(t));
+}
+function isPoison(err) {
+  if (!err) return false;
+  if (err.timeout) return true;
+  const text = String((err && err.message) || err) + ' ' + String((err && err.code) || '');
+  return /INTERNAL ASSERTION FAILED|Unexpected state|\bca9\b|\bb815\b/i.test(text);
+}
+let sessionEpoch = 0;
 async function loadAll() {
   const tx = db.transaction(['projects','entries','outbox','meta'], 'readonly');
   cache.projects = await req(tx.objectStore('projects').getAll());
@@ -26,7 +47,8 @@ async function loadAll() {
 const get = (k, d) => cache[k] === undefined ? d : JSON.parse(JSON.stringify(cache[k]));
 function set(k, v) {
   cache[k] = JSON.parse(JSON.stringify(v));
-  writing = writing.then(() => new Promise((ok, no) => {
+  writing = writing.catch(() => {}).then(() => new Promise((ok, no) => {
+    if (!db) return ok();
     const name = LIST[k] ? k : 'meta'; const tx = db.transaction(name, 'readwrite'); const st = tx.objectStore(name);
     if (k === 'outbox') { st.clear(); v.forEach((id, i) => st.put({ id, queuedAt: i })); }
     else if (LIST[k]) v.forEach(x => st.put(x)); // entries/projects never deleted (append-only)
@@ -87,9 +109,11 @@ function loginError(err) {
   const code = err && err.code;
   if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found' || code === 'auth/invalid-email') return 'البريد أو كلمة المرور غير صحيحة';
   if (code === 'auth/too-many-requests') return 'محاولات كثيرة. انتظر ثم أعد المحاولة';
-  if (code === 'auth/network-request-failed') return 'تعذر الاتصال. تحقق من الإنترنت';
+  if (code === 'auth/network-request-failed' || code === 'unavailable' || code === 'deadline-exceeded') return 'تعذر الاتصال. تحقق من الإنترنت';
   return 'تعذر الدخول';
 }
+// 13.1.0 is the newest JS SDK (2026-10-21). Its ca9 watch-target fix from 12.13.0
+// still leaves the assertion reachable, so a newer FB_VER is not available to upgrade to.
 const FB_VER = '13.1.0';
 let fbPromise = null;
 function ensureFirebase() {
@@ -98,24 +122,43 @@ function ensureFirebase() {
 }
 async function loadFirebase() {
   const base = 'https://www.gstatic.com/firebasejs/' + FB_VER + '/';
-  const [{ initializeApp }, authMod, fsMod] = await Promise.all([
+  const [{ initializeApp, deleteApp, getApps }, authMod, fsMod] = await Promise.all([
     import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js'),
   ]);
+  const stale = getApps().find(a => a.name === '[DEFAULT]');
+  if (stale) await deleteApp(stale).catch(() => {});
   const app = initializeApp(window.FIREBASE_CONFIG);
   const auth = authMod.getAuth(app);
   const emulator = new URLSearchParams(location.search).get('emulator') === '1';
   if (emulator) authMod.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  // The ledger's offline store is aj-u- (entries, projects, outbox). Firestore's
+  // persistentLocalCache is a second store, and it is what replays a failed watch
+  // stream (ca9, then b815) after the auth user changes — including on the next launch.
   let fdb;
   try {
-    fdb = fsMod.initializeFirestore(app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentSingleTabManager() }) });
+    fdb = fsMod.initializeFirestore(app, { localCache: fsMod.memoryLocalCache() });
   } catch (e) { fdb = fsMod.getFirestore(app); }
   if (emulator) fsMod.connectFirestoreEmulator(fdb, '127.0.0.1', 8080);
+  // Drop IndexedDB left by the old persistent cache before any read. Memory cache
+  // does not open it; deleting it is what unblocks a phone that already saved the bad state.
+  await withTimeout(fsMod.clearIndexedDbPersistence(fdb), 5000, 'الذاكرة').catch(() => {});
   const S = window.Sync;
   return {
     auth, db: fdb,
     signIn: (email, password) => authMod.signInWithEmailAndPassword(auth, email, password),
     signOut: () => authMod.signOut(auth),
-    onAuth: cb => authMod.onAuthStateChanged(auth, cb),
+    currentUser: async () => { await auth.authStateReady(); return auth.currentUser; },
+    // Clear persisted watch state, then tear the client down. The SDK rejects a clear
+    // while this instance is running, so a rejected clear is followed by terminate and a second clear.
+    async dispose(signOutUser) {
+      const step = async fn => { try { await fn(); return true; } catch (e) { return false; } };
+      // Clear before terminate. A running client rejects that, so terminate and clear again.
+      const cleared = await step(() => fsMod.clearIndexedDbPersistence(fdb));
+      await step(() => withTimeout(fsMod.terminate(fdb), 3000, 'إغلاق'));
+      if (!cleared) await step(() => withTimeout(fsMod.clearIndexedDbPersistence(fdb), 3000, 'إغلاق'));
+      if (signOutUser) await step(() => withTimeout(authMod.signOut(auth), 3000, 'خروج'));
+      await step(() => withTimeout(deleteApp(app), 3000, 'إغلاق'));
+    },
     async profile(uid) {
       const snap = await fsMod.getDoc(fsMod.doc(fdb, 'users', uid));
       return snap.exists() ? snap.data() : null;
@@ -150,13 +193,29 @@ async function loadFirebase() {
   };
 }
 let flushing = null;
+const REPAIR_MSG = 'تعذر الدخول بعد إصلاح الذاكرة المحلية. تحقق من الاتصال وأعد المحاولة';
+async function disposeFirebase(signOutUser) {
+  const pending = fbPromise;
+  fbPromise = null;
+  flushing = null;
+  if (!pending) return;
+  const fb = await pending.catch(() => null);
+  if (fb && fb.dispose) await fb.dispose(!!signOutUser);
+}
+async function rebuildFirebase(signOutUser) {
+  await disposeFirebase(signOutUser);
+  return ensureFirebase();
+}
 function flushRemote() {
   if (demoRole() || !get(K.sessionUser)) return Promise.resolve();
   if (flushing) return flushing;
+  const token = sessionEpoch;
   flushing = (async () => {
-    if (navigator.onLine === false) return;
+    if (token !== sessionEpoch || navigator.onLine === false) return;
     const fb = await ensureFirebase();
+    if (token !== sessionEpoch) return;
     const user = get(K.sessionUser);
+    if (!user) return;
     const ids = get(K.outbox, []).slice();
     const entries = get(K.entries, []); const projects = get(K.projects, []);
     if (ids.length) {
@@ -166,15 +225,77 @@ function flushRemote() {
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
       });
+      if (token !== sessionEpoch) return;
       const drop = new Set(result.synced);
       set(K.outbox, get(K.outbox, []).filter(id => !drop.has(id)));
     }
+    if (token !== sessionEpoch) return;
     await fb.pull(user);
+    if (token !== sessionEpoch) return;
     render();
   })().finally(() => { flushing = null; });
   return flushing;
 }
+async function closeUserDb() {
+  if (db) {
+    set(K.sessionUser, null);
+    await writing.catch(() => {});
+    try { db.close(); } catch (e) {}
+    db = null;
+  }
+  for (const k of Object.keys(cache)) delete cache[k];
+}
+function deleteDb(name) {
+  return new Promise(ok => {
+    const done = () => { clearTimeout(timer); ok(); };
+    const timer = setTimeout(done, 2000);
+    const r = indexedDB.deleteDatabase(name);
+    r.onsuccess = r.onerror = r.onblocked = done;
+  });
+}
+async function outboxEmpty() {
+  if (get(K.outbox, []).length) return false;
+  if (!db) return true;
+  await writing.catch(() => {});
+  try {
+    const n = await req(db.transaction('outbox', 'readonly').objectStore('outbox').count());
+    return n === 0;
+  } catch (e) { return false; }
+}
+const SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'firebase-config.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+function isShellCacheRequest(raw) {
+  const url = new URL(raw);
+  if (url.origin !== location.origin || url.search) return false;
+  if (url.pathname === '/' || url.pathname.endsWith('/')) return true;
+  return SHELL_FILES[url.pathname.slice(url.pathname.lastIndexOf('/') + 1)] === 1;
+}
+async function clearExtraCaches() {
+  if (!window.caches) return;
+  const keys = await caches.keys();
+  await Promise.all(keys.map(async key => {
+    const cache = await caches.open(key);
+    const reqs = await cache.keys();
+    await Promise.all(reqs.map(req => isShellCacheRequest(req.url) ? null : cache.delete(req)));
+  }));
+}
+async function closeSession() {
+  if (!await outboxEmpty()) {
+    alert('يوجد قيود لم تُرسل. أرسلها أولاً ثم اخرج');
+    return false;
+  }
+  const name = db && db.name;
+  sessionEpoch += 1;
+  try {
+    await closeUserDb();
+    if (name && name.indexOf('aj-u-') === 0) await deleteDb(name);
+    await disposeFirebase(true);
+    await clearExtraCaches();
+  } catch (e) {}
+  return true;
+}
 async function openUserDb(uid) {
+  if (db) { try { db.close(); } catch (e) {} db = null; }
+  for (const k of Object.keys(cache)) delete cache[k];
   db = await openDB('aj-u-' + uid);
   await loadAll();
   if (!get(K.device)) set(K.device, uuid());
@@ -183,7 +304,7 @@ async function openUserDb(uid) {
 async function enterSession(fb, uid, data) {
   const profile = profileFrom(uid, data);
   if (!profile.active || !['owner', 'site'].includes(profile.role)) {
-    await fb.signOut();
+    await disposeFirebase(true);
     throw new Error(data && data.active === false ? 'هذا الحساب موقوف' : 'لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب');
   }
   await openUserDb(uid);
@@ -311,7 +432,7 @@ document.addEventListener('click', ev => {
   else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
   else if (b.dataset.add != null) { state.amount = b.dataset.add === '0' ? 0 : state.amount + Number(b.dataset.add); render(); }
   else if (b.id === 'send') { if (demoRole()) sendNow(); else flushRemote(); }
-  else if (b.id === 'logout') ensureFirebase().then(fb => fb.signOut()).then(() => { showLogin(); });
+  else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
     const desc = $('#desc').value.trim();
@@ -341,18 +462,36 @@ document.addEventListener('input', ev => { if (ev.target.id === 'amt') { state.a
 $('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, ev.target.value); render(); });
 $('#login-form').addEventListener('submit', async ev => {
   ev.preventDefault();
+  let token = sessionEpoch;
   const btn = $('#login-btn'); btn.disabled = true;
   const msg = $('#login-msg'); msg.textContent = '';
   const email = $('#login-email').value.trim(); const password = $('#login-password').value;
   try {
     if (!email || !password) throw new Error('أدخل البريد وكلمة المرور');
-    const fb = await ensureFirebase();
-    const cred = await fb.signIn(email, password);
-    const data = await fb.profile(cred.user.uid);
-    if (!data) { await fb.signOut(); throw new Error('لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب'); }
-    await enterSession(fb, cred.user.uid, data);
-  } catch (err) { msg.textContent = err.code ? loginError(err) : (err.message || 'تعذر الدخول'); }
-  finally { btn.disabled = false; document.body.dataset.loginAttempt = '1'; }
+    token = ++sessionEpoch;
+    let fb = await withTimeout(ensureFirebase(), LOGIN_MS, 'تحميل');
+    if (token !== sessionEpoch) return;
+    let cred = await withTimeout(fb.signIn(email, password), LOGIN_MS, 'تسجيل الدخول');
+    if (token !== sessionEpoch) return;
+    let data;
+    try {
+      data = await withTimeout(fb.profile(cred.user.uid), LOGIN_MS, 'ملف المستخدم');
+    } catch (err) {
+      if (!isPoison(err) || token !== sessionEpoch) throw err;
+      try {
+        fb = await rebuildFirebase(true);
+        if (token !== sessionEpoch) return;
+        cred = await withTimeout(fb.signIn(email, password), LOGIN_MS, 'تسجيل الدخول');
+        data = await withTimeout(fb.profile(cred.user.uid), LOGIN_MS, 'ملف المستخدم');
+      } catch (e2) { throw new Error(REPAIR_MSG); }
+    }
+    if (token !== sessionEpoch) return;
+    if (!data) { await disposeFirebase(true); throw new Error('لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب'); }
+    await withTimeout(enterSession(fb, cred.user.uid, data), LOGIN_MS, 'فتح البيانات');
+  } catch (err) {
+    if (token !== sessionEpoch) return;
+    msg.textContent = err.code ? loginError(err) : (err.message || 'تعذر الدخول');
+  } finally { if (token === sessionEpoch) btn.disabled = false; document.body.dataset.loginAttempt = '1'; }
 });
 addEventListener('hashchange', render);
 addEventListener('online', () => { if (!demoRole() && get(K.sessionUser)) flushRemote(); else if (!$('#shell').hidden) render(); });
@@ -361,19 +500,39 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
   if (!demoRole()) {
     showLogin();
     document.body.dataset.ready = '1';
+    const token = sessionEpoch;
     try {
-      const fb = await ensureFirebase();
-      const user = await new Promise(resolve => { const unsub = fb.onAuth(u => { unsub(); resolve(u); }); });
-      if (!user) return;
+      let fb = await withTimeout(ensureFirebase(), LOGIN_MS, 'تحميل');
+      if (token !== sessionEpoch) return;
+      let user = await withTimeout(fb.currentUser(), LOGIN_MS, 'الجلسة');
+      if (token !== sessionEpoch || !user) return;
       await openUserDb(user.uid);
+      if (token !== sessionEpoch) return;
       let profile = get(K.sessionUser, null);
+      const adopt = data => { if (data) { profile = profileFrom(user.uid, data); set(K.sessionUser, profile); } };
       try {
-        const data = await fb.profile(user.uid);
-        if (data) { profile = profileFrom(user.uid, data); set(K.sessionUser, profile); }
-      } catch (e) { /* offline: the cached profile is enough */ }
+        if (navigator.onLine !== false) adopt(await withTimeout(fb.profile(user.uid), LOGIN_MS, 'ملف المستخدم'));
+      } catch (err) {
+        if (token !== sessionEpoch) return;
+        if (isPoison(err)) {
+          try {
+            fb = await rebuildFirebase(false);
+            if (token !== sessionEpoch) return;
+            user = await withTimeout(fb.currentUser(), LOGIN_MS, 'الجلسة');
+            if (user && navigator.onLine !== false) adopt(await withTimeout(fb.profile(user.uid), LOGIN_MS, 'ملف المستخدم'));
+          } catch (e2) {
+            if (!profile) { const m = $('#login-msg'); if (m) m.textContent = REPAIR_MSG; }
+          }
+        }
+      }
+      if (token !== sessionEpoch) return;
       if (!profile || profile.active === false) return;
       showApp(); render(); flushRemote();
-    } catch (e) { showLogin(); }
+    } catch (e) {
+      if (token !== sessionEpoch) return;
+      showLogin();
+      if (isPoison(e)) { const m = $('#login-msg'); if (m) m.textContent = e.message || REPAIR_MSG; }
+    }
     return;
   }
   showApp();
