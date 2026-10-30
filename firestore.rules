@@ -1,4 +1,4 @@
-// Emulator-tested. Not deployed.
+// Emulator-tested. Live on ahl-aljazeera-accounting (deployed manually).
 // Spark allowlist: a uid can do nothing until an owner writes users/{uid}.
 // MAX_AMOUNT_IQD is the ledger ceiling (10,000,000,000 IQD).
 rules_version = '2';
@@ -42,12 +42,12 @@ service cloud.firestore {
               && d().partyName.size() <= 100
               && d().partyName == d().partyName.trim());
       }
-      // Optional copy of the writer's displayName (max 60). Checked against
-      // users/{auth.uid} so site users need no read access to other user docs.
+      // Optional copy of the writer's displayName (max 80, same as userShape).
+      // Checked against users/{auth.uid} so site users need no read access to other user docs.
       function createdByNameOk() {
         return !('createdByName' in d())
           || (d().createdByName is string
-              && d().createdByName.size() <= 60
+              && d().createdByName.size() <= 80
               && d().createdByName == me().displayName);
       }
       function shapeOk() {

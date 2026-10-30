@@ -12,4 +12,4 @@ npm run test:emulator    # Firestore + Auth emulators, rules and sync (does not 
 
 The first `users/{uid}` document is created by an admin (the rules cannot bootstrap the owner). After that, only an owner can write `users/`. Do not commit service-account keys or passwords.
 
-Security rules: `firestore.rules`. Emulator config only: `firebase.json`, `.firebaserc`. Nothing here deploys.
+Security rules: `firestore.rules`. `firebase.json` and `.firebaserc` target project `ahl-aljazeera-accounting`. Rules and Hosting are live there, deployed manually by the maintainer.

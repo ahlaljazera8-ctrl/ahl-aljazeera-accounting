@@ -148,12 +148,15 @@ test('createdByName is the writer displayName, otherwise omitted', () => {
   assert.throws(() => lg.append(E({ createdByName:'أمير' }), ctx(owner)), /المُسجِّل/);
   assert.throws(() => lg.append(E({ createdByName:'' }), ctx(named)), /المُسجِّل/);
   const sixty = 'ن'.repeat(60);
+  const eighty = 'ن'.repeat(80);
   assert.equal(L.recorderName({ ...named, displayName:sixty }), sixty);
+  assert.equal(L.recorderName({ ...named, displayName:eighty }), eighty);
   assert.doesNotThrow(() => lg.append(E({ createdByName:sixty }), ctx({ ...named, displayName:sixty })));
-  const tooLong = { ...named, displayName:'ن'.repeat(61) };
+  assert.doesNotThrow(() => lg.append(E({ createdByName:eighty }), ctx({ ...named, displayName:eighty })));
+  const tooLong = { ...named, displayName:'ن'.repeat(81) };
   assert.equal(L.recorderName(tooLong), '');
   assert.equal(L.recorderName({ ...named, displayName:'' }), '');
-  assert.throws(() => lg.append(E({ createdByName:'ن'.repeat(61) }), ctx(tooLong)), /المُسجِّل/);
+  assert.throws(() => lg.append(E({ createdByName:'ن'.repeat(81) }), ctx(tooLong)), /المُسجِّل/);
   assert.doesNotThrow(() => lg.append(E(), ctx(tooLong)));
   assert.equal(L.displayRecorder({}), '—');
   assert.equal(L.displayRecorder({ createdByName:'' }), '—');

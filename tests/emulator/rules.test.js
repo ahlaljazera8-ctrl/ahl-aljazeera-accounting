@@ -322,7 +322,7 @@ testSeq('partyName is rejected when too long, untrimmed, or not a string', () =>
   await assertFails(putEntry(SITE, 'payee-type', { partyName: 12 }));
 }));
 
-testSeq('createdByName must equal the writer displayName and be at most 60 characters', () => seeded(async () => {
+testSeq('createdByName must equal the writer displayName', () => seeded(async () => {
   await assertSucceeds(putEntry(SITE, 'named', { createdByName: 'أحمد', partyName: 'مورد' }));
   await assertSucceeds(putEntry(OWNER, 'named-owner', { createdByName: 'أمير' }));
   await assertSucceeds(putEntry(SITE, 'unnamed', {}));
@@ -332,13 +332,24 @@ testSeq('createdByName must equal the writer displayName and be at most 60 chara
   await assertFails(putEntry(SITE, 'padded-name', { createdByName: 'أحمد ' }));
   await assertFails(putEntry(SITE, 'name-type', { createdByName: 1 }));
   const sixty = 'ن'.repeat(60);
-  const sixtyOne = 'ن'.repeat(61);
   await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: sixty }));
   await assertSucceeds(putEntry(SITE, 'name-60', { createdByName: sixty }));
-  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: sixtyOne }));
-  await assertFails(putEntry(SITE, 'name-61', { createdByName: sixtyOne }));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: 'أحمد الجديد' }));
   await assertFails(putEntry(SITE, 'name-stale', { createdByName: sixty }));
   await assertFails(updateDoc(doc(db(SITE), 'ledgerEntries', 'own-exp'), { createdByName: 'أحمد', partyName: 'مورد' }));
+}));
+
+testSeq('a displayName of 61 to 80 characters can be stored and attached as createdByName', () => seeded(async () => {
+  for (const [id, n] of [['name-61', 61], ['name-80', 80]]) {
+    const name = 'ن'.repeat(n);
+    await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: name }));
+    await assertSucceeds(putEntry(SITE, id, { createdByName: name }));
+    const snap = await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', id)));
+    assert.equal(snap.data().createdByName, name);
+    assert.equal(snap.data().createdByName.length, n);
+  }
+  await assertFails(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: 'ن'.repeat(81) }));
+  await assertFails(putEntry(SITE, 'name-81', { createdByName: 'ن'.repeat(81) }));
 }));
 
 testSeq('a site user reads the recorder name from the entry, not from another user doc', () => seeded(async () => {
