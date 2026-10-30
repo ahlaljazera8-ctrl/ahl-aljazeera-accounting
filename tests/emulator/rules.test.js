@@ -158,7 +158,7 @@ testSeq('nobody can update or delete a ledger entry', () => seeded(async () => {
 
 testSeq('site reads own entries and assigned expenses, not another person\'s income', () => seeded(async () => {
   await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'own-exp')));
-  await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'own-p2')));
+  await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'own-p2')));
   await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'exp-other')));
   await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'inc-other')));
   await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'inc-owner')));
@@ -181,6 +181,7 @@ testSeq('site queries: own entries and assigned expenses are allowed; a full sca
   }
   await assertFails(getDocs(collection(db(SITE), 'ledgerEntries')));
   await assertFails(getDocs(query(collection(db(SITE), 'ledgerEntries'), where('direction', '==', 'income'))));
+  await assertFails(getDocs(query(collection(db(SITE), 'ledgerEntries'), where('createdBy', '==', SITE))));
   const all = await assertSucceeds(getDocs(collection(db(OWNER), 'ledgerEntries')));
   assert.ok(all.size >= 5);
 }));
@@ -236,4 +237,80 @@ testSeq('site reads only assigned projects; owner creates and updates projects; 
   await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p3'), { status: 'closed' }));
   await assertFails(deleteDoc(doc(db(OWNER), 'projects', 'p3')));
   await assertFails(deleteDoc(doc(db(SITE), 'projects', 'p1')));
+}));
+
+testSeq('F11: unassigning a site user hides that project\'s entries, including their own', () => seeded(async () => {
+  await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'own-exp')));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { assignedProjectIds: [] }));
+  await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'own-exp')));
+  await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'exp-other')));
+  await assertFails(getDoc(doc(db(SITE), 'ledgerEntries', 'own-p2')));
+  await assertFails(getDocs(query(
+    collection(db(SITE), 'ledgerEntries'),
+    where('createdBy', '==', SITE),
+    where('projectId', 'in', ['p1']),
+  )));
+}));
+
+testSeq('a fresh self-signed-up account with no users doc can read and write nothing', () => seeded(async () => {
+  const uid = 'fresh-signup';
+  const d = db(uid);
+  await assertFails(getDoc(doc(d, 'users', uid)));
+  await assertFails(getDoc(doc(d, 'users', SITE)));
+  await assertFails(getDoc(doc(d, 'users', OWNER)));
+  await assertFails(getDoc(doc(d, 'ledgerEntries', 'own-exp')));
+  await assertFails(getDoc(doc(d, 'projects', 'p1')));
+  await assertFails(getDocs(collection(d, 'users')));
+  await assertFails(getDocs(collection(d, 'ledgerEntries')));
+  await assertFails(getDocs(collection(d, 'projects')));
+  await assertFails(setDoc(doc(d, 'users', uid), userDoc(uid, { createdBy: uid })));
+  await assertFails(putEntry(uid, 'fresh-entry', {}));
+  await assertFails(setDoc(doc(d, 'projects', 'p-fresh'), projectDoc('p-fresh', 'ممنوع')));
+}));
+
+testSeq('entries on a closed project are rejected and an open project still accepts them', () => seeded(async () => {
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'closed' }));
+  await assertFails(putEntry(SITE, 'closed-site', { projectId: 'p1' }));
+  await assertFails(putEntry(OWNER, 'closed-owner', { projectId: 'p1' }));
+  await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'own-exp')));
+  await assertSucceeds(putEntry(OWNER, 'open-p2', { projectId: 'p2', amount: 80 }));
+}));
+
+testSeq('amount is a positive integer at or under the named ceiling', () => seeded(async () => {
+  await assertSucceeds(putEntry(SITE, 'at-cap', { amount: 10000000000 }));
+  await assertFails(putEntry(SITE, 'over-cap', { amount: 10000000001 }));
+  await assertFails(putEntry(SITE, 'huge', { amount: 99999999999999 }));
+}));
+
+testSeq('entry dates must be real calendar dates inside 2000-01-01..2100-12-31', () => seeded(async () => {
+  await assertSucceeds(putEntry(SITE, 'leap', { entryDate: '2024-02-29' }));
+  await assertFails(putEntry(SITE, 'bad-month', { entryDate: '2026-13-01' }));
+  await assertFails(putEntry(SITE, 'bad-day', { entryDate: '2026-02-31' }));
+  await assertFails(putEntry(SITE, 'apr-31', { entryDate: '2026-04-31' }));
+  await assertFails(putEntry(SITE, 'too-old', { entryDate: '1999-12-31' }));
+  await assertFails(putEntry(SITE, 'too-new', { entryDate: '2101-01-01' }));
+  await assertFails(putEntry(SITE, 'slashes', { entryDate: '2026/10/30' }));
+}));
+
+testSeq('document ids are restricted to a short safe alphabet', () => seeded(async () => {
+  const okId = 'a'.repeat(64);
+  await assertSucceeds(putEntry(SITE, okId, { id: okId }));
+  await assertFails(putEntry(SITE, 'a'.repeat(65), { id: 'a'.repeat(65) }));
+  await assertFails(putEntry(SITE, 'bad id', { id: 'bad id' }));
+  await assertFails(putEntry(SITE, 'xss"><img', { id: 'xss"><img' }));
+  await assertFails(putEntry(SITE, 'bad.id', { id: 'bad.id' }));
+  await assertFails(setDoc(doc(db(OWNER), 'projects', 'p<script>'), projectDoc('p<script>', 'اسم')));
+  await assertFails(setDoc(doc(db(OWNER), 'users', 'user id'), userDoc('user id')));
+}));
+
+testSeq('entries, projects, and users reject unknown fields and wrong types', () => seeded(async () => {
+  await assertFails(putEntry(SITE, 'extra-entry', { note: 'x' }));
+  await assertFails(putEntry(SITE, 'bad-desc', { description: 12 }));
+  await assertFails(setDoc(doc(db(OWNER), 'projects', 'p-extra'), Object.assign(projectDoc('p-extra', 'زيادة'), { evil: '<script>' })));
+  await assertFails(setDoc(doc(db(OWNER), 'projects', 'p-role'), Object.assign(projectDoc('p-role', 'حالة'), { status: 'paused' })));
+  await assertFails(setDoc(doc(db(OWNER), 'users', 'u-extra'), Object.assign(userDoc('u-extra'), { token: 'nope' })));
+  await assertFails(setDoc(doc(db(OWNER), 'users', 'u-role'), userDoc('u-role', { role: 'admin' })));
+  await assertFails(setDoc(doc(db(OWNER), 'users', 'u-list'), userDoc('u-list', { assignedProjectIds: 'p1' })));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'projects', 'p-ok'), projectDoc('p-ok', 'مشروع سليم')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'users', 'u-ok'), userDoc('u-ok', { displayName: 'سليم', email: 'ok@example.invalid' })));
 }));

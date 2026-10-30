@@ -7,4 +7,8 @@ window.FIREBASE_CONFIG = {
   projectId: 'ahl-aljazeera-accounting',
   storageBucket: 'ahl-aljazeera-accounting.firebasestorage.app',
   messagingSenderId: '994806175656',
+  // Public reCAPTCHA v3 site key for App Check. Not a secret. Replace the
+  // placeholder after the key is created in the Firebase console. Do not put
+  // the reCAPTCHA secret key here.
+  appCheckSiteKey: 'REPLACE_WITH_RECAPTCHA_V3_SITE_KEY',
 };

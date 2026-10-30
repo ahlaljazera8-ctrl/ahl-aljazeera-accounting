@@ -2,7 +2,7 @@
 // Storage: IndexedDB "aj-p0" (stores: projects, entries, outbox, meta). Loaded into memory at boot; every write is
 // persisted to IndexedDB (write-through, serialized). "Server" is simulated; outbox = ids not sent yet (no syncState).
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser' };
+const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors' };
 const demoRole = () => { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; };
 const LIST = { projects:1, entries:1, outbox:1 };
 const cache = {};
@@ -255,10 +255,20 @@ function flushRemote() {
         load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
+        readServer: async local => {
+          try {
+            if (typeof fb.readServer === 'function') return await fb.readServer(local);
+            if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
+          } catch (e) {}
+          return null;
+        },
       });
       if (token !== sessionEpoch) return;
-      const drop = new Set(result.synced);
-      set(K.outbox, get(K.outbox, []).filter(id => !drop.has(id)));
+      if (window.SyncStatus) {
+        const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
+        set(K.outbox, next.outbox);
+        set(K.syncErrors, next.errors);
+      } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id)));
     }
     if (token !== sessionEpoch) return;
     await fb.pull(user);
@@ -293,7 +303,7 @@ async function outboxEmpty() {
     return n === 0;
   } catch (e) { return false; }
 }
-const SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'firebase-config.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+const SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
 function isShellCacheRequest(raw) {
   const url = new URL(raw);
   if (url.origin !== location.origin || url.search) return false;
@@ -369,12 +379,14 @@ function data() {
 }
 const typeLabel = e => (e.isReversal ? 'تصحيح (قيد عكسي) · ' : '') + L.ENTRY_TYPES[e.entryType].label;
 function entryRow(e, u, all) {
-  const pending = get(K.outbox, []).includes(e.id);
   const reversed = all.some(x => x.isReversal && x.reversesEntryId === e.id);
   const canRev = !e.isReversal && !reversed && (u.role === 'owner' || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
   const cls = e.isReversal ? 'bad' : e.direction === 'income' ? 'ok' : '';
+  const badge = window.SyncStatus
+    ? SyncStatus.badgeHtml(e.id, get(K.outbox, []), get(K.syncErrors, {}))
+    : (get(K.outbox, []).includes(e.id) ? '<span class="pill warn" style="font-size:11px">لم يُرسل</span>' : '');
   return `<div class="entry"><div class="meta"><span>${esc(typeLabel(e))}</span><small>${esc(e.description)} · ${esc(e.entryDate)}</small>
-    ${pending ? '<span class="pill warn" style="font-size:11px">لم يُرسل</span>' : ''}${reversed ? '<small>معكوس</small>' : ''}</div>
+    ${badge}${reversed ? '<small>معكوس</small>' : ''}</div>
     <div class="meta" style="align-items:flex-end"><span class="num ${cls}">${L.fmt(e.amount * L.sign(e))}</span>
     ${canRev ? `<button class="mini" data-rev="${esc(e.id)}">عكس</button>` : ''}</div></div>`;
 }
@@ -410,7 +422,7 @@ const views = {
     return `<div class="card"><div class="step">1 النوع</div><div class="pills">${types.map(([k, t]) => `<button class="pill ${k === state.type ? 'on' : ''}" data-type="${k}">${t.label}</button>`).join('')}</div></div>
       <div class="card"><div class="step">2 المبلغ</div><div class="amount"><input id="amt" inputmode="numeric" value="${state.amount ? L.fmt(state.amount) : ''}" placeholder="0"> <span>د.ع</span></div>
         <div class="pills" style="justify-content:center"><button class="pill" data-add="1000">+ ألف</button><button class="pill" data-add="1000000">+ مليون</button><button class="pill bad" data-add="0">مسح</button></div></div>
-      <div class="card"><div class="step">3 المشروع${u.role === 'site' ? ' (مشاريعي فقط)' : ''}</div><div class="pills">${projects.map(p => `<button class="pill ${p.id === state.projectId ? 'on' : ''}" data-proj="${p.id}">${esc(p.name)}</button>`).join('')}</div></div>
+      <div class="card"><div class="step">3 المشروع${u.role === 'site' ? ' (مشاريعي فقط)' : ''}</div><div class="pills">${projects.map(p => window.DomSafe ? DomSafe.projectButton(p.id, p.name, p.id === state.projectId) : `<button class="pill ${p.id === state.projectId ? 'on' : ''}" data-proj="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div></div>
       <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)"></textarea>
       <button class="btn" id="save">حفظ</button><div id="msg" class="msg"></div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
@@ -422,7 +434,7 @@ const views = {
       const line = u.role === 'owner'
         ? `<div class="kv"><span>${s.profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(s.profit))}</span></div>`
         : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
-      return `<a class="card proj" href="#project/${p.id}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
+      return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
     }).join('') + (u.role === 'owner' ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
   },
   project(id) {
@@ -434,7 +446,7 @@ const views = {
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     return `<div class="card">${card}</div><div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
-      <a class="btn" href="#entry/${p.id}">+ قيد لهذا المشروع</a>`;
+      <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>`;
   },
 };
 const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'' };
