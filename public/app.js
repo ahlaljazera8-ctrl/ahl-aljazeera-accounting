@@ -72,12 +72,19 @@ function seed() {
   const P = (id, name, clientName, contractAmount) => ({ id, name, clientName, location:'مثال', contractAmount, currency:'IQD', status:'active', createdAtDevice:t, createdAtServer:t, createdBy:'u-ameer', deviceId:'seed', isExample:true });
   const projects = [P('p-school','مشروع المدرسة','زبون مثال 1',60000000), P('p-road','مشروع الطريق','زبون مثال 2',20000000), P('p-market','بناية السوق','زبون مثال 3',15000000)];
   let n = 0;
-  const E = (projectId, entryType, amount, description, by, extra = {}) => ({ id:'seed-' + (++n), projectId, direction:L.ENTRY_TYPES[entryType].direction, entryType, amount, currency:'IQD', entryDate:'2026-10-' + String(n).padStart(2,'0'), description: description + ' (مثال)', partyName:'', isReversal:false, createdAtDevice:t + n*1000, createdAtServer:t + n*1000, createdBy:by, deviceId:'seed', ...extra });
+  const E = (projectId, entryType, amount, description, by, extra = {}) => {
+    const row = { id:'seed-' + (++n), projectId, direction:L.ENTRY_TYPES[entryType].direction, entryType, amount, currency:'IQD', entryDate:'2026-10-' + String(n).padStart(2,'0'), description: description + ' (مثال)', partyName:'', isReversal:false, createdAtDevice:t + n*1000, createdAtServer:t + n*1000, createdBy:by, deviceId:'seed', ...extra };
+    if (!Object.prototype.hasOwnProperty.call(extra, 'createdByName')) {
+      const name = L.recorderName(users.find(u => u.uid === by));
+      if (name) row.createdByName = name;
+    } else if (extra.createdByName == null) delete row.createdByName;
+    return row;
+  };
   const es = [
     E('p-school','clientPayment',40000000,'دفعة أولى','u-ameer'),
     E('p-school','materials',30000000,'حديد وإسمنت','u-ameer'),
     E('p-school','subcontractor',7200000,'مقاول كهرباء','u-ameer'),
-    E('p-school','materials',50000,'إدخال خاطئ','u-ahmed'),
+    E('p-school','materials',50000,'إدخال خاطئ','u-ahmed', { createdByName: null }),
     E('p-road','clientPayment',11200000,'دفعة','u-ameer'),
     E('p-road','labour',8200000,'أجور عمال','u-ahmed'),
     E('p-market','clientPayment',6000000,'دفعة','u-ameer'),
@@ -93,7 +100,7 @@ function seed() {
   lg.append(pend1, { user:users[1], projects, policy:POLICY }); lg.append(pend2, { user:users[1], projects, policy:POLICY });
   set(K.users, users); set(K.projects, projects); set(K.entries, lg.all()); set(K.outbox, [pend1.id, pend2.id]); set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, formId: uuid() };
+const state = { type: 'materials', amount: 0, formId: uuid(), backStack: [] };
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
   const role = get(K.role, demoRole() || 'owner');
@@ -383,6 +390,13 @@ function data() {
   return { u, projects: L.visibleProjects(u, projects, POLICY), entries: L.visibleEntries(u, entries, projects, POLICY), allProjects: projects };
 }
 const typeLabel = e => (e.isReversal ? 'تصحيح (قيد عكسي) · ' : '') + L.ENTRY_TYPES[e.entryType].label;
+const entryHref = id => (window.DomSafe ? DomSafe.entryHref(id) : '#home');
+function syncText(id) {
+  const err = (get(K.syncErrors, {}) || {})[id];
+  if (err) return err;
+  if (get(K.outbox, []).includes(id)) return 'لم يُرسل';
+  return 'مُرسَل';
+}
 function entryRow(e, u, all) {
   const reversed = all.some(x => x.isReversal && x.reversesEntryId === e.id);
   const canRev = !e.isReversal && !reversed && (u.role === 'owner' || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
@@ -390,10 +404,10 @@ function entryRow(e, u, all) {
   const badge = window.SyncStatus
     ? SyncStatus.badgeHtml(e.id, get(K.outbox, []), get(K.syncErrors, {}))
     : (get(K.outbox, []).includes(e.id) ? '<span class="pill warn" style="font-size:11px">لم يُرسل</span>' : '');
-  return `<div class="entry"><div class="meta"><span>${esc(typeLabel(e))}</span><small>${esc(e.description)} · ${esc(e.entryDate)}</small>
+  return `<div class="entry"><a class="entry-open" href="${entryHref(e.id)}"><div class="meta"><span>${esc(typeLabel(e))}</span><small>${esc(e.description)} · ${esc(e.entryDate)}</small><small>${esc(L.displayRecorder(e))}</small>
     ${badge}${reversed ? '<small>معكوس</small>' : ''}</div>
-    <div class="meta" style="align-items:flex-end"><span class="num ${cls}">${L.fmt(e.amount * L.sign(e))}</span>
-    ${canRev ? `<button class="mini" data-rev="${esc(e.id)}">عكس</button>` : ''}</div></div>`;
+    <span class="num ${cls}">${L.fmt(e.amount * L.sign(e))}</span></a>
+    ${canRev ? `<button type="button" class="mini" data-rev="${esc(e.id)}">عكس</button>` : ''}</div>`;
 }
 
 const views = {
@@ -429,6 +443,9 @@ const views = {
         <div class="pills" style="justify-content:center"><button class="pill" data-add="1000">+ ألف</button><button class="pill" data-add="1000000">+ مليون</button><button class="pill bad" data-add="0">مسح</button></div></div>
       <div class="card"><div class="step">3 المشروع${u.role === 'site' ? ' (مشاريعي فقط)' : ''}</div><div class="pills">${projects.map(p => window.DomSafe ? DomSafe.projectButton(p.id, p.name, p.id === state.projectId) : `<button class="pill ${p.id === state.projectId ? 'on' : ''}" data-proj="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div></div>
       <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)"></textarea>
+      <label class="field">الجهة المستلمة / المورّد (اختياري)
+        <input id="party" class="full" maxlength="100" autocomplete="off">
+      </label>
       <button class="btn" id="save">حفظ</button><div id="msg" class="msg"></div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
   },
@@ -453,8 +470,36 @@ const views = {
     return `<div class="card">${card}</div><div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
       <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>`;
   },
+  detail(id) {
+    const { projects, entries } = data();
+    const back = `<button type="button" class="mini" id="back">رجوع</button>`;
+    const e = entries.find(x => x.id === id);
+    if (!e) return back + '<div class="card">القيد غير متاح</div>';
+    const project = projects.find(p => p.id === e.projectId);
+    const reversal = !e.isReversal && entries.find(x => x.isReversal && x.reversesEntryId === e.id);
+    const original = e.isReversal ? entries.find(x => x.id === e.reversesEntryId) : null;
+    const link = (row, label) => row ? `<a class="detail-link" href="${entryHref(row.id)}">${esc(label)}</a>` : '—';
+    const cls = e.isReversal ? 'bad' : e.direction === 'income' ? 'ok' : '';
+    const linked = e.isReversal
+      ? `<div class="kv"><span>القيد الأصلي</span><span>${link(original, 'عرض القيد الأصلي')}</span></div>
+         <div class="kv"><span>سبب التصحيح</span><b>${esc(e.reversalReason || '—')}</b></div>`
+      : (reversal
+        ? `<div class="kv"><span>قيد العكس</span><span>${link(reversal, 'عرض قيد العكس')}</span></div>
+           <div class="kv"><span>سبب التصحيح</span><b>${esc(reversal.reversalReason || '—')}</b></div>`
+        : '');
+    return `${back}<div class="card">
+      <div class="kv"><span>النوع</span><b>${esc(typeLabel(e))}</b></div>
+      <div class="kv"><span>المبلغ</span><b class="num ${cls}">${L.fmt(e.amount * L.sign(e))} د.ع</b></div>
+      <div class="kv"><span>المشروع</span><b>${esc(project ? project.name : '—')}</b></div>
+      <div class="kv"><span>التاريخ</span><b>${esc(e.entryDate || '—')}</b></div>
+      <div class="kv"><span>الوصف</span><b>${esc(e.description || '—')}</b></div>
+      <div class="kv"><span>الجهة</span><b>${esc(e.partyName || '—')}</b></div>
+      <div class="kv"><span>سجّله</span><b>${esc(L.displayRecorder(e))}</b></div>
+      <div class="kv"><span>الإرسال</span><b>${esc(syncText(e.id))}</b></div>
+      ${linked}</div>`;
+  },
 };
-const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'' };
+const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', detail:'تفاصيل القيد' };
 
 function render() {
   const u = me(); if (!u) return;
@@ -473,6 +518,9 @@ function render() {
 }
 
 document.addEventListener('click', ev => {
+  const revBtn = ev.target.closest('[data-rev]');
+  const open = !revBtn && ev.target.closest('a.entry-open, a.detail-link');
+  if (open && $('#login').hidden) state.backStack.push(location.hash || '#home');
   const b = ev.target.closest('button'); if (!b) return;
   if (!$('#login').hidden) return;
   const u = me();
@@ -481,12 +529,16 @@ document.addEventListener('click', ev => {
   else if (b.dataset.add != null) { state.amount = b.dataset.add === '0' ? 0 : state.amount + Number(b.dataset.add); render(); }
   else if (b.id === 'send') { if (demoRole()) sendNow(); else flushRemote(); }
   else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
+  else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
     const desc = $('#desc').value.trim();
+    const party = ($('#party') && $('#party').value || '').trim();
     const e = { id: state.formId, projectId: state.projectId, direction: L.ENTRY_TYPES[state.type].direction, entryType: state.type,
-      amount: state.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: '', isReversal: false,
+      amount: state.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
       createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
+    const recorded = L.recorderName(u);
+    if (recorded) e.createdByName = recorded;
     try { commit(e); state.amount = 0; state.formId = uuid(); render(); $('#msg').innerHTML = '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>'; }
     catch (err) { b.disabled = false; $('#msg').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
   } else if (b.dataset.rev) {

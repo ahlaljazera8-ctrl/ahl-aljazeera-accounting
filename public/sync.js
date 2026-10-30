@@ -30,6 +30,7 @@
       const out = copyFields(doc, ['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdAtDevice', 'createdBy', 'deviceId']);
       if (doc.description) out.description = doc.description;
       if (doc.partyName) out.partyName = doc.partyName;
+      if (doc.createdByName) out.createdByName = doc.createdByName;
       if (doc.isReversal) {
         out.reversesEntryId = doc.reversesEntryId;
         out.reversalReason = doc.reversalReason;

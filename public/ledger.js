@@ -51,6 +51,18 @@
 
   function isPosInt(n) { return Number.isInteger(n) && n > 0; }
 
+  // Copy of users/{uid}.displayName. Rules require an exact match and at most 60
+  // characters, so a missing or longer name is left off the entry.
+  function recorderName(user) {
+    const name = user && user.displayName;
+    if (typeof name !== 'string' || name.length < 1 || name.length > 60) return '';
+    return name;
+  }
+  function displayRecorder(entry) {
+    const name = entry && entry.createdByName;
+    return typeof name === 'string' && name.length > 0 ? name : '—';
+  }
+
   function validateEntry(entry, ctx) {
     const { user, ledger, projects, policy = DEFAULT_POLICY } = ctx;
     const errs = [];
@@ -67,6 +79,14 @@
     if (!isPosInt(entry.amount)) errs.push('المبلغ يجب أن يكون رقماً صحيحاً موجباً');
     if (entry.currency !== 'IQD') errs.push('العملة IQD فقط');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.entryDate || '')) errs.push('entryDate بصيغة YYYY-MM-DD');
+    if ('partyName' in entry && entry.partyName !== undefined) {
+      const p = entry.partyName;
+      if (typeof p !== 'string' || p.length > 100 || p !== p.trim()) errs.push('الجهة المستلمة غير صالحة');
+    }
+    if ('createdByName' in entry && entry.createdByName !== undefined) {
+      const expected = recorderName(user);
+      if (!expected || entry.createdByName !== expected) errs.push('اسم المُسجِّل غير مطابق');
+    }
     if (user && entry.createdBy !== user.uid) errs.push('createdBy يجب أن يساوي المستخدم');
     if (typeof entry.isReversal !== 'boolean') errs.push('isReversal مطلوب');
     if (user && user.role === 'site' && entry.direction === 'income' && !policy.siteCanCreateClientPayment) errs.push('دفعة عميل للمالك فقط');
@@ -103,13 +123,16 @@
   // Deterministic id => one reversal per original (a 2nd create hits the same doc and is refused).
   function reversalId(originalId) { return 'rev_' + originalId; }
   function makeReversal(orig, { user, reason, now, deviceId, entryDate }) {
-    return { id: reversalId(orig.id), projectId: orig.projectId, direction: orig.direction, entryType: orig.entryType,
+    const row = { id: reversalId(orig.id), projectId: orig.projectId, direction: orig.direction, entryType: orig.entryType,
       amount: orig.amount, currency: 'IQD', entryDate, description: 'تصحيح: ' + (orig.description || ''),
       partyName: orig.partyName || '', isReversal: true, reversesEntryId: orig.id, reversalReason: reason,
       createdAtDevice: now, createdAtServer: null, createdBy: user.uid, deviceId };
+    const name = recorderName(user);
+    if (name) row.createdByName = name;
+    return row;
   }
 
-  const CSV_COLS = ['id','projectId','projectName','entryDate','direction','entryType','amount','signedAmount','currency','description','partyName','isReversal','reversesEntryId','reversalReason','createdBy','createdAtDevice','deviceId'];
+  const CSV_COLS = ['id','projectId','projectName','entryDate','direction','entryType','amount','signedAmount','currency','description','partyName','isReversal','reversesEntryId','reversalReason','createdBy','createdByName','createdAtDevice','deviceId'];
   function csvCell(v) {
     let s = v == null ? '' : String(v);
     if (/^[=+\-@\t\r]/.test(s) && isNaN(Number(s))) s = "'" + s; // formula-injection guard
@@ -130,5 +153,5 @@
   function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
 
   return { ENTRY_TYPES, DEFAULT_POLICY, sign, totals, canSeeProject, visibleProjects, visibleEntries,
-    projectSummary, validateEntry, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt };
+    projectSummary, validateEntry, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt };
 });
