@@ -328,6 +328,8 @@ async function loadFirebase() {
 }
 let flushing = null;
 let syncNotice = '';
+let bellOpen = false;
+let lastSyncAt = 0;
 const FLUSH_MS = 20000;
 const SEND_RETRY = 'تعذر الإرسال. أعد المحاولة';
 const PULL_RETRY = 'تعذر التحديث. أعد المحاولة';
@@ -366,6 +368,7 @@ function flushRemote() {
   });
   flushing = run;
   begin();
+  if (!$('#shell').hidden) paintBell();
   const timer = setTimeout(() => {
     if (flushing !== run || token !== sessionEpoch) return;
     flushing = null;
@@ -554,7 +557,10 @@ async function performFlush(token, run) {
     if (token !== sessionEpoch) return;
     try {
       await fb.pull(live);
-      if (token === sessionEpoch && !get(K.outbox, []).length) syncNotice = '';
+      if (token === sessionEpoch) {
+        lastSyncAt = Date.now();
+        if (!get(K.outbox, []).length) syncNotice = '';
+      }
     } catch (err) {
       if (token !== sessionEpoch) return;
       if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
@@ -1156,6 +1162,61 @@ function finishConfirm(c) {
   } else render();
   if (!demoRole()) flushRemote();
 }
+function lastSyncMillis() {
+  if (lastSyncAt) return lastSyncAt;
+  const mark = get(K.pullWatermark, null) || {};
+  return Math.max(Number(mark.entries) || 0, Number(mark.projects) || 0);
+}
+function formatSyncTime(ms) {
+  const d = new Date(ms);
+  const date = new Intl.DateTimeFormat('ar', { day: 'numeric', month: 'short', numberingSystem: 'latn' }).format(d);
+  const time = new Intl.DateTimeFormat('ar', { hour: '2-digit', minute: '2-digit', numberingSystem: 'latn' }).format(d);
+  return date + ' · ' + time;
+}
+function failedMessages() {
+  const errors = get(K.syncErrors, {}) || {};
+  return Object.keys(errors).filter(id => errors[id]).map(id => String(errors[id]));
+}
+function paintBell() {
+  const btn = $('#outbox');
+  if (!btn) return;
+  const count = get(K.outbox, []).length;
+  const failed = failedMessages();
+  const offline = navigator.onLine === false;
+  const sending = !!flushing;
+  const label = ['التنبيهات', 'لم يُرسل بعد: ' + count];
+  if (offline) label.push('بدون إنترنت');
+  if (sending) label.push('جارٍ الإرسال');
+  if (failed.length) label.push(failed[0]);
+  if (syncNotice) label.push(syncNotice);
+  btn.setAttribute('aria-label', label.join('، '));
+  btn.setAttribute('aria-expanded', bellOpen ? 'true' : 'false');
+  if (sending) btn.setAttribute('aria-busy', 'true');
+  else btn.removeAttribute('aria-busy');
+  const badge = btn.querySelector('.bell-badge');
+  if (badge) {
+    badge.hidden = count === 0;
+    badge.textContent = String(count);
+  }
+  const panel = $('#bell-panel');
+  if (panel) {
+    panel.hidden = !bellOpen;
+    const when = lastSyncMillis();
+    const stateLine = offline ? 'بدون إنترنت' : (sending ? 'جارٍ الإرسال' : 'متصل');
+    const failBlock = failed.length
+      ? '<p class="bell-fail">' + esc(failed[0]) + (failed.length > 1 ? ' · ' + failed.length : '') + '</p>'
+      : '';
+    const retry = syncNotice ? '<p class="bell-fail">' + esc(syncNotice) + '</p>' : '';
+    panel.innerHTML = '<p class="bell-k">لم يُرسل بعد</p><p class="bell-count">' + count + '</p>'
+      + '<p class="bell-k">آخر مزامنة</p><p class="bell-time">' + esc(when ? formatSyncTime(when) : 'لم تتم بعد') + '</p>'
+      + '<p class="bell-k">' + esc(stateLine) + '</p>'
+      + failBlock + retry
+      + '<button type="button" class="btn" id="bell-send"' + (sending ? ' disabled' : '') + '>'
+      + (sending ? 'جارٍ الإرسال' : 'إرسال الآن') + '</button>';
+  }
+  const note = $('#sync-msg');
+  if (note) { note.hidden = true; note.textContent = ''; }
+}
 function setFormMsg(text, kind) {
   state.formMsg = text || '';
   state.formMsgKind = kind || (text ? 'error' : '');
@@ -1180,9 +1241,7 @@ function render() {
   $('#who').textContent = demoRole()
     ? (u.role === 'owner' ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)')
     : ((u.role === 'owner' ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
-  $('#outbox').textContent = 'لم يُرسل بعد: ' + get(K.outbox, []).length;
-  const note = $('#sync-msg');
-  if (note) { note.hidden = !syncNotice; note.textContent = syncNotice || ''; }
+  paintBell();
   syncPeopleTab(u);
   const tab = (v === 'project' || v === 'entries') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
@@ -1200,6 +1259,7 @@ function render() {
 }
 
 document.addEventListener('click', ev => {
+  if (bellOpen && !ev.target.closest('.bell-wrap')) { bellOpen = false; paintBell(); }
   if (ev.target.closest && ev.target.closest('#confirm-dialog') && !ev.target.closest('.confirm')) {
     state.confirm = null;
     render();
@@ -1228,7 +1288,8 @@ document.addEventListener('click', ev => {
     if (amtEl) amtEl.value = next ? L.fmt(next) : '';
     render();
   }
-  else if (b.id === 'send') { if (demoRole()) sendNow(); else flushRemote(); }
+  else if (b.id === 'outbox') { bellOpen = !bellOpen; paintBell(); }
+  else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote(); }
   else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
   else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
   else if (b.id === 'back-project') {
@@ -1352,6 +1413,9 @@ $('#login-form').addEventListener('submit', async ev => {
     if (token !== sessionEpoch) return;
     msg.textContent = err.code ? loginError(err) : (err.message || 'تعذر الدخول');
   } finally { if (token === sessionEpoch) btn.disabled = false; document.body.dataset.loginAttempt = '1'; }
+});
+addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && bellOpen) { bellOpen = false; paintBell(); }
 });
 addEventListener('hashchange', render);
 addEventListener('online', () => { if (!demoRole() && get(K.sessionUser)) flushRemote(); else if (!$('#shell').hidden) render(); });

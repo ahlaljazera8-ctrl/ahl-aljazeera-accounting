@@ -1,6 +1,6 @@
-// Coming back online must drain the outbox without a reload, the send button
-// must do the same, and a pull that fails in flight must not reject unhandled
-// or leave the header pill behind the real outbox.
+// Coming back online must drain the outbox without a reload, the panel send
+// button must do the same, and a pull that fails in flight must not reject
+// unhandled or leave the bell badge behind the real outbox.
 // Emulators only. Never call production.
 const fs = require('fs');
 const http = require('http');
@@ -108,10 +108,22 @@ async function openSession() {
   await page.click('#login-btn');
   await page.waitForFunction(() => document.querySelector('#shell') && document.querySelector('#shell').hidden === false, null, { timeout: 30000 });
   await page.waitForFunction(id => (window.AJ.get('projects') || []).some(p => p && p.id === id), PROJECT_ID, { timeout: 20000 });
-  await page.waitForFunction(() => document.querySelector('#outbox') && document.querySelector('#outbox').textContent.trim().endsWith(': 0'), null, { timeout: 20000 });
+  await page.waitForFunction(() => {
+    const btn = document.querySelector('#outbox');
+    const badge = btn && btn.querySelector('.bell-badge');
+    const panel = document.querySelector('#bell-panel');
+    const label = (btn && btn.getAttribute('aria-label')) || '';
+    const text = panel ? panel.innerText : '';
+    return btn && btn.tagName === 'BUTTON' && badge && badge.hidden === true && label.includes('لم يُرسل بعد: 0') && text.includes('إرسال الآن') && text.includes('آخر مزامنة');
+  }, null, { timeout: 20000 });
   return { context, page, writes, pageErrors };
 }
 
+async function pressSend(page) {
+  const open = await page.getAttribute('#outbox', 'aria-expanded');
+  if (open !== 'true') await page.click('#outbox');
+  await page.click('#bell-send');
+}
 async function saveOffline(page, note) {
   await page.evaluate(() => { location.hash = '#entry'; dispatchEvent(new HashChangeEvent('hashchange')); });
   await page.waitForSelector('[data-proj="' + PROJECT_ID + '"]');
@@ -128,16 +140,24 @@ async function saveOffline(page, note) {
 
 async function snapshot(page) {
   return page.evaluate(() => {
-    const el = document.querySelector('#sync-msg');
+    const btn = document.querySelector('#outbox');
+    const badge = btn && btn.querySelector('.bell-badge');
+    const panel = document.querySelector('#bell-panel');
     const n = (window.AJ.get('outbox') || []).length;
-    const pill = (document.querySelector('#outbox') || {}).textContent || '';
+    const label = (btn && btn.getAttribute('aria-label')) || '';
+    const text = panel ? panel.innerText : '';
+    const banner = document.querySelector('#sync-msg');
+    const countOk = label.includes('لم يُرسل بعد: ' + n) && (n === 0 ? !!(badge && badge.hidden) : !!(badge && badge.hidden === false && badge.textContent === String(n)));
+    const actionOk = text.includes('إرسال الآن') || text.includes('جارٍ الإرسال');
     return {
       onLine: navigator.onLine,
       outbox: window.AJ.get('outbox') || [],
-      pill: pill.trim(),
-      matches: pill.trim().endsWith(': ' + n),
-      msg: el ? el.textContent : '',
-      shown: !!(el && !el.hidden && (el.textContent || '').trim()),
+      label,
+      panel: text,
+      matches: !!(btn && btn.tagName === 'BUTTON' && countOk && actionOk && text.includes('آخر مزامنة') && text.includes(String(n))),
+      msg: label + '\n' + text,
+      shown: /تعذر/.test(label) && /تعذر/.test(text),
+      bannerHidden: !banner || banner.hidden === true,
       unhandled: window.__unhandled.slice(),
     };
   });
@@ -191,14 +211,16 @@ test('an offline entry drains after reconnect with no reload and one write', { t
     const queued = await snapshot(session.page);
     assert.equal(queued.onLine, false);
     assert.deepEqual(queued.outbox, [id]);
-    assert.equal(queued.matches, true, 'pill while offline: ' + queued.pill);
+    assert.equal(queued.matches, true, 'bell while offline: ' + queued.label);
     assert.equal(await serverEntry(id), null);
 
     await session.context.setOffline(false);
     await session.page.waitForFunction(entryId => {
       const n = (window.AJ.get('outbox') || []).length;
-      const pill = document.querySelector('#outbox').textContent.trim();
-      return !(window.AJ.get('outbox') || []).includes(entryId) && pill.endsWith(': ' + n) && n === 0;
+      const btn = document.querySelector('#outbox');
+      const badge = btn && btn.querySelector('.bell-badge');
+      const label = (btn && btn.getAttribute('aria-label')) || '';
+      return !(window.AJ.get('outbox') || []).includes(entryId) && n === 0 && label.includes('لم يُرسل بعد: 0') && badge && badge.hidden === true;
     }, id, { timeout: 15000 });
 
     const stored = await serverEntry(id);
@@ -222,19 +244,22 @@ test('إرسال الآن sends a queued entry once after reconnect', { timeout:
   try {
     await session.context.setOffline(true);
     const id = await saveOffline(session.page, 'TEST ut إرسال الآن');
-    await session.page.click('#send');
+    await pressSend(session.page);
     await sleep(400);
     const held = await snapshot(session.page);
     assert.deepEqual(held.outbox, [id], 'send while offline must keep the entry');
-    assert.equal(held.matches, true, held.pill);
+    assert.equal(held.matches, true, held.label);
     assert.equal(await serverEntry(id), null);
 
     await session.context.setOffline(false);
-    await session.page.click('#send');
+    await pressSend(session.page);
     await session.page.waitForFunction(entryId => {
       const n = (window.AJ.get('outbox') || []).length;
-      const pill = document.querySelector('#outbox').textContent.trim();
-      return !(window.AJ.get('outbox') || []).includes(entryId) && pill.endsWith(': ' + n);
+      const btn = document.querySelector('#outbox');
+      const label = (btn && btn.getAttribute('aria-label')) || '';
+      const badge = btn && btn.querySelector('.bell-badge');
+      const countOk = n === 0 ? !!(badge && badge.hidden) : !!(badge && !badge.hidden && badge.textContent === String(n));
+      return !(window.AJ.get('outbox') || []).includes(entryId) && label.includes('لم يُرسل بعد: ' + n) && countOk;
     }, id, { timeout: 15000 });
 
     const stored = await serverEntry(id);
@@ -244,14 +269,14 @@ test('إرسال الآن sends a queued entry once after reconnect', { timeout:
     const bodies = session.writes.filter(body => body.includes(id));
     assert.equal(bodies.length, 1, 'write requests carrying this id: ' + bodies.length);
     const after = await snapshot(session.page);
-    assert.equal(after.matches, true, after.pill + ' outbox ' + after.outbox.length);
+    assert.equal(after.matches, true, after.label + ' outbox ' + after.outbox.length);
     assert.deepEqual(after.unhandled, []);
   } finally {
     await session.context.close();
   }
 });
 
-test('a pull that fails in flight leaves no unhandled rejection and the pill matches the outbox', { timeout: 120000 }, async () => {
+test('a pull that fails in flight leaves no unhandled rejection and the bell matches the outbox', { timeout: 120000 }, async () => {
   const session = await openSession();
   try {
     // Hold the server read so the save can commit locally and the pull is still
@@ -292,8 +317,9 @@ test('a pull that fails in flight leaves no unhandled rejection and the pill mat
     state = await snapshot(session.page);
     const noise = state.unhandled.concat(session.pageErrors);
     assert.deepEqual(noise, [], 'unhandled: ' + noise.join(' | ') + ' state ' + JSON.stringify(state));
-    assert.equal(state.matches, true, 'pill ' + state.pill + ' outbox ' + state.outbox.length);
-    assert.equal(state.shown, true, 'a failed sync should be visible: ' + JSON.stringify(state));
+    assert.equal(state.matches, true, 'bell ' + state.label + ' outbox ' + state.outbox.length);
+    assert.equal(state.bannerHidden, true, 'the header stays free of the retry line: ' + JSON.stringify(state));
+    assert.equal(state.shown, true, 'a failed sync should be in the bell label and the panel: ' + JSON.stringify(state));
     assert.match(state.msg, /تعذر/);
     const id = await session.page.evaluate(() => {
       const row = (window.AJ.get('entries') || []).find(e => e && e.description === 'TEST ut سحب فاشل');

@@ -294,7 +294,7 @@ test('a save during an in-flight pull stays on screen and sends without a reload
   await withSession('pull', async session => {
     const note = 'TEST pull race ' + Date.now();
     const seen = await armPullHold(session);
-    await session.ev(`document.querySelector('#send').click(); 1`);
+    await session.ev(`(()=>{const b=document.querySelector('#outbox');if(b.getAttribute('aria-expanded')!=='true')b.click();document.querySelector('#bell-send').click();return 1})()`);
     assert.equal(await waitFor(session, `window.__pulls > ${seen}`, 15000), true, 'the pull is in flight');
     await session.ev(`(()=>{
       location.hash = '#entry';
