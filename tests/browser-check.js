@@ -1,31 +1,13 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
-const { spawn } = require('child_process'); const fs = require('fs'); const net = require('net'); const path = require('path');
-const { waitForPage } = require('./chrome-debug.js');
+const fs = require('fs'); const path = require('path');
+const { openChrome } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); });
-  });
-}
 let chrome;
 (async () => {
-  const port = await freePort();
-  let chromeLog = '';
-  chrome = spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--no-first-run', '--no-default-browser-check',
-    '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
-    '--remote-debugging-port=' + port, '--user-data-dir=/tmp/aj-chrome-' + Date.now(),
-    'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const keep = chunk => { chromeLog = (chromeLog + chunk).slice(-4000); };
-  chrome.stdout.on('data', keep); chrome.stderr.on('data', keep);
-  let tgt;
-  try { tgt = await waitForPage(port, chrome); }
-  catch (err) { throw new Error(err.message + '\n' + chromeLog); }
+  const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
+  chrome = opened.chrome;
+  const tgt = opened.page;
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
