@@ -31,7 +31,13 @@
   <div id="shell">
     <header class="top">
       <div><h1 id="title">الرئيسية</h1><div id="who" class="sub"></div></div>
-      <span id="outbox" class="pill warn">لم يُرسل بعد: 0</span>
+      <div class="bell-wrap">
+        <button type="button" id="outbox" class="bell" aria-expanded="false" aria-controls="bell-panel" aria-haspopup="true" aria-label="التنبيهات، لم يُرسل بعد: 0">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.2a6 6 0 0 1 12 0c0 4.2 1.6 5.8 1.6 5.8H4.4S6 13.4 6 9.2"/><path d="M10 18.2a2 2 0 0 0 4 0"/></svg>
+          <span class="bell-badge" hidden></span>
+        </button>
+        <div id="bell-panel" class="bell-panel" hidden role="region" aria-label="حالة الإرسال"></div>
+      </div>
     </header>
     <p id="sync-msg" class="sync-msg" hidden></p>
     <div class="rolebar">
@@ -39,7 +45,6 @@
         <select id="role"><option value="owner">المالك · أمير</option><option value="site">مستخدم موقع · أحمد</option></select>
       </label>
       <button id="logout" class="mini" hidden type="button">خروج</button>
-      <button id="send" class="mini" type="button">إرسال الآن</button>
     </div>
     <main id="main"></main>
     <nav class="tabs">

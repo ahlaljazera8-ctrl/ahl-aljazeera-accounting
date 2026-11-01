@@ -334,7 +334,7 @@ testSeq('a site user applies an assignment change on the next send, without a re
     await testEnv.withSecurityRulesDisabled(async ctx => {
       await updateDoc(doc(ctx.firestore(), 'users', siteUid), { assignedProjectIds: ['p-new'] });
     });
-    await session.ev(`document.querySelector('#send').click(); 1`);
+    await session.ev(`(()=>{const b=document.querySelector('#outbox');if(b.getAttribute('aria-expanded')!=='true')b.click();document.querySelector('#bell-send').click();return 1})()`);
     const assigned = await waitFor(session, `((AJ.get('sessionUser') || {}).assignedProjectIds || []).join() === 'p-new'`, 20000);
     assert.equal(assigned, true, 'the profile on the device changed without a reload. ' + detail(session));
     await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
@@ -497,20 +497,26 @@ testSeq('a lost reversal race clears the unsent label before the next pull finis
       return true;
     })()`);
     await session.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-    await session.ev(`dispatchEvent(new Event('online')); document.querySelector('#send').click(); 1`);
+    await session.ev(`dispatchEvent(new Event('online')); (()=>{const b=document.querySelector('#outbox');if(b.getAttribute('aria-expanded')!=='true')b.click();document.querySelector('#bell-send').click();return 1})()`);
     const settled = await waitFor(session, `(() => {
       const row = (AJ.get('entries') || []).find(e => e && e.id === 'rev_race-entry-1');
       const pending = (AJ.get('outbox') || []).includes('rev_race-entry-1');
       if (!row || pending || row.reversalReason !== 'سبب الخادم') return false;
-      const pill = (document.querySelector('#outbox') && document.querySelector('#outbox').textContent) || '';
+      const btn = document.querySelector('#outbox');
+      const badge = btn && btn.querySelector('.bell-badge');
+      const panel = document.querySelector('#bell-panel');
+      const label = (btn && btn.getAttribute('aria-label')) || '';
       const main = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
-      window.__settleDom = { pill, stale: main.includes('لم يُرسل') };
+      window.__settleDom = { label, panel: panel ? panel.innerText : '', badgeHidden: !!(badge && badge.hidden), stale: main.includes('لم يُرسل') };
       return true;
     })()`, 20000);
     assert.equal(settled, true, 'the server reversal was adopted. ' + detail(session));
     const dom = await session.ev(`window.__settleDom`);
     assert.equal(dom.stale, false, 'the row must not keep لم يُرسل after adoption: ' + JSON.stringify(dom));
-    assert.match(dom.pill, /:\s*0\s*$/, 'the pill must match the empty outbox: ' + dom.pill);
+    assert.equal(dom.badgeHidden, true, 'the badge hides when nothing is queued: ' + JSON.stringify(dom));
+    assert.match(dom.label, /لم يُرسل بعد: 0/, 'the bell label must match the empty outbox: ' + dom.label);
+    assert.match(dom.panel, /إرسال الآن|جارٍ الإرسال/, 'the panel keeps the send action: ' + dom.panel);
+    assert.match(dom.panel, /آخر مزامنة/, 'the panel names the last sync: ' + dom.panel);
     assert.equal(session.production, '');
   } finally { stopBrowser(session); fs.rmSync(dir, { recursive: true, force: true }); }
 }, 90000);

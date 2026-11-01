@@ -254,9 +254,9 @@ test('security headers still let the app boot, log in, sync an entry, and regist
     assert.equal(form, true, 'entry form did not list the project');
     await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); document.querySelector('[data-add="1000"]').click(); document.querySelector('#desc').value = ${JSON.stringify(DESC)}; document.querySelector('#save').click(); 1`);
     const entrySaved = `(AJ.get('entries') || []).some(e => e && e.description === ${JSON.stringify(DESC)})`;
-    const outboxEmpty = `document.querySelector('#outbox') && document.querySelector('#outbox').textContent.trim().endsWith(': 0')`;
+    const outboxEmpty = `(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const panel=document.querySelector('#bell-panel');const label=(btn&&btn.getAttribute('aria-label'))||'';const text=panel?panel.innerText:'';return btn&&btn.tagName==='BUTTON'&&badge&&badge.hidden===true&&label.includes('لم يُرسل بعد: 0')&&text.includes('إرسال الآن')&&text.includes('آخر مزامنة')})()`;
     const synced = await waitFor(session, entrySaved + ' && ' + outboxEmpty, 20000);
-    if (!synced) await session.ev(`document.querySelector('#send').click(); 1`);
+    if (!synced) await session.ev(`(()=>{const b=document.querySelector('#outbox');if(b.getAttribute('aria-expanded')!=='true')b.click();document.querySelector('#bell-send').click();return 1})()`);
     const drained = synced || await waitFor(session, entrySaved + ' && ' + outboxEmpty, 20000);
     assert.equal(drained, true, 'the entry stayed in the outbox. ' + session.logs.slice(-8).join(' | '));
 

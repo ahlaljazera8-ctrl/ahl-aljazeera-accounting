@@ -353,7 +353,7 @@ testSeq('an unsent entry blocks logout, and a refused entry stays on the device 
     await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); 1`);
     await session.ev(`document.querySelector('[data-add="1000"]').click(); 1`);
     await session.ev(`document.querySelector('#desc').value=${JSON.stringify(UNSENT)}; document.querySelector('#save').click(); 1`);
-    const queued = await waitFor(session, `(AJ.get('outbox')||[]).length === 1 && document.querySelector('#outbox').textContent.includes('1')`, 8000);
+    const queued = await waitFor(session, `(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const panel=document.querySelector('#bell-panel');const n=(AJ.get('outbox')||[]).length;const label=(btn&&btn.getAttribute('aria-label'))||'';const text=panel?panel.innerText:'';return n===1&&btn&&btn.tagName==='BUTTON'&&badge&&badge.hidden===false&&badge.textContent==='1'&&label.includes('لم يُرسل بعد: 1')&&label.includes('بدون إنترنت')&&text.includes('إرسال الآن')&&text.includes('آخر مزامنة')&&text.includes('1')})()`, 8000);
     assert.equal(queued, true, 'an offline save stays in the pending count');
     session.dialogs = [];
     await session.ev(`document.querySelector('#logout').click(); 1`);
@@ -378,7 +378,12 @@ testSeq('an unsent entry blocks logout, and a refused entry stays on the device 
       if (!row) return false;
       const pending = (AJ.get('outbox')||[]).includes(row.id);
       const err = (AJ.get('syncErrors')||{})[row.id] || '';
-      return !pending && /رُفض|محتوى/.test(err) && document.querySelector('#outbox').textContent.trim().endsWith(': 0');
+      const btn = document.querySelector('#outbox');
+      const badge = btn && btn.querySelector('.bell-badge');
+      const panel = document.querySelector('#bell-panel');
+      const label = (btn && btn.getAttribute('aria-label')) || '';
+      const text = panel ? panel.innerText : '';
+      return !pending && /رُفض|محتوى/.test(err) && btn && btn.tagName === 'BUTTON' && badge && badge.hidden === true && label.includes('لم يُرسل بعد: 0') && label.includes(err) && text.includes(err) && text.includes('إرسال الآن');
     })()`, 20000);
     assert.equal(refused, true, 'a definitive refusal leaves the pending count and keeps an error. ' + detail(session));
     await session.send('Page.reload', {});

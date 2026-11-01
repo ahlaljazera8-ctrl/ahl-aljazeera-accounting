@@ -15,7 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
-const MARK = 'aj-p0-v19';
+const MARK = 'aj-p0-v21';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';
 const WEB = ['index.html', 'app.js', 'sw.js', 'style.css', 'ledger.js', 'sync.js', 'firebase-config.js', 'manifest.json', 'icon.svg'];
@@ -154,6 +154,26 @@ async function plantedEntry(rev) {
       const rows = (window.AJ && AJ.get('entries')) || [];
       return shell && shell.hidden === false && rows.some(x => x.description === d);
     }, desc, { timeout: 30000 });
+    const bell = await page2.evaluate(() => {
+      const btn = document.querySelector('#outbox');
+      const badge = btn && btn.querySelector('.bell-badge');
+      const panel = document.querySelector('#bell-panel');
+      const n = (window.AJ.get('outbox') || []).length;
+      return {
+        button: !!(btn && btn.tagName === 'BUTTON'),
+        label: (btn && btn.getAttribute('aria-label')) || '',
+        n,
+        badgeHidden: !!(badge && badge.hidden),
+        badge: badge ? badge.textContent : '',
+        panel: panel ? panel.innerText : '',
+      };
+    });
+    assert.equal(bell.button, true, 'the healed page uses the bell');
+    assert.match(bell.label, new RegExp('لم يُرسل بعد: ' + bell.n), bell.label);
+    assert.match(bell.panel, /آخر مزامنة/, bell.panel);
+    assert.match(bell.panel, /إرسال الآن|جارٍ الإرسال/, bell.panel);
+    if (bell.n === 0) assert.equal(bell.badgeHidden, true, bell.badge);
+    else assert.equal(bell.badge, String(bell.n));
     const msg = await page2.locator('#login-msg').textContent();
     assert.equal(/Importing a module script failed/i.test(msg || ''), false, msg || '');
     assert.ok(navs <= 2, 'at most one automatic reload, saw ' + navs);
