@@ -102,7 +102,7 @@ function seed() {
   set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
   set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, formId: uuid(), backStack: [] };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [] };
 let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
@@ -241,8 +241,13 @@ async function loadFirebase() {
       if (!saved.finance) return;
       await fsMod.setDoc(fsMod.doc(fdb, 'projectFinance', clean.id), saved.finance);
       const fin = get(K.finance, {});
-      fin[clean.id] = { contractAmount: saved.finance.contractAmount };
-      set(K.finance, fin);
+      const current = fin[clean.id];
+      // A contract typed while this write was in flight keeps pending when
+      // its amount is not the one just sent, so the flush can send it next.
+      if (!current || current.contractAmount === saved.finance.contractAmount) {
+        fin[clean.id] = { contractAmount: saved.finance.contractAmount };
+        set(K.finance, fin);
+      }
       set(K.projects, get(K.projects, []).map(p => p.id === clean.id ? S.withoutContractAmount(p) : p));
     },
     async exists(local) {
@@ -270,19 +275,26 @@ async function loadFirebase() {
         localProjects: get(K.projects, []),
         read: readSpec,
       });
-      set(K.projects, S.projectsForClient(user, result.projects));
-      set(K.entries, result.entries);
+      // Those copies were taken before the reads. A save that landed while
+      // the reads were in flight is only in the cache now, so merge the
+      // server rows into the cache as it stands and keep pending ids.
+      const pendingIds = get(K.outbox, []);
+      const projects = S.mergeById(get(K.projects, []), result.incomingProjects || [], pendingIds);
+      const entries = S.mergeById(get(K.entries, []), result.incomingEntries || [], pendingIds);
+      set(K.projects, S.projectsForClient(user, projects));
+      set(K.entries, entries);
       set(K.pullWatermark, result.watermark);
-      const fin = get(K.finance, {});
-      let changed = false;
-      for (const spec of S.financeReads(user, (result.projects || []).map(p => p && p.id))) {
+      for (const spec of S.financeReads(user, projects.map(p => p && p.id))) {
         const rows = await readSpec(spec);
+        const live = get(K.finance, {});
+        if (live[spec.id] && live[spec.id].pending) continue;
         const amount = rows[0] && rows[0].contractAmount;
-        if (!Number.isInteger(amount) || (fin[spec.id] && fin[spec.id].pending)) continue;
-        fin[spec.id] = { contractAmount: amount };
-        changed = true;
+        if (!Number.isInteger(amount)) continue;
+        const again = get(K.finance, {});
+        if (again[spec.id] && again[spec.id].pending) continue;
+        again[spec.id] = { contractAmount: amount };
+        set(K.finance, again);
       }
-      if (changed) set(K.finance, fin);
     },
   };
 }
@@ -326,8 +338,33 @@ function flushRemote() {
   run.then(() => clearTimeout(timer), () => clearTimeout(timer));
   return run;
 }
+function adoptEntry(local, remote) {
+  const src = window.Sync.fromRemote(remote || {});
+  const next = Object.assign({}, local);
+  ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdBy', 'createdByName', 'description', 'partyName', 'deviceId', 'createdAtDevice', 'createdAtServer'].forEach(k => {
+    if (src[k] === undefined || src[k] === null || src[k] === '') {
+      if (k === 'createdByName' || k === 'description' || k === 'partyName' || k === 'reversalReason') delete next[k];
+      return;
+    }
+    next[k] = src[k];
+  });
+  next.id = local.id;
+  return next;
+}
+function queuePendingFinance() {
+  const fin = get(K.finance, {}) || {};
+  const errors = get(K.syncErrors, {}) || {};
+  const out = get(K.outbox, []).slice();
+  let changed = false;
+  Object.keys(fin).forEach(id => {
+    if (!fin[id] || !fin[id].pending || errors[id] || out.includes(id)) return;
+    out.push(id);
+    changed = true;
+  });
+  if (changed) set(K.outbox, out);
+}
 async function performFlush(token, run) {
-  let started = null;
+  let keptIds = null;
   try {
     if (token !== sessionEpoch || navigator.onLine === false) return;
     const fb = await ensureFirebase();
@@ -335,12 +372,11 @@ async function performFlush(token, run) {
     const user = get(K.sessionUser);
     if (!user) return;
     const ids = get(K.outbox, []).slice();
-    started = new Set(ids);
-    const entries = get(K.entries, []); const projects = get(K.projects, []);
+    keptIds = [];
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
         ids,
-        load: id => entries.find(e => e.id === id) || projects.find(p => p.id === id) || null,
+        load: id => get(K.entries, []).find(e => e.id === id) || get(K.projects, []).find(p => p.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
         readServer: async local => {
@@ -352,11 +388,16 @@ async function performFlush(token, run) {
         },
       });
       if (token !== sessionEpoch) return;
+      keptIds = result.kept || [];
+      if (result.adopted && result.adopted.length) {
+        const map = new Map(result.adopted.map(row => [row.id, row.remote]));
+        set(K.entries, get(K.entries, []).map(entry => map.has(entry.id) ? adoptEntry(entry, map.get(entry.id)) : entry));
+      }
       if (window.SyncStatus) {
         const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
         set(K.outbox, next.outbox);
         set(K.syncErrors, next.errors);
-      } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id)));
+      } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id) && !(result.failed || []).some(row => row && row.id === id)));
       if ((result.kept || []).length) syncNotice = SEND_RETRY;
       else if (!(result.failed || []).length) syncNotice = '';
     }
@@ -369,12 +410,17 @@ async function performFlush(token, run) {
     }
   } catch (err) {
     if (token === sessionEpoch) syncNotice = SEND_RETRY;
+    keptIds = null;
   } finally {
     if (flushing === run) flushing = null;
     if (token === sessionEpoch && get(K.sessionUser) && !$('#shell').hidden) render();
   }
-  if (started && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser) && get(K.outbox, []).some(id => !started.has(id))) {
-    return flushRemote();
+  // An id queued again during this flush (a contract saved after its project
+  // write, or an entry saved during the pull) is not in kept. Send it now.
+  if (Array.isArray(keptIds) && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser)) {
+    queuePendingFinance();
+    const kept = new Set(keptIds);
+    if (get(K.outbox, []).some(id => !kept.has(id))) return flushRemote();
   }
 }
 async function closeUserDb() {
@@ -493,10 +539,11 @@ function saveContract(u) {
   const project = get(K.projects, []).find(p => p.id === id);
   const msg = $('#contract-msg');
   if (!project) return;
-  const raw = ($('#contract') && $('#contract').value || '').replace(/[^\d]/g, '');
+  const raw = ($('#contract') && $('#contract').value || '').trim();
   if (!raw) { if (msg) msg.textContent = 'أدخل قيمة العقد'; return; }
-  const amount = Number(raw);
-  if (!Number.isInteger(amount) || amount > 10000000000) { if (msg) msg.textContent = 'قيمة العقد غير صالحة'; return; }
+  const parsed = L.parseAmount(raw, { allowZero: true });
+  if (!parsed.ok) { if (msg) msg.textContent = parsed.error; return; }
+  const amount = parsed.amount;
   const saved = window.Sync.splitProjectSave(project, amount);
   set(K.projects, get(K.projects, []).map(p => p.id === id ? saved.project : p));
   const fin = get(K.finance, {});
@@ -577,6 +624,10 @@ function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending t
   set(K.outbox, []); render();
 }
 
+function counts(entries) {
+  const errors = get(K.syncErrors, {}) || {};
+  return (entries || []).filter(e => !errors[e.id]);
+}
 function data() {
   const u = me(), projects = get(K.projects, []), entries = get(K.entries, []);
   return { u, projects: L.visibleProjects(u, projects, POLICY), entries: L.visibleEntries(u, entries, projects, POLICY), allProjects: projects };
@@ -610,7 +661,7 @@ const views = {
     const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${onlineLabel}</span><b style="font-size:14px">${out} قيود محفوظة على الهاتف</b></div><div class="note">${syncNote}</div></div>`;
     const ex = (demoRole() || get(K.entries, []).some(e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
     if (u.role === 'owner') {
-      const t = L.totals(entries);
+      const t = L.totals(counts(entries));
       return ex + sync + `<div class="card"><h2>ملخص كل المشاريع</h2>
         <div class="kv"><span>إجمالي المقبوض</span>${money(t.received)}</div>
         <div class="kv"><span>إجمالي المصروف</span>${money(t.spent)}</div>
@@ -619,7 +670,7 @@ const views = {
     }
     const mine = entries.filter(e => e.createdBy === u.uid).slice(-3).reverse();
     return ex + sync + `<div class="card"><h2>مشاريعي (${projects.length})</h2>${projects.map(p => {
-        const s = entries.filter(e => e.projectId === p.id && e.entryDate === today());
+        const s = counts(entries.filter(e => e.projectId === p.id && e.entryDate === today()));
         return `<div class="kv"><span>${esc(p.name)}</span><b>مصروف اليوم: <span class="num">${L.fmt(L.totals(s).spent)}</span></b></div>`; }).join('')}</div>
       <div class="card"><h2>آخر قيودي</h2>${mine.map(e => entryRow(e, u, entries)).join('') || '<div class="note">لا يوجد</div>'}</div>
       <a class="btn" href="#entry">+ قيد جديد</a>`;
@@ -631,12 +682,12 @@ const views = {
     if (pid) state.projectId = pid;
     if (!projects.some(p => p.id === state.projectId)) state.projectId = projects[0] && projects[0].id;
     return `<div class="card"><div class="step">1 النوع</div><div class="pills">${types.map(([k, t]) => `<button class="pill ${k === state.type ? 'on' : ''}" data-type="${k}">${t.label}</button>`).join('')}</div></div>
-      <div class="card"><div class="step">2 المبلغ</div><div class="amount"><input id="amt" inputmode="numeric" value="${state.amount ? L.fmt(state.amount) : ''}" placeholder="0"> <span>د.ع</span></div>
+      <div class="card"><div class="step">2 المبلغ</div><div class="amount"><input id="amt" inputmode="numeric" value="${esc(state.amountDraft || '')}" placeholder="0"> <span>د.ع</span></div>
         <div class="pills" style="justify-content:center"><button class="pill" data-add="1000">+ ألف</button><button class="pill" data-add="1000000">+ مليون</button><button class="pill bad" data-add="0">مسح</button></div></div>
       <div class="card"><div class="step">3 المشروع${u.role === 'site' ? ' (مشاريعي فقط)' : ''}</div><div class="pills">${projects.map(p => window.DomSafe ? DomSafe.projectButton(p.id, p.name, p.id === state.projectId) : `<button class="pill ${p.id === state.projectId ? 'on' : ''}" data-proj="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div></div>
-      <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)"></textarea>
+      <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)">${esc(state.desc || '')}</textarea>
       <label class="field">الجهة المستلمة / المورّد (اختياري)
-        <input id="party" class="full" maxlength="100" autocomplete="off">
+        <input id="party" class="full" maxlength="100" autocomplete="off" value="${esc(state.party || '')}">
       </label>
       <button class="btn" id="save">حفظ</button><div id="msg" class="msg"></div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
@@ -644,7 +695,7 @@ const views = {
   projects() {
     const { u, projects, entries } = data();
     return projects.map(p => {
-      const s = L.projectSummary(u, entries.filter(e => e.projectId === p.id));
+      const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
       const line = u.role === 'owner'
         ? `<div class="kv"><span>${s.profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(s.profit))}</span></div>`
         : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
@@ -654,7 +705,7 @@ const views = {
   project(id) {
     const { u, projects, entries } = data();
     const p = projects.find(x => x.id === id); if (!p) return '<div class="card">المشروع غير متاح</div>';
-    const es = entries.filter(e => e.projectId === id); const s = L.projectSummary(u, es);
+    const es = entries.filter(e => e.projectId === id); const s = L.projectSummary(u, counts(es));
     const card = u.role === 'owner'
       ? `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
@@ -736,7 +787,16 @@ function syncPeopleTab(u) {
   }
 }
 
+function captureForm() {
+  const desc = $('#desc');
+  const party = $('#party');
+  const amt = $('#amt');
+  if (desc) state.desc = desc.value;
+  if (party) state.party = party.value;
+  if (amt) state.amountDraft = amt.value;
+}
 function render() {
+  captureForm();
   const u = me(); if (!u) return;
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   const v = views[view] ? view : 'home';
@@ -773,7 +833,20 @@ document.addEventListener('click', ev => {
   const u = me();
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
   else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
-  else if (b.dataset.add != null) { state.amount = b.dataset.add === '0' ? 0 : state.amount + Number(b.dataset.add); render(); }
+  else if (b.dataset.add != null) {
+    const amtEl = $('#amt');
+    const parsed = L.parseAmount(amtEl ? amtEl.value : '');
+    const base = parsed.ok ? parsed.amount : 0;
+    const next = b.dataset.add === '0' ? 0 : base + Number(b.dataset.add);
+    if (next > L.MAX_AMOUNT_IQD) {
+      const box = $('#msg');
+      if (box) box.textContent = (L.parseAmount(String(next)) || {}).error || '';
+      return;
+    }
+    state.amount = next;
+    if (amtEl) amtEl.value = next ? L.fmt(next) : '';
+    render();
+  }
   else if (b.id === 'send') { if (demoRole()) sendNow(); else flushRemote(); }
   else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
   else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
@@ -781,13 +854,23 @@ document.addEventListener('click', ev => {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
     const desc = $('#desc').value.trim();
     const party = ($('#party') && $('#party').value || '').trim();
+    const parsed = L.parseAmount($('#amt') && $('#amt').value);
+    if (!parsed.ok) { b.disabled = false; $('#msg').textContent = parsed.error; return; }
     const e = { id: state.formId, projectId: state.projectId, direction: L.ENTRY_TYPES[state.type].direction, entryType: state.type,
-      amount: state.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
+      amount: parsed.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
       createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
     const recorded = L.recorderName(u);
     if (recorded) e.createdByName = recorded;
-    try { commit(e); state.amount = 0; state.formId = uuid(); render(); $('#msg').innerHTML = '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>'; }
-    catch (err) { b.disabled = false; $('#msg').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+    try {
+      commit(e);
+      state.amount = 0; state.amountDraft = ''; state.desc = ''; state.party = ''; state.formId = uuid();
+      if ($('#desc')) $('#desc').value = '';
+      if ($('#party')) $('#party').value = '';
+      if ($('#amt')) $('#amt').value = '';
+      render();
+      $('#msg').innerHTML = '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>';
+    }
+    catch (err) { b.disabled = false; $('#msg').textContent = err.message; }
   } else if (b.dataset.rev) {
     const all = get(K.entries, []); const orig = all.find(x => x.id === b.dataset.rev);
     const reason = prompt('سبب التصحيح:', 'خطأ في الإدخال'); if (!reason) return;
@@ -806,7 +889,20 @@ document.addEventListener('click', ev => {
   } else if (b.id === 'save-contract') saveContract(u);
   else if (b.id === 'save-person') savePerson(u);
 });
-document.addEventListener('input', ev => { if (ev.target.id === 'amt') { state.amount = parseInt(ev.target.value.replace(/[^\d]/g, ''), 10) || 0; } });
+document.addEventListener('beforeinput', ev => {
+  const el = ev.target;
+  if (!el || el.maxLength == null || el.maxLength < 0) return;
+  const data = ev.data || '';
+  if (!data) return;
+  const limitMsg = el.id === 'party' ? 'الجهة المستلمة بحد أقصى 100 حرفاً'
+    : el.id === 'person-name' ? 'الاسم بحد أقصى 80 حرفاً' : '';
+  if (!limitMsg) return;
+  const start = el.selectionStart == null ? el.value.length : el.selectionStart;
+  const end = el.selectionEnd == null ? el.value.length : el.selectionEnd;
+  if (el.value.length - (end - start) + data.length <= el.maxLength) return;
+  const box = el.id === 'person-name' ? $('#person-msg') : $('#msg');
+  if (box) box.textContent = limitMsg;
+});
 $('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, ev.target.value); render(); });
 $('#login-form').addEventListener('submit', async ev => {
   ev.preventDefault();
