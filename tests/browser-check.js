@@ -1,10 +1,51 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
-const { spawn } = require('child_process'); const fs = require('fs'); const path = require('path');
+const { spawn } = require('child_process'); const fs = require('fs'); const http = require('http'); const net = require('net'); const path = require('path');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
-const chrome = spawn('google-chrome', ['--headless=new', '--no-sandbox', '--remote-debugging-port=9333', '--user-data-dir=/tmp/aj-chrome-' + Date.now(), 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); });
+  });
+}
+// Read the loopback debugger with node:http. fetch() follows HTTP_PROXY, and
+// the runner's Chrome can take longer than 10s to publish its first page.
+function debuggerText(port, pathname) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 2000 }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve(body.replace(/^\)\]\}'\s*/, '')));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('debugger timeout')); });
+  });
+}
+let chrome;
 (async () => {
-  let tgt; for (let i = 0; i < 50 && !tgt; i++) { try { tgt = (await (await fetch('http://127.0.0.1:9333/json')).json()).find(t => t.type === 'page'); } catch {} await sleep(200); }
+  const port = await freePort();
+  let chromeLog = '';
+  chrome = spawn('google-chrome', [
+    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+    '--no-first-run', '--no-default-browser-check',
+    '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
+    '--remote-debugging-port=' + port, '--user-data-dir=/tmp/aj-chrome-' + Date.now(),
+    'about:blank',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const keep = chunk => { chromeLog = (chromeLog + chunk).slice(-4000); };
+  chrome.stdout.on('data', keep); chrome.stderr.on('data', keep);
+  let tgt; let last = '';
+  for (let i = 0; i < 100 && !tgt; i++) {
+    try {
+      const list = JSON.parse(await debuggerText(port, '/json/list'));
+      last = JSON.stringify(list).slice(0, 400);
+      tgt = list.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+    } catch (err) { last = String(err && err.message || err); }
+    if (!tgt) await sleep(200);
+  }
+  if (!tgt) throw new Error('Chrome did not open a page (' + last + ')\n' + chromeLog);
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
@@ -62,6 +103,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       check('o4: rows show the recorder name', info.text.includes('أمير'));
       check('o4: old entry without a name shows a dash', await ev(`(()=>{const row=[...document.querySelectorAll('.entry')].find(el=>el.innerText.includes('إدخال خاطئ')&&!el.innerText.includes('تصحيح'));return !!row&&row.innerText.includes('—')&&!row.innerText.includes('أحمد')})()`));
       check('o4: owner project shows the contract value', info.text.includes('قيمة العقد') && info.text.includes('60,000,000') && await ev(`document.querySelector('#contract') && document.querySelector('#contract').value==='60000000'`));
+      check('o4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
     }
     if (role === 'owner' && hash === 'person/u-ahmed') {
       check('o5: instructions name the Firebase UID column', info.text.includes('Firebase') && info.text.includes('Authentication') && info.text.includes('Users') && info.text.includes('User UID'));
@@ -69,6 +111,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }
     if (role === 'site' && hash === 'project/p-school') {
       check('s4: site project hides the contract', !info.text.includes('قيمة العقد') && !info.text.includes('60,000,000') && await ev(`!document.querySelector('#contract') && !document.body.innerHTML.includes('projectFinance')`));
+      check('s4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
     }
     if (role === 'site' && hash === 'home') check('s1: own rows show the recorder', info.text.includes('أحمد'));
     if (role === 'owner' && hash === 'home') check('o1: totals shown', /صافي الربح/.test(info.text));
@@ -342,6 +385,110 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return { wrap, hz };
   })()`);
   check('an 80-character name without spaces does not widen the page', wide && wide.hz === false && (wide.wrap === 'anywhere' || wide.wrap === 'break-word'));
+  const listView = async (role, projectId, limit = 50) => ev(`(()=>{
+    const u = (AJ.get('users') || []).find(x => x.uid === ${JSON.stringify(role === 'site' ? 'u-ahmed' : 'u-ameer')});
+    const ctx = { projects: AJ.get('projects'), entries: AJ.get('entries'), finance: AJ.get('projectFinance'), policy: Ledger.DEFAULT_POLICY };
+    const list = Ledger.projectEntryList(u, ${JSON.stringify(projectId)}, ctx, { limit: ${Number(limit) || 50} });
+    const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    const html = (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '';
+    const rows = [...document.querySelectorAll('#entry-list a.entry-open')];
+    const ids = rows.map(a => (a.getAttribute('href') || '').replace('#detail/', ''));
+    const fields = !!list && rows.length === list.rows.length && list.rows.every((row, i) => {
+      const t = rows[i].innerText;
+      return t.includes(row.type) && t.includes(row.amount) && t.includes(row.entryDate) && t.includes(row.recorder) && t.includes(row.party) && (!row.reversalStatus || t.includes(row.reversalStatus));
+    });
+    return {
+      same: !!list && ids.join('|') === list.rows.map(r => r.id).join('|'),
+      fields, reads: list && list.reads, total: list && list.total, n: rows.length,
+      keys: !!list && list.rows.every(r => Object.keys(r).join(',') === 'id,type,amount,entryDate,recorder,party,reversalStatus'),
+      text, html, more: !!document.querySelector('#more-entries'),
+      hz: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      hash: location.hash, tab: document.querySelector('.tabs a.on') && document.querySelector('.tabs a.on').dataset.tab,
+    };
+  })()`);
+  await ev(`document.querySelector('#role').value='owner'; location.hash='#project/p-school'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  check('owner project screen has the all-entries button', await ev(`(()=>{const a=document.querySelector('#all-entries'); return !!a && a.textContent==='عرض جميع القيود' && a.getAttribute('href')==='#entries/p-school'})()`));
+  await ev(`document.querySelector('#all-entries').click(); 1`);
+  await sleep(200);
+  const ownerEntries = await listView('owner', 'p-school');
+  check('owner list is this project, newest first, from memory', ownerEntries && ownerEntries.same && ownerEntries.fields && ownerEntries.keys && ownerEntries.reads === 0 && ownerEntries.total > 0 && ownerEntries.n === ownerEntries.total && ownerEntries.more === false && ownerEntries.hash === '#entries/p-school' && ownerEntries.tab === 'projects' && ownerEntries.text.includes('قيد عكسي') && ownerEntries.text.includes('معكوس') && ownerEntries.text.includes('40,000,000') && !ownerEntries.text.includes('بناية السوق') && !ownerEntries.text.includes('6,800,000') && !ownerEntries.text.includes('قيمة العقد') && !ownerEntries.text.includes('60,000,000') && !ownerEntries.html.includes('contractAmount') && ownerEntries.hz === false);
+  await shotOf('owner-all-entries.png');
+  const ownerHref = await ev(`(()=>{const a=document.querySelector('#entry-list a.entry-open'); if(!a) return ''; a.click(); return a.getAttribute('href')||''; })()`);
+  await sleep(200);
+  check('tapping a listed entry opens its details', await ev(`location.hash===${JSON.stringify(ownerHref)} && location.hash.startsWith('#detail/') && !!document.querySelector('#entry-print') && !!document.querySelector('#entry-pdf') && !!document.querySelector('#entry-file')`));
+  await ev(`document.querySelector('#back').click(); 1`);
+  await sleep(200);
+  check('details back returns to the project list', await ev(`location.hash==='#entries/p-school' && !!document.querySelector('#entry-list')`));
+  check('project list works offline from the cache', await ev(`navigator.onLine===false && (document.querySelector('#entry-list').innerText||'').includes('كل القيود')`));
+  await ev(`document.querySelector('#role').value='site'; location.hash='#project/p-school'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  check('site project screen has the all-entries button', await ev(`(()=>{const a=document.querySelector('#all-entries'); return !!a && a.textContent==='عرض جميع القيود' && !document.querySelector('#main').innerText.includes('قيمة العقد')})()`));
+  await ev(`document.querySelector('#all-entries').click(); 1`);
+  await sleep(200);
+  const siteEntries = await listView('site', 'p-school');
+  const siteBanned = ['ربح', 'المقبوض', 'خسارة', 'قيمة العقد', 'contractAmount', 'projectFinance', '60,000,000', '40,000,000 د.ع', '10,000,000 د.ع', '11,200,000', '6,800,000', 'بناية السوق', 'دفعة عميل'];
+  check('site list shows only allowed project entries', siteEntries && siteEntries.same && siteEntries.fields && siteEntries.keys && siteEntries.reads === 0 && siteEntries.more === false && siteEntries.text.includes('30,000,000') && siteEntries.text.includes('معكوس') && siteEntries.text.includes('قيد عكسي') && siteBanned.every(w => !siteEntries.text.includes(w) && !siteEntries.html.includes(w)) && siteEntries.hz === false);
+  await shotOf('site-all-entries.png');
+  const siteHref = await ev(`(()=>{const row=[...document.querySelectorAll('#entry-list a.entry-open')].find(a=>a.innerText.includes('30,000,000')); if(!row) return ''; row.click(); return row.getAttribute('href')||''; })()`);
+  await sleep(200);
+  check('tapping a site row opens details without forbidden money', await ev(`(()=>{const text=document.querySelector('#main').innerText; return location.hash===${JSON.stringify(siteHref)} && location.hash.startsWith('#detail/') && text.includes('30,000,000') && text.includes('أمير') && !!document.querySelector('#entry-print') && !/ربح|المقبوض|خسارة/.test(text) && !text.includes('40,000,000') && !text.includes('قيمة العقد'); })()`));
+  await ev(`location.hash='#entries/p-market'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  const siteMarket = await listView('site', 'p-market');
+  check('site market list shows the expense and hides the client payment', siteMarket && siteMarket.same && siteMarket.text.includes('6,800,000') && siteMarket.text.includes('مقاول') && !siteMarket.text.includes('6,000,000') && !siteMarket.text.includes('دفعة عميل') && !/ربح|المقبوض|خسارة|قيمة العقد/.test(siteMarket.text));
+  await ev(`location.hash='#entries/p-road'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  check('site cannot list a project that was unassigned', await ev(`document.querySelector('#main').innerText.includes('المشروع غير متاح') && !document.querySelector('#entry-list') && !document.querySelector('#main').innerText.includes('2,000,000') && !document.querySelector('#main').innerText.includes('11,200,000') && !document.querySelector('#main').innerText.includes('8,200,000')`));
+  await ev(`document.querySelector('#back-project').click(); 1`);
+  await sleep(100);
+  check('list back from a hidden project returns to projects', await ev(`location.hash==='#projects'`));
+  await ev(`document.querySelector('#role').value='owner'; location.hash='#projects'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  const emptyId = await ev(`(()=>{ window.prompt=(q)=>String(q).includes('زبون')?'زبون فارغ':'مشروع فارغ'; document.querySelector('#newproj').click(); const card=[...document.querySelectorAll('a.proj')].find(a=>a.innerText.includes('مشروع فارغ')); if(!card) return ''; const id=(card.getAttribute('href')||'').replace('#project/',''); location.hash='#entries/'+id; dispatchEvent(new HashChangeEvent('hashchange')); return id; })()`);
+  await sleep(150);
+  check('a project with no entries shows an empty list', await ev(`(()=>{const text=document.querySelector('#main').innerText; const title=document.querySelector('#title').textContent; return ${JSON.stringify(emptyId)} && location.hash==='#entries/'+${JSON.stringify(emptyId)} && text.includes('لا توجد قيود لهذا المشروع') && title.includes('مشروع فارغ') && !document.querySelector('#more-entries') && !document.querySelector('#entry-list a.entry-open')})()`));
+  await shotOf('empty-all-entries.png');
+  const wrote = await ev(`(async () => { try {
+    const base = 9000000000000000;
+    await new Promise((resolve, reject) => {
+      const q = indexedDB.open('aj-p0');
+      q.onerror = () => reject(q.error || new Error('idb'));
+      q.onsuccess = () => {
+        const d = q.result;
+        const tx = d.transaction('entries', 'readwrite');
+        const st = tx.objectStore('entries');
+        const img = '<img src=x onerror=alert(1)>';
+        st.put({ id: 'bulk-img', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 4242, currency: 'IQD', entryDate: '2026-11-04', description: 'جملة', partyName: img, isReversal: false, createdAtDevice: base + 2000, createdAtServer: base + 2000, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'bulk' });
+        for (let i = 0; i < 80; i++) st.put({ id: 'bulk-' + i, projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 3000 + i, currency: 'IQD', entryDate: '2026-11-01', description: 'جملة', partyName: 'مورّد ' + i, isReversal: false, createdAtDevice: base + i, createdAtServer: base + i, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'bulk' });
+        for (let i = 0; i < 5; i++) st.put({ id: 'bulk-pay-' + i, projectId: 'p-school', direction: 'income', entryType: 'clientPayment', amount: 777777, currency: 'IQD', entryDate: '2026-11-02', description: 'دفعة مخفية', partyName: 'زبون', isReversal: false, createdAtDevice: base + 1000 + i, createdAtServer: base + 1000 + i, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'bulk' });
+        st.put({ id: 'bulk-other', projectId: 'p-market', direction: 'expense', entryType: 'materials', amount: 654321, currency: 'IQD', entryDate: '2026-11-03', description: 'سوق', partyName: 'آخر', isReversal: false, createdAtDevice: base + 5000, createdAtServer: base + 5000, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'bulk' });
+        tx.oncomplete = () => { d.close(); resolve(1); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+    return 'ok';
+  } catch (e) { return String(e && e.message || e); } })()`);
+  check('many entries are stored in the local cache', wrote === 'ok');
+  await ev(`location.hash='#entries/p-school'; 1`);
+  await send('Page.reload', { ignoreCache: false });
+  await sleep(1500);
+  for (let i = 0; i < 40 && !(await ev(`document.body && document.body.dataset.ready==='1' && location.hash.indexOf('#entries/p-school')===0`)); i++) await sleep(150);
+  const paged = await listView('owner', 'p-school');
+  check('a large project pages 50 rows and stays offline', paged && paged.same && paged.fields && paged.n === 50 && paged.total > 50 && paged.more === true && paged.reads === 0 && paged.text.includes('50 من ' + paged.total) && paged.text.includes('777,777') && paged.text.includes('4,242') && !paged.text.includes('654,321') && !paged.html.includes('<img') && paged.text.includes('<img') && await ev(`navigator.onLine===false`));
+  await ev(`document.querySelector('#role').value='site'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  const sitePage = await listView('site', 'p-school');
+  check('site page hides other client payments while paging', sitePage && sitePage.same && sitePage.n === 50 && sitePage.more === true && sitePage.reads === 0 && !sitePage.text.includes('777,777') && !sitePage.text.includes('40,000,000') && !sitePage.text.includes('654,321') && !sitePage.text.includes('قيمة العقد') && !/ربح|المقبوض|خسارة/.test(sitePage.text));
+  await ev(`(()=>{ let i=0; while (document.querySelector('#more-entries') && i<20) { document.querySelector('#more-entries').click(); i++; } return i; })()`);
+  await sleep(200);
+  const siteAll = await listView('site', 'p-school', 1000);
+  check('المزيد reveals the rest of the site list without forbidden amounts', siteAll && siteAll.same && siteAll.n === siteAll.total && siteAll.total > 50 && siteAll.more === false && siteAll.text.includes('30,000,000') && siteAll.text.includes('معكوس') && !siteAll.text.includes('777,777') && !siteAll.text.includes('40,000,000') && !siteAll.text.includes('10,000,000 د.ع') && !siteAll.text.includes('654,321') && !siteAll.html.includes('contractAmount') && !/ربح|المقبوض|خسارة|قيمة العقد/.test(siteAll.text));
+  await ev(`document.querySelector('#role').value='owner'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await ev(`(()=>{ let i=0; while (document.querySelector('#more-entries') && i<20) { document.querySelector('#more-entries').click(); i++; } return i; })()`);
+  await sleep(200);
+  const ownerAll = await listView('owner', 'p-school', 1000);
+  check('owner المزيد keeps the other project out and shows the client payments', ownerAll && ownerAll.same && ownerAll.n === ownerAll.total && ownerAll.more === false && ownerAll.text.includes('777,777') && ownerAll.text.includes('40,000,000') && !ownerAll.text.includes('654,321') && !ownerAll.text.includes('بناية السوق') && !ownerAll.text.includes('قيمة العقد'));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
-})().catch(e => { console.error(e); chrome.kill(); process.exit(2); });
+})().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

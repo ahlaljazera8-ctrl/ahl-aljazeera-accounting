@@ -248,7 +248,62 @@
     return '\uFEFF' + lines.join('\r\n') + '\r\n';
   }
 
-  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, sign, totals, canSeeProject, visibleProjects, visibleEntries,
+  // How many rows the project screen paints at once. «المزيد» raises the limit
+  // by this many. The rows are already in memory, so a page is not a server read.
+  const PROJECT_ENTRY_PAGE = 50;
+
+  function byNewest(a, b) {
+    const stamp = row => (typeof row.createdAtDevice === 'number' && Number.isFinite(row.createdAtDevice) ? row.createdAtDevice : -Infinity);
+    const ta = stamp(a), tb = stamp(b);
+    if (ta !== tb) return tb - ta;
+    const da = String(a.entryDate || ''), db = String(b.entryDate || '');
+    if (da !== db) return da < db ? 1 : -1;
+    const ia = String(a.id || ''), ib = String(b.id || '');
+    if (ia === ib) return 0;
+    return ia < ib ? 1 : -1;
+  }
+
+  function pageLimit(opts) {
+    if (!opts || opts.limit == null) return PROJECT_ENTRY_PAGE;
+    const n = opts.limit;
+    if (!Number.isInteger(n) || n < 0) return PROJECT_ENTRY_PAGE;
+    return n;
+  }
+
+  // One project's entries, newest recorded first, using only rows this user may
+  // already see (visibleEntries). Fields are an allowlist: type, amount, ledger
+  // date, recorder, party, and reversal status. No contractAmount, profit, totals,
+  // or another person's client-payment amount. reads is always 0 — pass the
+  // IndexedDB/memory cache; this does not query Firestore.
+  function projectEntryList(user, projectId, ctx = {}, opts) {
+    if (!user || user.active !== true || (user.role !== 'owner' && user.role !== 'site')) return null;
+    const projects = ctx.projects || [];
+    const policy = ctx.policy || DEFAULT_POLICY;
+    const project = visibleProjects(user, projects, policy).find(p => p && p.id === projectId);
+    if (!project) return null;
+    const visible = visibleEntries(user, ctx.entries || [], projects, policy)
+      .filter(e => e && e.projectId === project.id)
+      .sort(byNewest);
+    const reversed = new Set();
+    for (const e of visible) if (e.isReversal && e.reversesEntryId) reversed.add(e.reversesEntryId);
+    const rows = visible.slice(0, pageLimit(opts)).map(entry => {
+      const type = ENTRY_TYPES[entry.entryType];
+      const label = type ? type.label : '—';
+      const reversalStatus = entry.isReversal ? 'قيد عكسي' : (reversed.has(entry.id) ? 'معكوس' : '');
+      return {
+        id: entry.id,
+        type: entry.isReversal ? ('تصحيح (قيد عكسي) · ' + label) : label,
+        amount: fmt(entry.amount * sign(entry)) + ' د.ع',
+        entryDate: entry.entryDate || '—',
+        recorder: displayRecorder(entry),
+        party: entry.partyName ? entry.partyName : '—',
+        reversalStatus,
+      };
+    });
+    return { rows, total: visible.length, reads: 0 };
+  }
+
+  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, canSeeProject, visibleProjects, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt,
-    baghdadTime, entryExportFields, entryToCSV };
+    baghdadTime, entryExportFields, entryToCSV, projectEntryList };
 });

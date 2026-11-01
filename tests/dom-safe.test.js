@@ -12,6 +12,8 @@ test('a hostile project id is omitted from attributes', () => {
   assert.equal(Dom.projectHref('project', HOSTILE), '#projects');
   assert.equal(Dom.projectHref('entry', 'a/b'), '#projects');
   assert.equal(Dom.projectHref('project', 'bad id'), '#projects');
+  assert.equal(Dom.projectHref('entries', HOSTILE), '#projects');
+  assert.equal(Dom.projectHref('entries', 'p-school'), '#entries/p-school');
   const html = Dom.projectButton(HOSTILE, 'اسم', true) + Dom.projectHref('project', HOSTILE);
   assert.equal(html.includes('onerror'), false);
   assert.equal(html.includes('<img'), false);
@@ -34,6 +36,7 @@ test('a safe project id stays in the attribute and the name is escaped', () => {
   assert.equal(html.includes('<script>'), false);
   assert.equal(Dom.projectHref('project', 'p-school'), '#project/p-school');
   assert.equal(Dom.projectHref('entry', 'p_road'), '#entry/p_road');
+  assert.equal(Dom.projectHref('entries', 'p_road'), '#entries/p_road');
   assert.equal(Dom.isSafeId('a'.repeat(64)), true);
   assert.equal(Dom.isSafeId('a'.repeat(65)), false);
 });
@@ -43,7 +46,9 @@ test('app.js puts project ids through DomSafe, not raw into attributes', () => {
   assert.match(app, /DomSafe\.projectButton/);
   assert.match(app, /DomSafe\.projectHref\('project'/);
   assert.match(app, /DomSafe\.projectHref\('entry'/);
+  assert.match(app, /DomSafe\.projectHref\('entries'/);
   assert.equal(app.includes('data-proj="${p.id}"'), false);
   assert.equal(app.includes('href="#project/${p.id}"'), false);
   assert.equal(app.includes('href="#entry/${p.id}"'), false);
+  assert.equal(app.includes('href="#entries/${p.id}"'), false);
 });

@@ -102,7 +102,7 @@ function seed() {
   set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
   set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [] };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [], listProject: '', listShown: 0 };
 let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
@@ -718,6 +718,18 @@ function printCurrentEntry() {
   window.addEventListener('afterprint', () => { document.title = prev; }, { once: true });
   window.print();
 }
+function shownEntryCount(projectId) {
+  if (state.listProject !== projectId) {
+    state.listProject = projectId;
+    state.listShown = L.PROJECT_ENTRY_PAGE;
+  }
+  return state.listShown || L.PROJECT_ENTRY_PAGE;
+}
+function entryListRow(row) {
+  const status = row.reversalStatus ? `<small>${esc(row.reversalStatus)}</small>` : '';
+  const cls = row.reversalStatus === 'قيد عكسي' ? 'bad' : '';
+  return `<div class="entry"><a class="entry-open" href="${entryHref(row.id)}"><div class="meta"><span>${esc(row.type)}</span><small class="num">${esc(row.entryDate)}</small><small>${esc(row.recorder)}</small><small>${esc(row.party)}</small>${status}</div><span class="num ${cls}">${esc(row.amount)}</span></a></div>`;
+}
 function entryRow(e, u, all) {
   const reversed = all.some(x => x.isReversal && x.reversesEntryId === e.id);
   const canRev = !e.isReversal && !reversed && (u.role === 'owner' || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
@@ -788,8 +800,21 @@ const views = {
       ? `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
+    const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
     return `<div class="card">${card}</div><div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
+      <a class="btn ghost" id="all-entries" href="${allHref}">عرض جميع القيود</a>
       <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>`;
+  },
+  // Local cache only. projectEntryList reads nothing from Firestore; «المزيد»
+  // reveals the next 50 rows already stored for this project.
+  entries(id) {
+    const u = me();
+    const back = `<button type="button" class="mini" id="back-project">رجوع</button>`;
+    const list = L.projectEntryList(u, id, { projects: get(K.projects, []), entries: get(K.entries, []), policy: POLICY }, { limit: shownEntryCount(id) });
+    if (!list) return back + '<div class="card">المشروع غير متاح</div>';
+    if (!list.total) return back + '<div class="card" id="entry-list"><div class="note">لا توجد قيود لهذا المشروع</div></div>';
+    const more = list.rows.length < list.total ? '<button type="button" class="btn ghost" id="more-entries">المزيد</button>' : '';
+    return `${back}<div class="card" id="entry-list"><h2>كل القيود</h2><div class="note" id="entry-count">${list.rows.length} من ${list.total}</div>${list.rows.map(entryListRow).join('')}</div>${more}`;
   },
   people() {
     const u = me();
@@ -852,7 +877,7 @@ const views = {
       </div>`;
   },
 };
-const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
+const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
 
 function syncPeopleTab(u) {
   const tabs = document.querySelector('.tabs');
@@ -895,7 +920,7 @@ function render() {
   const note = $('#sync-msg');
   if (note) { note.hidden = !syncNotice; note.textContent = syncNotice || ''; }
   syncPeopleTab(u);
-  const tab = v === 'project' ? 'projects' : (v === 'person' ? 'people' : v);
+  const tab = (v === 'project' || v === 'entries') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   if (!demoRole() && u.role === 'owner' && (v === 'people' || v === 'person') && !directoryPromise) {
     $('#title').textContent = titles[v] || 'الأشخاص';
@@ -905,7 +930,8 @@ function render() {
     });
     return;
   }
-  $('#title').textContent = v === 'project' ? ((data().projects.find(p => p.id === arg) || {}).name || 'مشروع') : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
+  const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
+  $('#title').textContent = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
   $('#main').innerHTML = views[v](arg);
 }
 
@@ -935,6 +961,15 @@ document.addEventListener('click', ev => {
   else if (b.id === 'send') { if (demoRole()) sendNow(); else flushRemote(); }
   else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
   else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
+  else if (b.id === 'back-project') {
+    const id = (location.hash.slice(1).split('/')[1]) || '';
+    const href = window.DomSafe ? DomSafe.projectHref('project', id) : '#projects';
+    location.hash = data().projects.some(p => p.id === id) ? href : '#projects';
+  }
+  else if (b.id === 'more-entries') {
+    state.listShown = (state.listShown || L.PROJECT_ENTRY_PAGE) + L.PROJECT_ENTRY_PAGE;
+    render();
+  }
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
     const desc = $('#desc').value.trim();

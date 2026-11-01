@@ -15,7 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
-const MARK = 'aj-p0-v14';
+const MARK = 'aj-p0-v15';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';
 const WEB = ['index.html', 'app.js', 'sw.js', 'style.css', 'ledger.js', 'sync.js', 'firebase-config.js', 'manifest.json', 'icon.svg'];
@@ -287,6 +287,119 @@ testSeq('WebKit shows entry export for both roles and shares the CSV', async () 
     server.close();
   }
 }, 90000);
+
+testSeq('WebKit lists one project for both roles, offline, and pages the rest', async () => {
+  const server = await startServer(() => NEW);
+  const port = server.address().port;
+  const browser = await webkit.launch();
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  });
+  await context.addInitScript(() => {
+    try { Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true }); } catch (e) {}
+  });
+  try {
+    const page = await context.newPage();
+    const origin = 'http://127.0.0.1:' + port;
+    const open = async (role, hash) => {
+      await page.goto(origin + '/index.html?role=' + role + '#' + hash, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForFunction(() => document.body && document.body.dataset.ready === '1', null, { timeout: 20000 });
+    };
+    await open('owner', 'project/p-school');
+    const phone = await page.evaluate(() => ({ standalone: navigator.standalone === true, narrow: window.innerWidth <= 430, touch: navigator.maxTouchPoints > 0 }));
+    assert.equal(phone.narrow, true);
+    assert.equal(phone.standalone || phone.touch, true);
+    await page.waitForSelector('#all-entries', { timeout: 10000 });
+    assert.equal((await page.locator('#all-entries').innerText()).trim(), 'عرض جميع القيود');
+    await page.locator('#all-entries').click();
+    await page.waitForFunction(() => location.hash === '#entries/p-school' && document.querySelector('#entry-list'), null, { timeout: 10000 });
+    const ownerList = await page.evaluate(() => {
+      const u = AJ.get('users').find(x => x.uid === 'u-ameer');
+      const list = Ledger.projectEntryList(u, 'p-school', { projects: AJ.get('projects'), entries: AJ.get('entries'), finance: AJ.get('projectFinance'), policy: Ledger.DEFAULT_POLICY }, { limit: 50 });
+      const text = document.querySelector('#main').innerText;
+      const ids = [...document.querySelectorAll('#entry-list a.entry-open')].map(a => (a.getAttribute('href') || '').replace('#detail/', ''));
+      return {
+        same: ids.join('|') === list.rows.map(r => r.id).join('|'),
+        reads: list.reads,
+        text,
+        hz: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      };
+    });
+    assert.equal(ownerList.same, true);
+    assert.equal(ownerList.reads, 0);
+    assert.equal(ownerList.hz, false);
+    for (const bit of ['كل القيود', 'قيد عكسي', 'معكوس', '40,000,000', 'أمير']) assert.equal(ownerList.text.includes(bit), true, bit);
+    for (const banned of ['قيمة العقد', '60,000,000', 'بناية السوق', '6,800,000']) assert.equal(ownerList.text.includes(banned), false, banned);
+    await page.locator('#entry-list a.entry-open').first().click();
+    await page.waitForSelector('#entry-print', { timeout: 10000 });
+    assert.deepEqual(await page.locator('#entry-print, #entry-pdf, #entry-file').allTextContents(), ['طباعة', 'حفظ PDF', 'حفظ كملف']);
+    await page.locator('#back').click();
+    await page.waitForFunction(() => location.hash === '#entries/p-school' && document.querySelector('#entry-list'), null, { timeout: 10000 });
+
+    await page.selectOption('#role', 'site');
+    await page.waitForFunction(() => document.querySelector('#main') && document.querySelector('#main').innerText.includes('30,000,000'), null, { timeout: 10000 });
+    const siteList = await page.locator('#main').innerText();
+    for (const bit of ['30,000,000', 'معكوس', 'قيد عكسي']) assert.equal(siteList.includes(bit), true, bit);
+    for (const banned of ['ربح', 'المقبوض', 'خسارة', 'قيمة العقد', '40,000,000', '10,000,000', '60,000,000', 'دفعة عميل', '6,800,000']) assert.equal(siteList.includes(banned), false, banned);
+    await page.evaluate(() => { location.hash = '#entries/p-market'; dispatchEvent(new HashChangeEvent('hashchange')); });
+    await page.waitForFunction(() => (document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes('المشروع غير متاح'), null, { timeout: 10000 });
+    assert.equal(await page.locator('#entry-list').count(), 0);
+
+    await page.selectOption('#role', 'owner');
+    await page.evaluate(() => { location.hash = '#entries/p-school'; dispatchEvent(new HashChangeEvent('hashchange')); });
+    await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 20000 });
+    await page.evaluate(async () => {
+      const base = 8000000000000000;
+      await new Promise((resolve, reject) => {
+        const q = indexedDB.open('aj-p0');
+        q.onerror = () => reject(q.error || new Error('idb'));
+        q.onsuccess = () => {
+          const d = q.result;
+          const tx = d.transaction('entries', 'readwrite');
+          const st = tx.objectStore('entries');
+          for (let i = 0; i < 70; i++) {
+            st.put({ id: 'wk-' + i, projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 4100 + i, currency: 'IQD', entryDate: '2026-11-01', description: '', partyName: 'حزمة', isReversal: false, createdAtDevice: base + i, createdAtServer: base + i, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'wk' });
+          }
+          tx.oncomplete = () => { d.close(); resolve(1); };
+          tx.onerror = () => reject(tx.error);
+        };
+      });
+    });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForFunction(() => document.body && document.body.dataset.ready === '1' && document.querySelectorAll('#entry-list a.entry-open').length === 50 && document.querySelector('#more-entries'), null, { timeout: 20000 });
+    // A document reload while offline makes this WebKit build abort. The shell is
+    // already precached, so «المزيد» is used with the network switched off.
+    await context.setOffline(true);
+    const page1 = await page.evaluate(async () => {
+      const u = AJ.get('users').find(x => x.uid === 'u-ameer');
+      const list = Ledger.projectEntryList(u, 'p-school', { projects: AJ.get('projects'), entries: AJ.get('entries'), policy: Ledger.DEFAULT_POLICY }, { limit: 50 });
+      const ids = [...document.querySelectorAll('#entry-list a.entry-open')].map(a => (a.getAttribute('href') || '').replace('#detail/', ''));
+      const keys = (await (await caches.open('aj-p0-v15')).keys()).map(r => new URL(r.url).pathname);
+      return { same: ids.join('|') === list.rows.map(r => r.id).join('|'), reads: list.reads, total: list.total, online: navigator.onLine, keys };
+    });
+    assert.equal(page1.keys.includes('/index.html') && page1.keys.includes('/app.js') && page1.keys.includes('/ledger.js'), true);
+    assert.equal(page1.same, true);
+    assert.equal(page1.reads, 0);
+    assert.equal(page1.online, false);
+    assert.equal(page1.total > 50, true);
+    await page.locator('#more-entries').click();
+    await page.waitForFunction(() => document.querySelectorAll('#entry-list a.entry-open').length > 50, null, { timeout: 10000 });
+    await page.selectOption('#role', 'site');
+    await page.waitForFunction(() => {
+      const text = (document.querySelector('#main') || {}).innerText || '';
+      return text.includes('4,100') && !text.includes('40,000,000');
+    }, null, { timeout: 10000 });
+    const sitePaged = await page.locator('#main').innerText();
+    for (const banned of ['40,000,000', '10,000,000', '60,000,000', 'قيمة العقد', 'ربح', 'المقبوض', 'خسارة']) assert.equal(sitePaged.includes(banned), false, banned);
+  } finally {
+    await context.close();
+    await browser.close();
+    server.close();
+  }
+}, 120000);
 
 testSeq('a fresh profile signs in without a module error', async () => {
   let root = NEW;

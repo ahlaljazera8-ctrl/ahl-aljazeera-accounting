@@ -35,6 +35,7 @@ textarea,select.full,input.full{font:inherit;width:100%;border:1px solid var(--l
 .entry-open{flex:1;display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0;color:inherit;text-decoration:none}
 .entry .mini{flex-shrink:0}
 .entry .meta{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
+.entry .meta span,.entry .meta small{overflow-wrap:anywhere;max-width:100%}
 .entry small{color:var(--sub);font-weight:400}
 label.field{display:flex;flex-direction:column;gap:4px;font-size:14px}
 label.check{display:flex;align-items:flex-start;gap:8px;font-size:14px}
