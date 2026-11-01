@@ -23,6 +23,15 @@
     return v == null ? '' : String(v);
   }
 
+  // The reversal id is rev_ + the original id, so a second device that loses
+  // the race is the same correction. The server row is the one that landed.
+  function sameReversal(local, remote) {
+    if (!local || !remote || local.isReversal !== true || remote.isReversal !== true) return false;
+    if (local.id && remote.id && local.id !== remote.id) return false;
+    const orig = norm(local.reversesEntryId);
+    return orig !== '' && orig === norm(remote.reversesEntryId);
+  }
+
   function sameContent(local, remote) {
     if (!local || !remote) return false;
     const keys = ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdBy'];
@@ -64,6 +73,7 @@
 
   function applyFlush(outbox, errors, result) {
     const drop = new Set((result && result.synced) || []);
+    ((result && result.failed) || []).forEach(row => { if (row && row.id) drop.add(row.id); });
     const errMap = Object.assign({}, errors || {});
     ((result && result.synced) || []).forEach(id => { delete errMap[id]; });
     ((result && result.kept) || []).forEach(id => { delete errMap[id]; });
@@ -94,7 +104,7 @@
 
   return {
     FB_VER, FIRESTORE_URL, REJECTED, CONFLICT, UNVERIFIED,
-    sameContent, isTransient, isAlreadyExists, failureMessage,
+    sameContent, sameReversal, isTransient, isAlreadyExists, failureMessage,
     applyFlush, badgeHtml, readRemote,
   };
 });

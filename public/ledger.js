@@ -49,7 +49,33 @@
     return { spent: totals(entries.filter(e => e.direction === 'expense')).spent, byType: t.byType };
   }
 
-  function isPosInt(n) { return Number.isInteger(n) && n > 0; }
+  // Same ceiling as firestore.rules MAX_AMOUNT_IQD. Integer IQD only; no fils.
+  const MAX_AMOUNT_IQD = 10000000000;
+  const AMOUNT_MSG = 'المبلغ يجب أن يكون رقماً صحيحاً موجباً';
+  const AMOUNT_LIMIT_MSG = 'الحد الأعلى للمبلغ هو 10,000,000,000 د.ع';
+
+  function isPosInt(n) { return Number.isSafeInteger(n) && n > 0 && n <= MAX_AMOUNT_IQD; }
+
+  // What the amount field accepts. Arabic-Indic digits count as digits.
+  // Thousands commas (1,000) stay. A sign, a decimal, or a short group such as
+  // 2,5 is invalid — it is not turned into another number.
+  function parseAmount(raw, opts) {
+    const allowZero = !!(opts && opts.allowZero);
+    let text = String(raw == null ? '' : raw).trim();
+    text = text.replace(/[٠-٩]/g, ch => String(ch.charCodeAt(0) - 0x0660));
+    text = text.replace(/[۰-۹]/g, ch => String(ch.charCodeAt(0) - 0x06F0));
+    text = text.replace(/\u066C/g, ',').replace(/\u066B/g, '.');
+    if (!text) return { ok: false, error: AMOUNT_MSG };
+    if (!/^\d{1,3}(,\d{3})+$/.test(text) && !/^\d+$/.test(text)) return { ok: false, error: AMOUNT_MSG };
+    const digits = text.replace(/,/g, '');
+    if (digits.length > String(MAX_AMOUNT_IQD).length) return { ok: false, error: AMOUNT_LIMIT_MSG };
+    const n = Number(digits);
+    if (!Number.isSafeInteger(n)) return { ok: false, error: AMOUNT_LIMIT_MSG };
+    if (n === 0 && allowZero) return { ok: true, amount: 0 };
+    if (n <= 0) return { ok: false, error: AMOUNT_MSG };
+    if (n > MAX_AMOUNT_IQD) return { ok: false, error: AMOUNT_LIMIT_MSG };
+    return { ok: true, amount: n };
+  }
 
   // Copy of users/{uid}.displayName. Rules require an exact match and at most 80
   // characters, so a missing or longer name is left off the entry.
@@ -76,7 +102,8 @@
     if (!t) errs.push('نوع غير معروف');
     else if (t.direction !== entry.direction) errs.push('الاتجاه لا يطابق النوع');
     if (!['income', 'expense'].includes(entry.direction)) errs.push('direction غير صالح');
-    if (!isPosInt(entry.amount)) errs.push('المبلغ يجب أن يكون رقماً صحيحاً موجباً');
+    if (typeof entry.amount === 'number' && entry.amount > MAX_AMOUNT_IQD) errs.push(AMOUNT_LIMIT_MSG);
+    else if (!isPosInt(entry.amount)) errs.push(AMOUNT_MSG);
     if (entry.currency !== 'IQD') errs.push('العملة IQD فقط');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.entryDate || '')) errs.push('entryDate بصيغة YYYY-MM-DD');
     if ('partyName' in entry && entry.partyName !== undefined) {
@@ -221,7 +248,7 @@
     return '\uFEFF' + lines.join('\r\n') + '\r\n';
   }
 
-  return { ENTRY_TYPES, DEFAULT_POLICY, sign, totals, canSeeProject, visibleProjects, visibleEntries,
-    projectSummary, validateEntry, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt,
+  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, sign, totals, canSeeProject, visibleProjects, visibleEntries,
+    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt,
     baghdadTime, entryExportFields, entryToCSV };
 });

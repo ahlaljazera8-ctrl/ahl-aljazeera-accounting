@@ -3,6 +3,9 @@
 html,body{margin:0;background:var(--bg);color:var(--text);font-family:Cairo,"Noto Kufi Arabic","Noto Sans Arabic","Segoe UI",Tahoma,"DejaVu Sans",sans-serif}
 #app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
 .top{display:flex;justify-content:space-between;align-items:center;padding:14px 20px 6px;gap:8px}
+.top>div{min-width:0;flex:1}
+#who{overflow-wrap:anywhere}
+#outbox{flex-shrink:0}
 h1{margin:0;font-size:22px}
 .sub{color:var(--sub);font-size:12px}
 .rolebar{display:flex;justify-content:space-between;align-items:center;padding:0 16px 8px;font-size:12px;color:var(--sub);gap:8px}

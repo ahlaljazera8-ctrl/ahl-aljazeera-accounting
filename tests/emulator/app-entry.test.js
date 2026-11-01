@@ -261,3 +261,198 @@ test('the app entry with createdByName and partyName is accepted, and a wrong na
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+async function serverDoc(collectionName, id) {
+  let data = null;
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    const snap = await getDoc(doc(ctx.firestore(), collectionName, id));
+    data = snap.exists() ? snap.data() : null;
+  });
+  return data;
+}
+
+async function withSession(label, fn) {
+  const dir = '/tmp/aj-app-' + label + '-' + process.pid + '-' + Date.now();
+  const debug = await freePort();
+  const chrome = launchChrome(dir, debug);
+  let session;
+  try {
+    session = await connect(debug);
+    await session.send('Page.navigate', { url: origin + '/index.html?emulator=1' });
+    assert.equal(await waitFor(session, `document.body && document.body.dataset.ready === '1'`, 20000), true, 'login page ready');
+    await session.ev(`(()=>{
+      const orig = Sync.pullChanges.bind(Sync);
+      window.__hold = Promise.resolve();
+      window.__pulls = 0;
+      Sync.pullChanges = function(opts) {
+        window.__pulls++;
+        return Promise.resolve(window.__hold).then(function() { return orig(opts); });
+      };
+      return 1;
+    })()`);
+    await session.ev(`document.querySelector('#login-email').value=${JSON.stringify(EMAIL)}; document.querySelector('#login-password').value=${JSON.stringify(PASS)}; document.querySelector('#login-btn').click(); 1`);
+    assert.equal(await waitFor(session, `document.querySelector('#shell') && document.querySelector('#shell').hidden === false`, 25000), true, 'login opens the app. ' + session.logs.slice(-6).join(' | '));
+    assert.equal(await waitFor(session, `(AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(PROJECT_ID)})`, 20000), true, 'project arrived');
+    await sleep(1000);
+    await fn(session);
+    assert.equal(session.production, '');
+  } finally {
+    if (session) session.close();
+    killChrome(chrome);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function armPullHold(session) {
+  return session.ev(`(()=>{
+    let release;
+    const seen = window.__pulls || 0;
+    window.__hold = new Promise(r => { release = r; });
+    window.__releasePull = () => release();
+    return seen;
+  })()`);
+}
+
+test('a save during an in-flight pull stays on screen and sends without a reload', { timeout: 120000 }, async () => {
+  await withSession('pull', async session => {
+    const note = 'TEST pull race ' + Date.now();
+    const seen = await armPullHold(session);
+    await session.ev(`document.querySelector('#send').click(); 1`);
+    assert.equal(await waitFor(session, `window.__pulls > ${seen}`, 15000), true, 'the pull is in flight');
+    await session.ev(`(()=>{
+      location.hash = '#entry';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click();
+      document.querySelector('#amt').value = '1000';
+      document.querySelector('#desc').value = ${JSON.stringify(note)};
+      document.querySelector('#party').value = 'جهة السحب';
+      document.querySelector('#save').click();
+      return 1;
+    })()`);
+    const id = await session.ev(`(()=>{const e=(AJ.get('entries')||[]).find(x=>x.description===${JSON.stringify(note)}); return e && e.id})()`);
+    assert.ok(id, 'the save is in memory while the pull is held');
+    await session.ev(`window.__releasePull(); 1`);
+    const sent = await waitFor(session, `!(AJ.get('outbox')||[]).includes(${JSON.stringify(id)}) && (AJ.get('entries')||[]).some(e => e && e.id===${JSON.stringify(id)} && e.description===${JSON.stringify(note)} && e.partyName==='جهة السحب')`, 20000);
+    assert.equal(sent, true, 'the entry stayed in memory and left the outbox without a reload. ' + session.logs.slice(-8).join(' | '));
+    const stored = await serverDoc('ledgerEntries', id);
+    assert.ok(stored, 'the entry reached the server without a reload');
+    assert.equal(stored.amount, 1000);
+    assert.equal(stored.description, note);
+    assert.equal(stored.partyName, 'جهة السحب');
+  });
+});
+
+test('the note and party survive going offline and the render when sync finishes', { timeout: 120000 }, async () => {
+  await withSession('form', async session => {
+    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    assert.equal(await waitFor(session, `document.querySelector('#desc') && document.querySelector('#party')`, 8000), true, 'entry form is open');
+    const afterOffline = await session.ev(`(()=>{
+      document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click();
+      document.querySelector('#desc').value = 'ملاحظة باقية';
+      document.querySelector('#party').value = 'جهة باقية';
+      document.querySelector('#amt').value = '٧';
+      dispatchEvent(new Event('offline'));
+      return {
+        desc: document.querySelector('#desc').value,
+        party: document.querySelector('#party').value,
+        amt: document.querySelector('#amt').value,
+      };
+    })()`);
+    assert.deepEqual(afterOffline, { desc: 'ملاحظة باقية', party: 'جهة باقية', amt: '٧' });
+    await session.ev(`document.querySelector('#desc').__old = 1; dispatchEvent(new Event('online')); 1`);
+    const survived = await waitFor(session, `(()=>{
+      const d = document.querySelector('#desc');
+      const p = document.querySelector('#party');
+      const a = document.querySelector('#amt');
+      return !!(d && !d.__old && d.value === 'ملاحظة باقية' && p && p.value === 'جهة باقية' && a && a.value === '٧');
+    })()`, 20000);
+    assert.equal(survived, true, 'sync finishing must not clear the form');
+  });
+});
+
+test('a contract saved during the project flush is sent without another action', { timeout: 120000 }, async () => {
+  await withSession('contract', async session => {
+    const seen = await armPullHold(session);
+    await session.ev(`location.hash='#projects'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    assert.equal(await waitFor(session, `document.querySelector('#newproj')`, 8000), true, 'project list is open');
+    await session.ev(`window.prompt = () => 'مشروع العقد'; document.querySelector('#newproj').click(); 1`);
+    assert.equal(await waitFor(session, `window.__pulls > ${seen}`, 15000), true, 'the project flush is in flight');
+    const id = await session.ev(`(()=>{const rows=AJ.get('projects')||[]; const p=rows[rows.length-1]; return p && p.id !== ${JSON.stringify(PROJECT_ID)} ? p.id : ''})()`);
+    assert.ok(id, 'the new project is on this phone');
+    await session.ev(`location.hash=${JSON.stringify('#project/' + id)}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    assert.equal(await waitFor(session, `document.querySelector('#contract')`, 8000), true, 'contract field is open');
+    await session.ev(`document.querySelector('#contract').value='4500'; document.querySelector('#save-contract').click(); 1`);
+    const queued = await session.ev(`(AJ.get('projectFinance')||{})[${JSON.stringify(id)}]`);
+    assert.equal(queued && queued.pending, true);
+    assert.equal(queued.contractAmount, 4500);
+    await session.ev(`window.__releasePull(); 1`);
+    const start = Date.now();
+    let finance = null;
+    while (Date.now() - start < 8000 && !(finance && finance.contractAmount === 4500)) {
+      finance = await serverDoc('projectFinance', id);
+      if (!(finance && finance.contractAmount === 4500)) await sleep(200);
+    }
+    assert.equal(finance && finance.contractAmount, 4500, 'the contract should send on its own');
+    const project = await serverDoc('projects', id);
+    assert.ok(project, 'the project document was written');
+    assert.equal(Object.prototype.hasOwnProperty.call(project, 'contractAmount'), false);
+  });
+});
+
+test('a lost reversal race leaves the pending count and shows the server reason', { timeout: 120000 }, async () => {
+  await withSession('rev', async session => {
+    const note = 'TEST reversal race ' + Date.now();
+    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); document.querySelector('#amt').value='1000'; document.querySelector('#desc').value=${JSON.stringify(note)}; document.querySelector('#save').click(); 1`);
+    const id = await session.ev(`(()=>{const e=(AJ.get('entries')||[]).find(x=>x.description===${JSON.stringify(note)}); return e && e.id})()`);
+    assert.ok(id, 'the original entry was saved');
+    assert.equal(await waitFor(session, `!(AJ.get('outbox')||[]).includes(${JSON.stringify(id)})`, 20000), true, 'the original entry synced');
+    await sleep(1500);
+    const revId = 'rev_' + id;
+    await testEnv.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(), 'ledgerEntries', revId), {
+        id: revId, projectId: PROJECT_ID, direction: 'expense', entryType: 'materials', amount: 1000,
+        currency: 'IQD', entryDate: '2026-10-30', description: 'تصحيح: من الخادم', partyName: '',
+        isReversal: true, reversesEntryId: id, reversalReason: 'سبب الخادم',
+        createdAtDevice: 1, createdAtServer: new Date(), createdBy: 'winner-other', createdByName: 'الفائز', deviceId: 'other',
+      });
+    });
+    await session.ev(`location.hash=${JSON.stringify('#project/' + PROJECT_ID)}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    assert.equal(await waitFor(session, `document.querySelector(${JSON.stringify('[data-rev="' + id + '"]')})`, 8000), true, 'the reverse button is still available');
+    await session.ev(`window.prompt=()=>'سبب الجهاز'; document.querySelector(${JSON.stringify('[data-rev="' + id + '"]')}).click(); 1`);
+    const cleared = await waitFor(session, `!(AJ.get('outbox')||[]).includes(${JSON.stringify(revId)})`, 20000);
+    assert.equal(cleared, true, 'the losing reversal leaves the pending count. ' + session.logs.slice(-8).join(' | '));
+    await session.ev(`location.hash=${JSON.stringify('#detail/' + revId)}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    const text = await session.ev(`document.querySelector('#main').innerText`);
+    assert.match(text, /سبب الخادم/);
+    assert.equal(text.includes('سبب الجهاز'), false, text);
+    const stored = await serverDoc('ledgerEntries', revId);
+    assert.equal(stored && stored.reversalReason, 'سبب الخادم');
+  });
+});
+
+test('an entry the server refuses is shown as failed and is left out of the total', { timeout: 120000 }, async () => {
+  await withSession('refuse', async session => {
+    await testEnv.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(), 'users', uid), { displayName: 'اسم بعد الرفض' }, { merge: true });
+    });
+    await session.ev(`location.hash='#projects'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    assert.equal(await waitFor(session, `document.querySelector('#newproj')`, 8000), true);
+    await session.ev(`window.prompt = () => 'مشروع الرفض'; document.querySelector('#newproj').click(); 1`);
+    const id = await session.ev(`(()=>{const rows=AJ.get('projects')||[]; const p=rows[rows.length-1]; return p && p.name === 'مشروع الرفض' ? p.id : ''})()`);
+    assert.ok(id, 'a fresh project was created');
+    assert.equal(await waitFor(session, `!(AJ.get('outbox')||[]).includes(${JSON.stringify(id)})`, 20000), true, 'the project itself synced');
+    const note = 'TEST refused ' + Date.now();
+    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + id + '"]')}).click(); document.querySelector('#amt').value='1000'; document.querySelector('#desc').value=${JSON.stringify(note)}; document.querySelector('#save').click(); 1`);
+    const entryId = await session.ev(`(()=>{const e=(AJ.get('entries')||[]).find(x=>x.description===${JSON.stringify(note)}); return e && e.id})()`);
+    assert.ok(entryId, 'the entry was stored on the phone');
+    await session.ev(`location.hash=${JSON.stringify('#project/' + id)}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    const refused = await waitFor(session, `!(AJ.get('outbox')||[]).includes(${JSON.stringify(entryId)}) && document.querySelector('#main') && document.querySelector('#main').innerText.includes('رُفض الإرسال')`, 20000);
+    assert.equal(refused, true, 'the refusal is visible and the entry is not pending. ' + session.logs.slice(-8).join(' | '));
+    const profit = await session.ev(`(()=>{const row=[...document.querySelectorAll('.kv')].find(el => el.innerText.includes('الربح')); return row ? row.innerText : ''})()`);
+    assert.match(profit, /0/);
+    assert.equal(profit.includes('1,000'), false, profit);
+    assert.equal(await serverDoc('ledgerEntries', entryId), null);
+  });
+});

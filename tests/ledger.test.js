@@ -23,6 +23,37 @@ test('amount must be positive integer', () => {
   const lg = L.createLedger();
   for (const a of [0, -5, 1.5, '100', NaN]) assert.throws(() => lg.append(E({ amount:a }), ctx(owner)));
 });
+test('amount uses the same IQD ceiling as the rules and rejects unsafe integers', () => {
+  assert.equal(L.MAX_AMOUNT_IQD, 10000000000);
+  const lg = L.createLedger();
+  assert.doesNotThrow(() => lg.append(E({ amount: 10000000000 }), ctx(owner)));
+  assert.throws(() => lg.append(E({ amount: 10000000001 }), ctx(owner)), /10,000,000,000/);
+  assert.throws(() => lg.append(E({ amount: 1e20 }), ctx(owner)), /10,000,000,000/);
+});
+test('parseAmount keeps a positive integer, converts Arabic-Indic digits, and does not rewrite the rest', () => {
+  const ok = (raw, amount) => {
+    const parsed = L.parseAmount(raw);
+    assert.equal(parsed.ok, true, raw);
+    assert.equal(parsed.amount, amount, raw);
+  };
+  ok('7', 7);
+  ok('٧', 7);
+  ok('١٠', 10);
+  ok('1,000', 1000);
+  ok('10,000,000,000', 10000000000);
+  for (const raw of ['-3', '1.5', '2,5', '0', '١.٥', '10000000001', '99999999999999999999', '']) {
+    const parsed = L.parseAmount(raw);
+    assert.equal(parsed.ok, false, raw);
+    assert.equal(parsed.amount, undefined, raw);
+    assert.match(parsed.error, /[\u0600-\u06FF]/, raw);
+  }
+  assert.match(L.parseAmount('-3').error, /صحيحاً/);
+  assert.match(L.parseAmount('1.5').error, /صحيحاً/);
+  assert.match(L.parseAmount('2,5').error, /صحيحاً/);
+  assert.match(L.parseAmount('10000000001').error, /10,000,000,000/);
+  assert.equal(L.parseAmount('0', { allowZero: true }).ok, true);
+  assert.equal(L.parseAmount('0', { allowZero: true }).amount, 0);
+});
 test('direction must match entryType; unknown type rejected; currency IQD', () => {
   const lg = L.createLedger();
   assert.throws(() => lg.append(E({ entryType:'clientPayment' }), ctx(owner)));
