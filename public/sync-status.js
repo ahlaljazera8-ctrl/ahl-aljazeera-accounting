@@ -65,6 +65,19 @@
     return code === 'already-exists' || /already exists/i.test(msg);
   }
 
+  // The refresh token was revoked or the access token can no longer be renewed.
+  // This is not a rules rejection and not a network blip: the entry must stay queued.
+  function isDeadAuth(err) {
+    if (!err) return false;
+    const code = String(err.code || '');
+    const blob = code + ' ' + String(err.message || '');
+    if (code === 'auth/user-token-expired'
+      || code === 'auth/invalid-user-token'
+      || code === 'auth/invalid-refresh-token'
+      || code === 'auth/user-disabled') return true;
+    return /auth\/user-token-expired|auth\/invalid-user-token|auth\/invalid-refresh-token|auth\/user-disabled|INVALID_REFRESH_TOKEN|TOKEN_EXPIRED|user-token-expired/i.test(blob);
+  }
+
   function failureMessage(err, local, remote, unverified) {
     if (remote && !sameContent(local, remote)) return CONFLICT;
     if (isAlreadyExists(err) || unverified) return UNVERIFIED;
@@ -104,7 +117,7 @@
 
   return {
     FB_VER, FIRESTORE_URL, REJECTED, CONFLICT, UNVERIFIED,
-    sameContent, sameReversal, isTransient, isAlreadyExists, failureMessage,
+    sameContent, sameReversal, isTransient, isAlreadyExists, isDeadAuth, failureMessage,
     applyFlush, badgeHtml, readRemote,
   };
 });

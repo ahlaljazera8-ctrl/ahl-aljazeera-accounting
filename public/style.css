@@ -13,9 +13,10 @@ h1{margin:0;font-size:22px}
 main{flex:1;padding:4px 16px calc(136px + max(34px, env(safe-area-inset-bottom)));display:flex;flex-direction:column;gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}
 .card h2{margin:0;font-size:16px}
-.kv{display:flex;justify-content:space-between;gap:8px;font-size:14px}
-.kv b{font-size:15px;white-space:nowrap}
-.kv span{color:var(--sub)}
+.kv{display:flex;justify-content:space-between;gap:8px;font-size:14px;min-width:0}
+.kv b{font-size:15px;min-width:0;overflow-wrap:anywhere}
+.kv b.num{white-space:nowrap}
+.kv span{color:var(--sub);min-width:0;overflow-wrap:anywhere}
 .ok{color:var(--ok)}.bad{color:var(--bad)}
 .pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:600;background:var(--card);white-space:nowrap;font-family:inherit;color:var(--text);cursor:pointer}
 .pill.warn{background:var(--warnBg);color:var(--warn);border-color:#F3C98B}
@@ -30,12 +31,12 @@ main{flex:1;padding:4px 16px calc(136px + max(34px, env(safe-area-inset-bottom))
 .amount{display:flex;justify-content:center;align-items:baseline;gap:6px}
 .amount input{font:inherit;width:60%;text-align:center;border:none;background:transparent;direction:ltr}
 textarea,select.full,input.full{font:inherit;width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}
-.entry{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px;gap:8px;font-size:14px;font-weight:600}
+.entry{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px;gap:8px;font-size:14px;font-weight:600;min-width:0;max-width:100%}
 .entry:last-child{border-bottom:none}
-.entry-open{flex:1;display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0;color:inherit;text-decoration:none}
+.entry-open{flex:1;display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0;max-width:100%;color:inherit;text-decoration:none}
 .entry .mini{flex-shrink:0}
-.entry .meta{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
-.entry .meta span,.entry .meta small{overflow-wrap:anywhere;max-width:100%}
+.entry .meta{display:flex;flex-direction:column;gap:2px;align-items:stretch;min-width:0;flex:1 1 auto}
+.entry .meta span,.entry .meta small{display:block;min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .entry small{color:var(--sub);font-weight:400}
 label.field{display:flex;flex-direction:column;gap:4px;font-size:14px}
 label.check{display:flex;align-items:flex-start;gap:8px;font-size:14px}

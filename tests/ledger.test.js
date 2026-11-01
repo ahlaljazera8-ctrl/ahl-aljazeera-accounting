@@ -434,6 +434,28 @@ test('project entry list: empty, inactive, and unassigned projects', () => {
   assert.equal(L.projectEntryList({ uid: 's', role: 'site', active: true, assignedProjectIds: [] }, 'a', ctx), null);
 });
 
+test('screen totals and export skip a server rejection and keep an unsent entry', () => {
+  const accepted = E({ id: 'acc', amount: 1000, createdAtServer: 5, description: 'مقبول' });
+  const pending = E({ id: 'pend', amount: 2000, createdAtServer: null, description: 'ينتظر' });
+  const rejected = E({ id: 'bad', amount: 9000, createdAtServer: null, description: 'مرفوض من الخادم' });
+  const errors = { bad: 'رُفض الإرسال' };
+  const counted = L.countedEntries([accepted, pending, rejected], errors);
+  assert.deepEqual(counted.map(e => e.id), ['acc', 'pend']);
+  assert.equal(L.totals(counted).spent, 3000);
+  assert.equal(L.totals([accepted, pending, rejected]).spent, 12000);
+  const csv = L.toCSV(counted, projects);
+  assert.equal(csv.includes('bad'), false);
+  assert.equal(csv.includes('مرفوض من الخادم'), false);
+  assert.equal(csv.includes('acc'), true);
+  assert.equal(csv.includes('pend'), true);
+  const ctx = { projects, entries: [accepted, pending, rejected], syncErrors: errors };
+  assert.equal(L.entryExportFields(owner, rejected, ctx), null);
+  assert.equal(L.entryToCSV(owner, rejected, ctx), null);
+  assert.ok(L.entryExportFields(owner, accepted, ctx).some(f => f.key === 'id' && f.value === 'acc'));
+  assert.ok(L.entryExportFields(owner, pending, ctx).some(f => f.key === 'amount'));
+  assert.equal(L.entryToCSV(owner, accepted, ctx).includes('مقبول'), true);
+});
+
 test('CSV populates partyName and createdByName', () => {
   const e = E({ id:'payee1', description:'حديد', partyName:'مورد حديد', createdByName:'أمير' });
   const csv = L.toCSV([e], projects);

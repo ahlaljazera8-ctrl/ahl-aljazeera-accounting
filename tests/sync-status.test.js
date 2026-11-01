@@ -121,6 +121,34 @@ test('a lost reversal race resolves onto the server row and leaves the pending l
   assert.deepEqual(applied.outbox, []);
   assert.deepEqual(applied.errors, {});
 });
+test('a dead session keeps the entry queued instead of marking it rejected', async () => {
+  const row = local();
+  const result = await Sync.flushOutbox({
+    ids: [row.id],
+    load: () => row,
+    write: async () => { throw deny('auth/user-token-expired', 'INVALID_REFRESH_TOKEN'); },
+    readServer: async () => { throw new Error('should not read after the session died'); },
+  });
+  assert.equal(result.authDead, true);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.synced, []);
+  assert.deepEqual(result.kept, [row.id]);
+  const applied = Status.applyFlush([row.id, 'still'], {}, result);
+  assert.deepEqual(applied.outbox, [row.id, 'still']);
+  assert.deepEqual(applied.errors, {});
+  assert.match(Status.badgeHtml(row.id, applied.outbox, applied.errors), /لم يُرسل/);
+});
+
+test('assignment changes the read set and a renamed person does not', () => {
+  const site = { uid: 's', role: 'site', active: true, assignedProjectIds: ['p1', 'p2'], displayName: 'أحمد' };
+  assert.equal(Sync.readSetChanged(site, Object.assign({}, site, { displayName: 'اسم أطول' })), false);
+  assert.equal(Sync.readSetChanged(site, Object.assign({}, site, { assignedProjectIds: ['p2', 'p1'] })), false);
+  assert.equal(Sync.readSetChanged(site, Object.assign({}, site, { assignedProjectIds: ['p1'] })), true);
+  assert.equal(Sync.readSetChanged(site, Object.assign({}, site, { assignedProjectIds: ['p1', 'p2', 'p3'] })), true);
+  assert.equal(Sync.readSetChanged(site, Object.assign({}, site, { active: false })), true);
+  assert.equal(Sync.readSetChanged(site, Object.assign({}, site, { role: 'owner' })), true);
+});
+
 test('recorder name and payee are part of the synced entry', () => {
   const named = local({ partyName: 'مورد', createdByName: 'أحمد' });
   const remote = Sync.toRemote(named);

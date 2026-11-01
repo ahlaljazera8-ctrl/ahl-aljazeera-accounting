@@ -102,7 +102,7 @@ function seed() {
   set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
   set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [], listProject: '', listShown: 0 };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '' };
 let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
@@ -189,6 +189,12 @@ async function loadFirebase() {
     signIn: (email, password) => authMod.signInWithEmailAndPassword(auth, email, password),
     signOut: () => authMod.signOut(auth),
     currentUser: async () => { await auth.authStateReady(); return auth.currentUser; },
+    idToken: async force => {
+      await auth.authStateReady();
+      const user = auth.currentUser;
+      if (!user) return null;
+      return user.getIdToken(!!force);
+    },
     // Clear persisted watch state, then tear the client down. The SDK rejects a clear
     // while this instance is running, so a rejected clear is followed by terminate and a second clear.
     async dispose(signOutUser) {
@@ -203,6 +209,23 @@ async function loadFirebase() {
     async profile(uid) {
       const snap = await fsMod.getDoc(fsMod.doc(fdb, 'users', uid));
       return snap.exists() ? snap.data() : null;
+    },
+    // users/{uid} is readable while the account is inactive. The session copy
+    // is what the screens filter on, so a pull that skips this keeps offering
+    // a project the owner already removed.
+    async refreshProfile(user) {
+      const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, 'users', user.uid));
+      if (!snap.exists()) return null;
+      const fresh = profileFrom(user.uid, snap.data());
+      // The name already copied onto new entries stays. A server rename is a
+      // rules mismatch and shows as refused; it is not applied under the user.
+      if (user && typeof user.displayName === 'string' && user.displayName) fresh.displayName = user.displayName;
+      const ts = snap.data().createdAtServer;
+      if (ts && typeof ts.toMillis === 'function') fresh.createdAtServer = ts.toMillis();
+      else if (ts && typeof ts.seconds === 'number') fresh.createdAtServer = ts.seconds * 1000;
+      if (window.Sync.readSetChanged(user, fresh)) set(K.pullWatermark, null);
+      set(K.sessionUser, fresh);
+      return fresh;
     },
     async listUsers() {
       const snap = await fsMod.getDocsFromServer(fsMod.collection(fdb, 'users'));
@@ -304,6 +327,15 @@ const FLUSH_MS = 20000;
 const SEND_RETRY = 'تعذر الإرسال. أعد المحاولة';
 const PULL_RETRY = 'تعذر التحديث. أعد المحاولة';
 const REPAIR_MSG = 'تعذر الدخول بعد إصلاح الذاكرة المحلية. تحقق من الاتصال وأعد المحاولة';
+const SUSPENDED_MSG = 'هذا الحساب موقوف';
+const SESSION_DEAD_MSG = 'انتهت الجلسة. سجّل الدخول من جديد';
+const MISSING_PROFILE_MSG = 'لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب';
+function isDeadAuth(err) { return !!(window.SyncStatus && SyncStatus.isDeadAuth(err)); }
+function showLoginMessage(message) {
+  showLogin();
+  const box = $('#login-msg');
+  if (box) box.textContent = message || '';
+}
 async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
   fbPromise = null;
@@ -363,6 +395,23 @@ function queuePendingFinance() {
   });
   if (changed) set(K.outbox, out);
 }
+function paintShell() {
+  if (get(K.sessionUser) && !$('#shell').hidden) render();
+}
+// Leave the ledger on screen without deleting aj-u-*. A suspended account keeps
+// the Firebase user so the next open can explain itself. A dead token is signed
+// out so the login form can start clean. Queued entries stay in the outbox.
+async function holdSession(message) {
+  sessionEpoch += 1;
+  syncNotice = '';
+  try { await closeUserDb(); } catch (e) {}
+  // A suspended profile stays signed in, so the next open can read users/{uid}
+  // and explain. A dead refresh token is cleared or the login form cannot start.
+  if (message === SESSION_DEAD_MSG) {
+    try { await disposeFirebase(true); } catch (e) {}
+  }
+  showLoginMessage(message);
+}
 async function performFlush(token, run) {
   let keptIds = null;
   try {
@@ -371,6 +420,39 @@ async function performFlush(token, run) {
     if (token !== sessionEpoch) return;
     const user = get(K.sessionUser);
     if (!user) return;
+    try {
+      // A forced refresh notices a revoked token. Bound it so a network drop
+      // during this flush still surfaces the retry instead of hanging the pull.
+      if (typeof fb.idToken === 'function') await withTimeout(fb.idToken(true), 2500, 'الجلسة');
+    } catch (err) {
+      if (token !== sessionEpoch) return;
+      if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
+      if (err && (err.timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) {
+        syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
+        return;
+      }
+      throw err;
+    }
+    if (token !== sessionEpoch) return;
+    let live = user;
+    try {
+      if (typeof fb.refreshProfile === 'function') {
+        const fresh = await withTimeout(fb.refreshProfile(user), 2500, 'ملف المستخدم');
+        if (token !== sessionEpoch) return;
+        if (!fresh) { await holdSession(MISSING_PROFILE_MSG); return; }
+        if (fresh.active !== true) { await holdSession(SUSPENDED_MSG); return; }
+        live = fresh;
+        paintShell();
+      }
+    } catch (err) {
+      if (token !== sessionEpoch) return;
+      if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
+      if (err && (err.timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) {
+        syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
+        return;
+      }
+      throw err;
+    }
     const ids = get(K.outbox, []).slice();
     keptIds = [];
     if (ids.length) {
@@ -383,11 +465,37 @@ async function performFlush(token, run) {
           try {
             if (typeof fb.readServer === 'function') return await fb.readServer(local);
             if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
-          } catch (e) {}
+          } catch (e) {
+            if (isDeadAuth(e)) throw e;
+          }
           return null;
         },
       });
       if (token !== sessionEpoch) return;
+      if (result.authDead) { await holdSession(SESSION_DEAD_MSG); return; }
+      if ((result.failed || []).length && typeof fb.refreshProfile === 'function') {
+        try {
+          const again = await fb.refreshProfile(live);
+          if (token !== sessionEpoch) return;
+          if (!again || again.active !== true) {
+            result.kept = (result.kept || []).concat(result.failed.map(row => row && row.id).filter(Boolean));
+            result.failed = [];
+            result.synced = result.synced || [];
+            keptIds = result.kept;
+            if (window.SyncStatus) {
+              const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
+              set(K.outbox, next.outbox);
+              set(K.syncErrors, next.errors);
+            }
+            await holdSession(!again ? MISSING_PROFILE_MSG : SUSPENDED_MSG);
+            return;
+          }
+          live = again;
+        } catch (err) {
+          if (token !== sessionEpoch) return;
+          if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
+        }
+      }
       keptIds = result.kept || [];
       if (result.adopted && result.adopted.length) {
         const map = new Map(result.adopted.map(row => [row.id, row.remote]));
@@ -400,20 +508,27 @@ async function performFlush(token, run) {
       } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id) && !(result.failed || []).some(row => row && row.id === id)));
       if ((result.kept || []).length) syncNotice = SEND_RETRY;
       else if (!(result.failed || []).length) syncNotice = '';
+      // The reversal race adopts the server row and clears the outbox here.
+      // Waiting for the pull left the old «لم يُرسل» pill on screen.
+      if (token === sessionEpoch) paintShell();
     }
     if (token !== sessionEpoch) return;
     try {
-      await fb.pull(user);
+      await fb.pull(live);
       if (token === sessionEpoch && !get(K.outbox, []).length) syncNotice = '';
     } catch (err) {
-      if (token === sessionEpoch) syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
+      if (token !== sessionEpoch) return;
+      if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
+      syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
     }
   } catch (err) {
-    if (token === sessionEpoch) syncNotice = SEND_RETRY;
+    if (token !== sessionEpoch) return;
+    if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
+    syncNotice = SEND_RETRY;
     keptIds = null;
   } finally {
     if (flushing === run) flushing = null;
-    if (token === sessionEpoch && get(K.sessionUser) && !$('#shell').hidden) render();
+    if (token === sessionEpoch) paintShell();
   }
   // An id queued again during this flush (a contract saved after its project
   // write, or an entry saved during the pull) is not in kept. Send it now.
@@ -466,8 +581,34 @@ async function clearExtraCaches() {
     await Promise.all(reqs.map(req => isShellCacheRequest(req.url) ? null : cache.delete(req)));
   }));
 }
+async function probeSession() {
+  if (demoRole() || navigator.onLine === false) return '';
+  let fb;
+  try { fb = await ensureFirebase(); } catch (err) {
+    return isDeadAuth(err) ? SESSION_DEAD_MSG : '';
+  }
+  let user;
+  try { user = await fb.currentUser(); } catch (err) {
+    return isDeadAuth(err) ? SESSION_DEAD_MSG : '';
+  }
+  if (!user) return get(K.sessionUser) ? SESSION_DEAD_MSG : '';
+  try {
+    if (typeof fb.idToken === 'function') await fb.idToken(true);
+  } catch (err) {
+    if (isDeadAuth(err)) return SESSION_DEAD_MSG;
+    return '';
+  }
+  try {
+    const data = await fb.profile(user.uid);
+    if (data && data.active === false) return SUSPENDED_MSG;
+  } catch (err) {
+    if (isDeadAuth(err)) return SESSION_DEAD_MSG;
+  }
+  return '';
+}
 async function closeSession() {
-  if (!await outboxEmpty()) {
+  const reason = await probeSession();
+  if (!reason && !await outboxEmpty()) {
     alert('يوجد قيود لم تُرسل. أرسلها أولاً ثم اخرج');
     return false;
   }
@@ -475,10 +616,11 @@ async function closeSession() {
   sessionEpoch += 1;
   try {
     await closeUserDb();
-    if (name && name.indexOf('aj-u-') === 0) await deleteDb(name);
+    if (!reason && name && name.indexOf('aj-u-') === 0) await deleteDb(name);
     await disposeFirebase(true);
     await clearExtraCaches();
   } catch (e) {}
+  showLoginMessage(reason);
   return true;
 }
 async function openUserDb(uid) {
@@ -493,7 +635,7 @@ async function enterSession(fb, uid, data) {
   const profile = profileFrom(uid, data);
   if (!profile.active || !['owner', 'site'].includes(profile.role)) {
     await disposeFirebase(true);
-    throw new Error(data && data.active === false ? 'هذا الحساب موقوف' : 'لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب');
+    throw new Error(data && data.active === false ? SUSPENDED_MSG : MISSING_PROFILE_MSG);
   }
   await openUserDb(uid);
   set(K.sessionUser, profile);
@@ -625,8 +767,7 @@ function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending t
 }
 
 function counts(entries) {
-  const errors = get(K.syncErrors, {}) || {};
-  return (entries || []).filter(e => !errors[e.id]);
+  return L.countedEntries(entries, get(K.syncErrors, {}) || {});
 }
 function data() {
   const u = me(), projects = get(K.projects, []), entries = get(K.entries, []);
@@ -650,7 +791,7 @@ function currentEntryExport() {
   if (!u || !id) return null;
   const entry = get(K.entries, []).find(e => e.id === id);
   if (!entry) return null;
-  const ctx = { projects: get(K.projects, []), entries: get(K.entries, []), finance: get(K.finance, {}), policy: POLICY };
+  const ctx = { projects: get(K.projects, []), entries: get(K.entries, []), finance: get(K.finance, {}), policy: POLICY, syncErrors: get(K.syncErrors, {}) || {} };
   const fields = L.entryExportFields(u, entry, ctx);
   if (!fields) return null;
   const safe = String(entry.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'entry';
@@ -779,7 +920,7 @@ const views = {
       <label class="field">الجهة المستلمة / المورّد (اختياري)
         <input id="party" class="full" maxlength="100" autocomplete="off" value="${esc(state.party || '')}">
       </label>
-      <button class="btn" id="save">حفظ</button><div id="msg" class="msg"></div>
+      <button class="btn" id="save">حفظ</button><div id="msg" class="msg">${state.formMsgKind === 'saved' ? '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>' : esc(state.formMsg || '')}</div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
   },
   projects() {
@@ -841,7 +982,7 @@ const views = {
       <p class="note">اختر كل مشروع بالاسم. التعيين يقتصر على المشاريع المحددة.</p>
       ${boxes || '<div class="note">لا توجد مشاريع بعد.</div>'}
       <button type="button" class="btn" id="save-person">حفظ</button>
-      <div id="person-msg" class="msg"></div></div>`;
+      <div id="person-msg" class="msg">${esc(state.personMsg || '')}</div></div>`;
   },
   detail(id) {
     const { projects, entries } = data();
@@ -870,11 +1011,11 @@ const views = {
       <div class="kv"><span>سجّله</span><b>${esc(L.displayRecorder(e))}</b></div>
       <div class="kv"><span>الإرسال</span><b>${esc(syncText(e.id))}</b></div>
       ${linked}</div>
-      <div class="export-actions">
+      ${(get(K.syncErrors, {}) || {})[e.id] ? '' : `<div class="export-actions">
         <button type="button" class="btn ghost" id="entry-print">طباعة</button>
         <button type="button" class="btn ghost" id="entry-pdf">حفظ PDF</button>
         <button type="button" class="btn ghost" id="entry-file">حفظ كملف</button>
-      </div>`;
+      </div>`}`;
   },
 };
 const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
@@ -917,6 +1058,14 @@ function captureForm() {
   if (party) state.party = party.value;
   if (amt) state.amountDraft = amt.value;
 }
+function setFormMsg(text, kind) {
+  state.formMsg = text || '';
+  state.formMsgKind = kind || (text ? 'error' : '');
+  const box = $('#msg');
+  if (!box) return;
+  if (state.formMsgKind === 'saved') box.innerHTML = '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>';
+  else box.textContent = state.formMsg;
+}
 function render() {
   captureForm();
   const u = me(); if (!u) return;
@@ -924,6 +1073,8 @@ function render() {
   if (printRoot) printRoot.innerHTML = '';
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   const v = views[view] ? view : 'home';
+  if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
+  if (v !== 'person') state.personMsg = '';
   $('#role').value = u.role;
   $('#role-label').hidden = !demoRole();
   $('#logout').hidden = !!demoRole();
@@ -964,11 +1115,12 @@ document.addEventListener('click', ev => {
     const base = parsed.ok ? parsed.amount : 0;
     const next = b.dataset.add === '0' ? 0 : base + Number(b.dataset.add);
     if (next > L.MAX_AMOUNT_IQD) {
-      const box = $('#msg');
-      if (box) box.textContent = (L.parseAmount(String(next)) || {}).error || '';
+      setFormMsg((L.parseAmount(String(next)) || {}).error || '', 'error');
       return;
     }
     state.amount = next;
+    state.formMsg = '';
+    state.formMsgKind = '';
     if (amtEl) amtEl.value = next ? L.fmt(next) : '';
     render();
   }
@@ -989,7 +1141,7 @@ document.addEventListener('click', ev => {
     const desc = $('#desc').value.trim();
     const party = ($('#party') && $('#party').value || '').trim();
     const parsed = L.parseAmount($('#amt') && $('#amt').value);
-    if (!parsed.ok) { b.disabled = false; $('#msg').textContent = parsed.error; return; }
+    if (!parsed.ok) { b.disabled = false; setFormMsg(parsed.error, 'error'); return; }
     const e = { id: state.formId, projectId: state.projectId, direction: L.ENTRY_TYPES[state.type].direction, entryType: state.type,
       amount: parsed.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
       createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
@@ -998,13 +1150,13 @@ document.addEventListener('click', ev => {
     try {
       commit(e);
       state.amount = 0; state.amountDraft = ''; state.desc = ''; state.party = ''; state.formId = uuid();
+      setFormMsg('حُفظ', 'saved');
       if ($('#desc')) $('#desc').value = '';
       if ($('#party')) $('#party').value = '';
       if ($('#amt')) $('#amt').value = '';
       render();
-      $('#msg').innerHTML = '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>';
     }
-    catch (err) { b.disabled = false; $('#msg').textContent = err.message; }
+    catch (err) { b.disabled = false; setFormMsg(err.message, 'error'); }
   } else if (b.dataset.rev) {
     const all = get(K.entries, []); const orig = all.find(x => x.id === b.dataset.rev);
     const reason = prompt('سبب التصحيح:', 'خطأ في الإدخال'); if (!reason) return;
@@ -1017,7 +1169,8 @@ document.addEventListener('click', ev => {
     if (built && built.csv) saveEntryFile(built.csv, built.filename);
   } else if (b.id === 'csv') {
     if (!L.canExportCSV(u)) return;
-    const blob = new Blob([L.toCSV(get(K.entries, []), get(K.projects, []))], { type: 'text/csv;charset=utf-8' });
+    const rows = L.countedEntries(get(K.entries, []), get(K.syncErrors, {}) || {});
+    const blob = new Blob([L.toCSV(rows, get(K.projects, []))], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aj-ledger-' + today() + '.csv'; a.click();
   } else if (b.id === 'newproj') {
     if (!L.canCreateProject(u)) return;
@@ -1039,8 +1192,11 @@ document.addEventListener('beforeinput', ev => {
   const start = el.selectionStart == null ? el.value.length : el.selectionStart;
   const end = el.selectionEnd == null ? el.value.length : el.selectionEnd;
   if (el.value.length - (end - start) + data.length <= el.maxLength) return;
-  const box = el.id === 'person-name' ? $('#person-msg') : $('#msg');
-  if (box) box.textContent = limitMsg;
+  if (el.id === 'person-name') {
+    state.personMsg = limitMsg;
+    const box = $('#person-msg');
+    if (box) box.textContent = limitMsg;
+  } else setFormMsg(limitMsg, 'error');
 });
 $('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, ev.target.value); render(); });
 $('#login-form').addEventListener('submit', async ev => {
@@ -1069,7 +1225,7 @@ $('#login-form').addEventListener('submit', async ev => {
       } catch (e2) { throw new Error(REPAIR_MSG); }
     }
     if (token !== sessionEpoch) return;
-    if (!data) { await disposeFirebase(true); throw new Error('لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب'); }
+    if (!data) { await disposeFirebase(true); throw new Error(MISSING_PROFILE_MSG); }
     await withTimeout(enterSession(fb, cred.user.uid, data), LOGIN_MS, 'فتح البيانات');
   } catch (err) {
     if (token !== sessionEpoch) return;
@@ -1097,6 +1253,11 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
         if (navigator.onLine !== false) adopt(await withTimeout(fb.profile(user.uid), LOGIN_MS, 'ملف المستخدم'));
       } catch (err) {
         if (token !== sessionEpoch) return;
+        if (isDeadAuth(err)) {
+          showLoginMessage(SESSION_DEAD_MSG);
+          try { await disposeFirebase(true); } catch (e2) {}
+          return;
+        }
         if (isPoison(err)) {
           try {
             fb = await rebuildFirebase(false);
@@ -1104,18 +1265,32 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
             user = await withTimeout(fb.currentUser(), LOGIN_MS, 'الجلسة');
             if (user && navigator.onLine !== false) adopt(await withTimeout(fb.profile(user.uid), LOGIN_MS, 'ملف المستخدم'));
           } catch (e2) {
+            if (isDeadAuth(e2)) {
+              showLoginMessage(SESSION_DEAD_MSG);
+              try { await disposeFirebase(true); } catch (e3) {}
+              return;
+            }
             if (!profile) { const m = $('#login-msg'); if (m) m.textContent = REPAIR_MSG; }
           }
         }
       }
       if (token !== sessionEpoch) return;
-      if (!profile || profile.active === false) return;
+      if (!profile || profile.active === false) {
+        showLogin();
+        if (profile && profile.active === false) {
+          const m = $('#login-msg');
+          if (m) m.textContent = SUSPENDED_MSG;
+        }
+        return;
+      }
       showApp(); render(); flushRemote();
     } catch (e) {
       if (token !== sessionEpoch) return;
       showLogin();
       const m = $('#login-msg');
-      if (m && e && (isPoison(e) || isImportFailure(e))) m.textContent = e.message || REPAIR_MSG;
+      if (m && isDeadAuth(e)) m.textContent = SESSION_DEAD_MSG;
+      else if (m && e && (isPoison(e) || isImportFailure(e))) m.textContent = e.message || REPAIR_MSG;
+      if (isDeadAuth(e)) { try { await disposeFirebase(true); } catch (e2) {} }
     }
     return;
   }
