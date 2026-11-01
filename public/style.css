@@ -61,3 +61,9 @@ a.detail-link{color:var(--pri);font-weight:700}
 #login form{display:flex;flex-direction:column;gap:12px}
 #login label{display:flex;flex-direction:column;gap:4px;font-size:14px}
 #login[hidden],#shell[hidden]{display:none !important}
+.project-manage{margin-top:48px;padding-top:28px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.project-manage h2{margin:0;font-size:16px;color:var(--sub);font-weight:700}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.confirm-back{position:fixed;inset:0;z-index:30;background:rgba(27,31,36,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+.confirm{width:min(440px,100%);background:#fff;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.confirm p{margin:0;font-size:16px;font-weight:700;text-align:center}

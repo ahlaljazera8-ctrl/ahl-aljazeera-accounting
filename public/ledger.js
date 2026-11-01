@@ -31,12 +31,25 @@
     return { received: income, spent: expense, profit: income - expense, byType };
   }
 
+  function isArchived(project) { return !!(project && project.status === 'archived'); }
   function canSeeProject(user, project, policy = DEFAULT_POLICY) {
     if (user.role === 'owner') return true;
+    if (isArchived(project)) return false;
     if (user.role !== 'site' || !user.active) return false;
     return !policy.siteSeesOnlyAssigned || (user.assignedProjectIds || []).includes(project.id);
   }
   function visibleProjects(user, projects, policy) { return projects.filter(p => canSeeProject(user, p, policy)); }
+  function projectList(user, projects, policy, list) {
+    const visible = visibleProjects(user, projects, policy);
+    const wantArchived = list === 'archived' && !!(user && user.role === 'owner');
+    return visible.filter(p => isArchived(p) === wantArchived);
+  }
+  function nextProjectStatus(user, project, action) {
+    if (!user || user.role !== 'owner' || user.active !== true || !project) return null;
+    if (action === 'archive') return isArchived(project) ? null : 'archived';
+    if (action === 'restore') return isArchived(project) ? 'active' : null;
+    return null;
+  }
   // Site sees its own entries and expenses on visible projects. Never received/profit totals.
   function visibleEntries(user, entries, projects, policy) {
     const ok = new Set(visibleProjects(user, projects, policy).map(p => p.id));
@@ -313,7 +326,7 @@
     return { rows, total: visible.length, reads: 0 };
   }
 
-  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, canSeeProject, visibleProjects, visibleEntries,
+  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt,
     baghdadTime, entryExportFields, entryToCSV, projectEntryList };
 });

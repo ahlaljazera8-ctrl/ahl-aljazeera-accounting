@@ -4,15 +4,13 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const net = require('net');
-const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { initializeApp, deleteApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword } = require('firebase/auth');
 const { doc, setDoc, getDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
-const { waitForPage } = require('../chrome-debug.js');
+const { openChrome, waitForPage } = require('../chrome-debug.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'app.entry@example.invalid';
@@ -57,22 +55,6 @@ function startServer() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise(resolve => srv.listen(0, '127.0.0.1', () => resolve(srv)));
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
-  });
-}
-
-function launchChrome(dir, port) {
-  fs.mkdirSync(dir, { recursive: true });
-  return spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--remote-debugging-port=' + port, '--user-data-dir=' + dir, 'about:blank',
-  ], { detached: true, stdio: 'ignore' });
 }
 
 function killChrome(chrome) {
@@ -187,11 +169,11 @@ test.after(async () => {
 
 test('the app entry with createdByName and partyName is accepted, and a wrong name is rejected', { timeout: 120000 }, async () => {
   const dir = '/tmp/aj-app-entry-' + process.pid;
-  const debug = await freePort();
-  const chrome = launchChrome(dir, debug);
+  const opened = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = opened.chrome;
   let session;
   try {
-    session = await connect(debug, chrome);
+    session = await connect(opened.port, chrome);
     await session.send('Page.navigate', { url: origin + '/index.html?emulator=1' });
     assert.equal(await waitFor(session, `document.body && document.body.dataset.ready === '1'`, 20000), true, 'login page ready');
     assert.equal(session.production, '', 'refusing live Firebase traffic');
@@ -268,11 +250,11 @@ async function serverDoc(collectionName, id) {
 
 async function withSession(label, fn) {
   const dir = '/tmp/aj-app-' + label + '-' + process.pid + '-' + Date.now();
-  const debug = await freePort();
-  const chrome = launchChrome(dir, debug);
+  const opened = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = opened.chrome;
   let session;
   try {
-    session = await connect(debug, chrome);
+    session = await connect(opened.port, chrome);
     await session.send('Page.navigate', { url: origin + '/index.html?emulator=1' });
     assert.equal(await waitFor(session, `document.body && document.body.dataset.ready === '1'`, 20000), true, 'login page ready');
     await session.ev(`(()=>{

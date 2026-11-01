@@ -1,13 +1,11 @@
 // The service worker serves the app shell. It must not replay a failed response,
 // a different query string, or a cached Firestore/Auth reply.
 const http = require('http');
-const net = require('net');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { waitForPage } = require('./chrome-debug.js');
+const { openChrome, waitForPage } = require('./chrome-debug.js');
 
 const ROOT = path.join(__dirname, '../public');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -44,20 +42,6 @@ function startServer() {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
-  });
-}
-function launch(dir, port) {
-  fs.mkdirSync(dir, { recursive: true });
-  return spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--remote-debugging-port=' + port, '--user-data-dir=' + dir, 'about:blank',
-  ], { detached: true, stdio: 'ignore' });
-}
 function kill(chrome) {
   if (chrome && chrome.pid) { try { process.kill(-chrome.pid, 'SIGKILL'); } catch (e) { try { chrome.kill('SIGKILL'); } catch (e2) {} } }
 }
@@ -109,11 +93,11 @@ test('service worker does not serve a cached error or a different query', { time
   const { port } = server.address();
   const origin = 'http://127.0.0.1:' + port;
   const dir = '/tmp/aj-sw-' + port;
-  const debug = await freePort();
-  const chrome = launch(dir, debug);
+  const opened = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = opened.chrome;
   let session;
   try {
-    session = await connect(debug, chrome);
+    session = await connect(opened.port, chrome);
     await openControlled(session, origin);
     const queries = await session.ev(`Promise.all(['1','2'].map(v => fetch('style.css?v=' + v).then(r => r.text())))`);
     assert.deepEqual(queries, ['QUERY1', 'QUERY2']);
@@ -134,11 +118,11 @@ test('service worker does not answer Firestore or Auth hosts from cache', { time
   const { port } = server.address();
   const origin = 'http://127.0.0.1:' + port;
   const dir = '/tmp/aj-sw-host-' + port;
-  const debug = await freePort();
-  const chrome = launch(dir, debug);
+  const opened = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = opened.chrome;
   let session;
   try {
-    session = await connect(debug, chrome);
+    session = await connect(opened.port, chrome);
     await openControlled(session, origin);
     const bodies = await session.ev(`(async () => {
       const hosts = ['https://firestore.googleapis.com/v1/poison', 'https://identitytoolkit.googleapis.com/v1/poison', 'https://securetoken.googleapis.com/v1/poison'];

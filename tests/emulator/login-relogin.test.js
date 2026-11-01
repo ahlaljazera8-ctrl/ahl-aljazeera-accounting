@@ -3,7 +3,6 @@
 // rows stay on the device. Never points at the live project.
 const fs = require('fs');
 const path = require('path');
-const net = require('net');
 const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,7 +12,7 @@ const {
 } = require('firebase/auth');
 const { doc, setDoc, deleteDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
-const { waitForPage } = require('../chrome-debug.js');
+const { openChrome, waitForPage } = require('../chrome-debug.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'relogin.owner@example.invalid';
@@ -49,29 +48,6 @@ function testSeq(name, fn, timeout) {
     try { await fn(); }
     finally { release(); }
   });
-}
-
-async function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address();
-      s.close(() => resolve(port));
-    });
-  });
-}
-
-function launchChrome(dir, port) {
-  fs.mkdirSync(dir, { recursive: true });
-  fs.rmSync(path.join(dir, 'SingletonLock'), { force: true });
-  fs.rmSync(path.join(dir, 'SingletonSocket'), { force: true });
-  fs.rmSync(path.join(dir, 'SingletonCookie'), { force: true });
-  const chrome = spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--remote-debugging-port=' + port, '--user-data-dir=' + dir, 'about:blank',
-  ], { detached: true, stdio: 'ignore' });
-  return chrome;
 }
 
 function killChrome(chrome) {
@@ -131,10 +107,10 @@ async function connect(port, chrome) {
 }
 
 async function openBrowser(dir) {
-  const port = await freePort();
-  const chrome = launchChrome(dir, port);
+  const opened = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = opened.chrome;
   try {
-    const session = await connect(port, chrome);
+    const session = await connect(opened.port, chrome);
     session.chrome = chrome;
     session.dir = dir;
     return session;

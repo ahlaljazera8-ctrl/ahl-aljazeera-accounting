@@ -3,8 +3,6 @@
 // Emulators only. Never points at the live project.
 const fs = require('fs');
 const path = require('path');
-const net = require('net');
-const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { initializeApp, deleteApp } = require('firebase/app');
@@ -13,7 +11,7 @@ const {
 } = require('firebase/auth');
 const { doc, setDoc, getDocs, collection } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
-const { waitForPage } = require('../chrome-debug.js');
+const { openChrome, waitForPage } = require('../chrome-debug.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'csp.headers@example.invalid';
@@ -94,28 +92,6 @@ function headerMap(response) {
   const out = {};
   response.headers.forEach((value, key) => { out[key.toLowerCase()] = value; });
   return out;
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address();
-      s.close(() => resolve(port));
-    });
-  });
-}
-
-function launchChrome(dir, port) {
-  fs.mkdirSync(dir, { recursive: true });
-  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    fs.rmSync(path.join(dir, name), { force: true });
-  }
-  return spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--remote-debugging-port=' + port, '--user-data-dir=' + dir, 'about:blank',
-  ], { detached: true, stdio: 'ignore' });
 }
 
 function killChrome(chrome) {
@@ -253,11 +229,11 @@ test('security headers still let the app boot, log in, sync an entry, and regist
   await deleteApp(app);
 
   const dir = '/tmp/aj-csp-' + process.pid;
-  const debug = await freePort();
-  const chrome = launchChrome(dir, debug);
+  const launched = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = launched.chrome;
   let session;
   try {
-    session = await connect(debug, chrome);
+    session = await connect(launched.port, chrome);
     // iPhone Safari proactively opens the Firebase Auth iframe. Desktop Chrome does not.
     await session.send('Emulation.setUserAgentOverride', {
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',

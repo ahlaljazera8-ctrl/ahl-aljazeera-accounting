@@ -1,31 +1,13 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
-const { spawn } = require('child_process'); const fs = require('fs'); const net = require('net'); const path = require('path');
-const { waitForPage } = require('./chrome-debug.js');
+const fs = require('fs'); const path = require('path');
+const { openChrome } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); });
-  });
-}
 let chrome;
 (async () => {
-  const port = await freePort();
-  let chromeLog = '';
-  chrome = spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--no-first-run', '--no-default-browser-check',
-    '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
-    '--remote-debugging-port=' + port, '--user-data-dir=/tmp/aj-chrome-' + Date.now(),
-    'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const keep = chunk => { chromeLog = (chromeLog + chunk).slice(-4000); };
-  chrome.stdout.on('data', keep); chrome.stderr.on('data', keep);
-  let tgt;
-  try { tgt = await waitForPage(port, chrome); }
-  catch (err) { throw new Error(err.message + '\n' + chromeLog); }
+  const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
+  chrome = opened.chrome;
+  const tgt = opened.page;
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
@@ -76,7 +58,10 @@ let chrome;
     if (role === 'site' && hash === 'entry') check('s2: all 5 types offered', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)));
     if (role === 'site') check(`${name}: reverse buttons only on own non-reversed entries`, await ev(`(()=>{const es=AJ.get('entries');const bs=[...document.querySelectorAll('[data-rev]')].map(b=>b.dataset.rev);return bs.every(id=>{const e=es.find(x=>x.id===id);return e.createdBy==='u-ahmed'&&!e.isReversal&&!es.some(x=>x.reversesEntryId===id)})&&(location.hash!=='#project/p-school'||bs.length>0)})()`));
     if (role === 'site' && hash === 'home') check('s1: own client payment listed', /دفعة عميل/.test(info.text));
-    if (role === 'site' && hash === 'projects') check('s3: only assigned projects', !info.text.includes('بناية السوق') && info.text.includes('مشروع المدرسة'));
+    if (role === 'site' && hash === 'projects') {
+      check('s3: only assigned projects', !info.text.includes('بناية السوق') && info.text.includes('مشروع المدرسة'));
+      check('s3: site has no archived filter', !info.text.includes('المؤرشفة') && !info.text.includes('استعادة') && !info.text.includes('أرشفة') && await ev(`!document.querySelector('#project-filter')`));
+    }
     if (role === 'owner' && hash === 'entry') check('o2: all 5 types offered', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)));
     if (hash === 'entry') check(name + ': payee input', info.text.includes('الجهة المستلمة / المورّد (اختياري)') && await ev(`(()=>{const el=document.querySelector('#party');return !!el && el.maxLength===100})()`));
     if (role === 'owner' && hash === 'project/p-school') {
@@ -84,6 +69,7 @@ let chrome;
       check('o4: old entry without a name shows a dash', await ev(`(()=>{const row=[...document.querySelectorAll('.entry')].find(el=>el.innerText.includes('إدخال خاطئ')&&!el.innerText.includes('تصحيح'));return !!row&&row.innerText.includes('—')&&!row.innerText.includes('أحمد')})()`));
       check('o4: owner project shows the contract value', info.text.includes('قيمة العقد') && info.text.includes('60,000,000') && await ev(`document.querySelector('#contract') && document.querySelector('#contract').value==='60000000'`));
       check('o4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
+      check('o4: archive sits below the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');if(!entry||!manage)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;const border=parseFloat(getComputedStyle(manage).borderTopWidth)||0;const text=manage.innerText||'';return gap>=40&&border>=1&&text.includes('إدارة المشروع')&&text.includes('أرشفة المشروع')&&!manage.innerText.includes('قيد لهذا المشروع')})()`));
     }
     if (role === 'owner' && hash === 'person/u-ahmed') {
       check('o5: instructions name the Firebase UID column', info.text.includes('Firebase') && info.text.includes('Authentication') && info.text.includes('Users') && info.text.includes('User UID'));
@@ -92,6 +78,7 @@ let chrome;
     if (role === 'site' && hash === 'project/p-school') {
       check('s4: site project hides the contract', !info.text.includes('قيمة العقد') && !info.text.includes('60,000,000') && await ev(`!document.querySelector('#contract') && !document.body.innerHTML.includes('projectFinance')`));
       check('s4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
+      check('s4: site has no project management', !info.text.includes('إدارة المشروع') && !info.text.includes('أرشفة') && await ev(`!document.querySelector('#project-manage') && !document.querySelector('#archive-project')`));
     }
     if (role === 'site' && hash === 'home') check('s1: own rows show the recorder', info.text.includes('أحمد'));
     if (role === 'owner' && hash === 'home') check('o1: totals shown', /صافي الربح/.test(info.text));
@@ -789,6 +776,43 @@ let chrome;
   })()`);
   console.log('view-all rejected ' + JSON.stringify(viewAll));
   check('view-all count and list drop a server rejection and keep a pending entry', viewAll && viewAll.pendingOk === true && viewAll.rejectedStored === true && viewAll.rejectedIds.length >= 1 && viewAll.listHasRejected === false && viewAll.listHasPending === true && viewAll.textHasRejectedParty === false && viewAll.textHasPendingParty === true && viewAll.shown === viewAll.rows && viewAll.rows > 0 && viewAll.total === viewAll.stored - viewAll.rejectedIds.length && viewAll.total < viewAll.stored && viewAll.shown <= viewAll.total);
+  await go(`${BASE}index.html?role=owner#project/p-market`);
+  await ev(`document.querySelector('#project-manage').scrollIntoView({block:'center'})`);
+  await sleep(250);
+  const shotView = async file => { const s = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, file), Buffer.from(s.result.data, 'base64')); };
+  await shotView('archive-section.png');
+  check('archive section is separated from the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');if(!entry||!manage)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;return gap>=40&&(manage.innerText||'').includes('أرشفة المشروع')})()`));
+  const ledgerBefore = await ev(`(AJ.get('entries')||[]).length`);
+  await ev(`document.querySelector('#archive-project').click(); 1`);
+  await sleep(200);
+  await shotView('archive-dialog.png');
+  const dialog = await ev(`(()=>{const yes=document.querySelector('#confirm-yes');const no=document.querySelector('#confirm-no');if(!yes||!no)return null;const bg=getComputedStyle(yes).backgroundColor;return {ask:(document.querySelector('#confirm-dialog')||{}).innerText||'',yes:yes.textContent,no:no.textContent,danger:bg==='rgb(198, 40, 40)'}})()`);
+  check('archive asks for نعم in red and إلغاء', dialog && dialog.yes === 'نعم' && dialog.no === 'إلغاء' && dialog.danger && dialog.ask.includes('أرشفة'));
+  await ev(`document.querySelector('#confirm-no').click(); 1`);
+  await sleep(150);
+  check('إلغاء leaves the project on the main list', await ev(`!document.querySelector('#confirm-dialog') && (AJ.get('projects').find(p=>p.id==='p-market')||{}).status!=='archived' && location.hash==='#project/p-market'`));
+  await ev(`document.querySelector('#archive-project').click(); document.querySelector('#confirm-yes').click(); 1`);
+  await sleep(200);
+  const archived = await ev(`(()=>{const p=(AJ.get('projects')||[]).find(x=>x.id==='p-market');const text=document.querySelector('#main').innerText||'';return {status:p&&p.status,hash:location.hash,text,entries:(AJ.get('entries')||[]).length}})()`);
+  check('archive keeps every ledger row and hides the project', archived && archived.status === 'archived' && archived.hash === '#projects' && !archived.text.includes('بناية السوق') && archived.text.includes('مشروع المدرسة') && archived.entries === ledgerBefore);
+  await ev(`document.querySelector('[data-list="archived"]').click(); 1`);
+  await sleep(200);
+  await shotView('archive-list.png');
+  check('المؤرشفة lists the project with استعادة', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';const btn=document.querySelector('[data-restore="p-market"]');return text.includes('بناية السوق')&&text.includes('استعادة')&&!!btn&&!text.includes('مشروع المدرسة')&&!document.querySelector('#newproj')})()`));
+  await ev(`document.querySelector('#role').value='site'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(200);
+  check('site never sees the archived filter or the archived project', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';return !document.querySelector('#project-filter')&&!document.querySelector('[data-restore]')&&!document.querySelector('#project-manage')&&!text.includes('المؤرشفة')&&!text.includes('بناية السوق')&&!text.includes('أرشفة')&&!text.includes('استعادة')})()`));
+  await ev(`document.querySelector('#role').value='owner'; location.hash='#projects'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(150);
+  await ev(`document.querySelector('[data-list="archived"]').click(); document.querySelector('[data-restore="p-market"]').click(); 1`);
+  await sleep(150);
+  check('restore uses the same confirm buttons', await ev(`(()=>{const yes=document.querySelector('#confirm-yes');const no=document.querySelector('#confirm-no');const ask=(document.querySelector('#confirm-dialog')||{}).innerText||'';return !!yes&&yes.textContent==='نعم'&&!!no&&no.textContent==='إلغاء'&&getComputedStyle(yes).backgroundColor==='rgb(198, 40, 40)'&&ask.includes('استعادة')})()`));
+  await ev(`document.querySelector('#confirm-yes').click(); 1`);
+  await sleep(200);
+  check('restore clears the project from المؤرشفة', await ev(`(()=>{const p=(AJ.get('projects')||[]).find(x=>x.id==='p-market');const text=document.querySelector('#main').innerText||'';return p&&p.status==='active'&&!text.includes('بناية السوق')&&!document.querySelector('[data-restore]')&&(AJ.get('entries')||[]).length===${ledgerBefore}})()`));
+  await ev(`document.querySelector('[data-list="open"]').click(); 1`);
+  await sleep(150);
+  check('the restored project is back on the main list', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';return text.includes('بناية السوق')&&text.includes('مشروع المدرسة')&&!!document.querySelector('#newproj')})()`));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

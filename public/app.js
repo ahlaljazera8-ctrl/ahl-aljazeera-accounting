@@ -2,7 +2,7 @@
 // Storage: IndexedDB "aj-p0" (stores: projects, entries, outbox, meta). Loaded into memory at boot; every write is
 // persisted to IndexedDB (write-through, serialized). "Server" is simulated; outbox = ids not sent yet (no syncState).
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark' };
+const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
 const demoRole = () => { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; };
 const LIST = { projects:1, entries:1, outbox:1 };
 const cache = {};
@@ -102,7 +102,7 @@ function seed() {
   set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
   set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '' };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null };
 let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
@@ -273,6 +273,10 @@ async function loadFirebase() {
       }
       set(K.projects, get(K.projects, []).map(p => p.id === clean.id ? S.withoutContractAmount(p) : p));
     },
+    async updateProjectStatus(id, status) {
+      if (status !== 'archived' && status !== 'active') throw new Error('status');
+      await fsMod.updateDoc(fsMod.doc(fdb, 'projects', id), { status });
+    },
     async exists(local) {
       const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, S.collectionFor(local), local.id));
       return snap.exists();
@@ -302,7 +306,8 @@ async function loadFirebase() {
       // the reads were in flight is only in the cache now, so merge the
       // server rows into the cache as it stands and keep pending ids.
       const pendingIds = get(K.outbox, []);
-      const projects = S.mergeById(get(K.projects, []), result.incomingProjects || [], pendingIds);
+      const projectHold = pendingIds.concat(get(K.statusPending, []));
+      const projects = S.mergeById(get(K.projects, []), result.incomingProjects || [], projectHold);
       const entries = S.mergeById(get(K.entries, []), result.incomingEntries || [], pendingIds);
       set(K.projects, S.projectsForClient(user, projects));
       set(K.entries, entries);
@@ -412,8 +417,32 @@ async function holdSession(message) {
   }
   showLoginMessage(message);
 }
+async function flushProjectStatus(fb) {
+  const pending = get(K.statusPending, []).slice();
+  if (!pending.length) return;
+  const left = [];
+  let stopped = false;
+  for (const id of pending) {
+    if (stopped) { left.push(id); continue; }
+    const project = get(K.projects, []).find(p => p.id === id);
+    if (!project || window.Sync.isSeed(project) || !project.createdAtServer) continue;
+    if (project.status !== 'archived' && project.status !== 'active') continue;
+    try {
+      await fb.updateProjectStatus(id, project.status);
+    } catch (err) {
+      if (isDeadAuth(err)) throw err;
+      const code = String((err && err.code) || '');
+      if (code === 'not-found') continue;
+      left.push(id);
+      if (err && (err.timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) stopped = true;
+    }
+  }
+  set(K.statusPending, left);
+  if (left.length) syncNotice = SEND_RETRY;
+}
 async function performFlush(token, run) {
   let keptIds = null;
+  let statusAtStart = null;
   try {
     if (token !== sessionEpoch || navigator.onLine === false) return;
     const fb = await ensureFirebase();
@@ -513,6 +542,16 @@ async function performFlush(token, run) {
       if (token === sessionEpoch) paintShell();
     }
     if (token !== sessionEpoch) return;
+    statusAtStart = get(K.statusPending, []).slice();
+    if (live.role === 'owner' && typeof fb.updateProjectStatus === 'function') {
+      try { await flushProjectStatus(fb); }
+      catch (err) {
+        if (token !== sessionEpoch) return;
+        if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
+        syncNotice = SEND_RETRY;
+      }
+    }
+    if (token !== sessionEpoch) return;
     try {
       await fb.pull(live);
       if (token === sessionEpoch && !get(K.outbox, []).length) syncNotice = '';
@@ -535,7 +574,9 @@ async function performFlush(token, run) {
   if (Array.isArray(keptIds) && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser)) {
     queuePendingFinance();
     const kept = new Set(keptIds);
-    if (get(K.outbox, []).some(id => !kept.has(id))) return flushRemote();
+    const started = new Set(Array.isArray(statusAtStart) ? statusAtStart : get(K.statusPending, []));
+    const freshStatus = get(K.statusPending, []).some(id => !started.has(id));
+    if (get(K.outbox, []).some(id => !kept.has(id)) || freshStatus) return flushRemote();
   }
 }
 async function closeUserDb() {
@@ -558,11 +599,14 @@ function deleteDb(name) {
 }
 async function outboxEmpty() {
   if (get(K.outbox, []).length) return false;
+  if ((get(K.statusPending, []) || []).length) return false;
   if (!db) return true;
   await writing.catch(() => {});
   try {
     const n = await req(db.transaction('outbox', 'readonly').objectStore('outbox').count());
-    return n === 0;
+    if (n !== 0) return false;
+    const pending = await req(db.transaction('meta', 'readonly').objectStore('meta').get(K.statusPending));
+    return !pending || !pending.length;
   } catch (e) { return false; }
 }
 const SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
@@ -609,7 +653,7 @@ async function probeSession() {
 async function closeSession() {
   const reason = await probeSession();
   if (!reason && !await outboxEmpty()) {
-    alert('يوجد قيود لم تُرسل. أرسلها أولاً ثم اخرج');
+    alert('يوجد تغييرات لم تُرسل. أرسلها أولاً ثم اخرج');
     return false;
   }
   const name = db && db.name;
@@ -907,7 +951,8 @@ const views = {
       <a class="btn" href="#entry">+ قيد جديد</a>`;
   },
   entry(pid) {
-    const { u, projects } = data();
+    const { u } = data();
+    const projects = L.projectList(u, get(K.projects, []), POLICY, 'open');
     const types = Object.entries(L.ENTRY_TYPES).filter(([, t]) => u.role === 'owner' || t.direction === 'expense' || POLICY.siteCanCreateClientPayment);
     if (!types.some(([k]) => k === state.type)) state.type = types[0][0];
     if (pid) state.projectId = pid;
@@ -924,14 +969,23 @@ const views = {
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
   },
   projects() {
-    const { u, projects, entries } = data();
-    return projects.map(p => {
-      const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
-      const line = u.role === 'owner'
-        ? `<div class="kv"><span>${s.profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(s.profit))}</span></div>`
-        : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
-      return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
-    }).join('') + (u.role === 'owner' ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
+    const { u, entries } = data();
+    const list = u.role === 'owner' && state.projectList === 'archived' ? 'archived' : 'open';
+    const projects = L.projectList(u, get(K.projects, []), POLICY, list);
+    const filter = u.role === 'owner'
+      ? `<div class="pills" id="project-filter"><button type="button" class="pill${list === 'open' ? ' on' : ''}" data-list="open">المشاريع</button><button type="button" class="pill${list === 'archived' ? ' on' : ''}" data-list="archived">المؤرشفة</button></div>`
+      : '';
+    const cards = list === 'archived'
+      ? (projects.map(p => `<div class="card"><h2>${esc(p.name)}</h2><button type="button" class="btn ghost" data-restore="${esc(p.id)}">استعادة</button></div>`).join('') || '<div class="note">لا توجد مشاريع مؤرشفة</div>')
+      : projects.map(p => {
+        const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
+        const line = u.role === 'owner'
+          ? `<div class="kv"><span>${s.profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(s.profit))}</span></div>`
+          : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
+        return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
+      }).join('');
+    const tail = list === 'archived' ? '' : (u.role === 'owner' ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
+    return filter + cards + tail;
   },
   project(id) {
     const { u, projects, entries } = data();
@@ -942,9 +996,12 @@ const views = {
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
+    const manage = L.nextProjectStatus(u, p, 'archive')
+      ? `<section class="project-manage" id="project-manage"><h2>إدارة المشروع</h2><button type="button" class="btn ghost" id="archive-project">أرشفة المشروع</button></section>`
+      : '';
     return `<div class="card">${card}</div><div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
       <a class="btn ghost" id="all-entries" href="${allHref}">عرض جميع القيود</a>
-      <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>`;
+      <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>${manage}`;
   },
   // Local cache only. projectEntryList reads nothing from Firestore; «المزيد»
   // reveals the next 50 rows already stored for this project.
@@ -1058,6 +1115,47 @@ function captureForm() {
   if (party) state.party = party.value;
   if (amt) state.amountDraft = amt.value;
 }
+function confirmDialog() {
+  const c = state.confirm;
+  if (!c) return '';
+  const ask = c.action === 'restore' ? 'استعادة هذا المشروع؟' : 'أرشفة هذا المشروع؟';
+  return `<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"><div class="confirm"><p>${ask}</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button></div></div>`;
+}
+function rememberProjectStatus(id, before) {
+  if (!before || !before.createdAtServer) {
+    const out = get(K.outbox, []);
+    if (!out.includes(id)) set(K.outbox, out.concat([id]));
+    return;
+  }
+  const pending = get(K.statusPending, []);
+  if (!pending.includes(id)) set(K.statusPending, pending.concat([id]));
+}
+function commitProjectStatus(action, id) {
+  const u = me();
+  const projects = get(K.projects, []);
+  const project = projects.find(p => p.id === id);
+  const status = L.nextProjectStatus(u, project, action);
+  if (!status) return false;
+  set(K.projects, projects.map(p => p.id === id ? Object.assign({}, p, { status }) : p));
+  if (!demoRole()) rememberProjectStatus(id, project);
+  return true;
+}
+function openConfirm(action, id) {
+  const project = get(K.projects, []).find(p => p.id === id);
+  if (!L.nextProjectStatus(me(), project, action)) return;
+  state.confirm = { id, action };
+  render();
+}
+function finishConfirm(c) {
+  const ok = commitProjectStatus(c.action, c.id);
+  if (!ok) { render(); return; }
+  if (c.action === 'archive') {
+    state.projectList = 'open';
+    if (location.hash !== '#projects') { location.hash = '#projects'; }
+    else render();
+  } else render();
+  if (!demoRole()) flushRemote();
+}
 function setFormMsg(text, kind) {
   state.formMsg = text || '';
   state.formMsgKind = kind || (text ? 'error' : '');
@@ -1075,6 +1173,7 @@ function render() {
   const v = views[view] ? view : 'home';
   if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
   if (v !== 'person') state.personMsg = '';
+  if (u.role !== 'owner') { state.confirm = null; state.projectList = 'open'; }
   $('#role').value = u.role;
   $('#role-label').hidden = !demoRole();
   $('#logout').hidden = !!demoRole();
@@ -1097,10 +1196,15 @@ function render() {
   }
   const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
   $('#title').textContent = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
-  $('#main').innerHTML = views[v](arg);
+  $('#main').innerHTML = views[v](arg) + confirmDialog();
 }
 
 document.addEventListener('click', ev => {
+  if (ev.target.closest && ev.target.closest('#confirm-dialog') && !ev.target.closest('.confirm')) {
+    state.confirm = null;
+    render();
+    return;
+  }
   const revBtn = ev.target.closest('[data-rev]');
   const open = !revBtn && ev.target.closest('a.entry-open, a.detail-link');
   if (open && $('#login').hidden) state.backStack.push(location.hash || '#home');
@@ -1172,6 +1276,23 @@ document.addEventListener('click', ev => {
     const rows = L.countedEntries(get(K.entries, []), get(K.syncErrors, {}) || {});
     const blob = new Blob([L.toCSV(rows, get(K.projects, []))], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aj-ledger-' + today() + '.csv'; a.click();
+  } else if (b.dataset.list) {
+    if (!u || u.role !== 'owner') return;
+    state.projectList = b.dataset.list === 'archived' ? 'archived' : 'open';
+    state.confirm = null;
+    render();
+  } else if (b.id === 'archive-project') {
+    const id = (location.hash.slice(1).split('/')[1]) || '';
+    openConfirm('archive', id);
+  } else if (b.dataset.restore) {
+    openConfirm('restore', b.dataset.restore);
+  } else if (b.id === 'confirm-no') {
+    state.confirm = null;
+    render();
+  } else if (b.id === 'confirm-yes') {
+    const pending = state.confirm;
+    state.confirm = null;
+    if (pending) finishConfirm(pending);
   } else if (b.id === 'newproj') {
     if (!L.canCreateProject(u)) return;
     const name = prompt('اسم المشروع:'); if (!name) return; const clientName = prompt('اسم الزبون:') || '';
