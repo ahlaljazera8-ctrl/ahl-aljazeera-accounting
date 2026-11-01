@@ -951,7 +951,7 @@ const views = {
   entries(id) {
     const u = me();
     const back = `<button type="button" class="mini" id="back-project">رجوع</button>`;
-    const list = L.projectEntryList(u, id, { projects: get(K.projects, []), entries: get(K.entries, []), policy: POLICY }, { limit: shownEntryCount(id) });
+    const list = L.projectEntryList(u, id, { projects: get(K.projects, []), entries: get(K.entries, []), syncErrors: get(K.syncErrors, {}) || {}, policy: POLICY }, { limit: shownEntryCount(id) });
     if (!list) return back + '<div class="card">المشروع غير متاح</div>';
     if (!list.total) return back + '<div class="card" id="entry-list"><div class="note">لا توجد قيود لهذا المشروع</div></div>';
     const more = list.rows.length < list.total ? '<button type="button" class="btn ghost" id="more-entries">المزيد</button>' : '';

@@ -406,7 +406,7 @@ let chrome;
   check('an 80-character name without spaces does not widen the page', wide && wide.hz === false && (wide.wrap === 'anywhere' || wide.wrap === 'break-word'));
   const listView = async (role, projectId, limit = 50) => ev(`(()=>{
     const u = (AJ.get('users') || []).find(x => x.uid === ${JSON.stringify(role === 'site' ? 'u-ahmed' : 'u-ameer')});
-    const ctx = { projects: AJ.get('projects'), entries: AJ.get('entries'), finance: AJ.get('projectFinance'), policy: Ledger.DEFAULT_POLICY };
+    const ctx = { projects: AJ.get('projects'), entries: AJ.get('entries'), finance: AJ.get('projectFinance'), policy: Ledger.DEFAULT_POLICY, syncErrors: AJ.get('syncErrors') || {} };
     const list = Ledger.projectEntryList(u, ${JSON.stringify(projectId)}, ctx, { limit: ${Number(limit) || 50} });
     const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
     const html = (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '';
@@ -754,6 +754,61 @@ let chrome;
     return { printed: window.__printed, text, hasId: text.includes(${JSON.stringify(rejectedId && rejectedId.good)}) };
   })()`);
   check('print and PDF still include an entry the server accepted', acceptedPrint && acceptedPrint.printed === 2 && acceptedPrint.hasId === true);
+  const plantedView = await ev(`(async () => {
+    const stamp = 9900000000000000;
+    const rejected = { id: 'view-rejected', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 919191, currency: 'IQD', entryDate: '2026-11-05', description: 'مرفوض للعرض', partyName: 'جهة مرفوضة', isReversal: false, createdAtDevice: stamp + 2, createdAtServer: null, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'view' };
+    const pending = { id: 'view-pending', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 818181, currency: 'IQD', entryDate: '2026-11-05', description: 'ينتظر للعرض', partyName: 'جهة تنتظر', isReversal: false, createdAtDevice: stamp + 1, createdAtServer: null, createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'view' };
+    return await new Promise((resolve, reject) => {
+      const q = indexedDB.open('aj-p0');
+      q.onerror = () => reject(q.error || new Error('idb'));
+      q.onsuccess = () => {
+        const d = q.result;
+        const tx = d.transaction(['entries', 'outbox', 'meta'], 'readwrite');
+        const meta = tx.objectStore('meta');
+        const cur = meta.get('syncErrors');
+        cur.onsuccess = () => {
+          const prev = cur.result && typeof cur.result === 'object' ? cur.result : {};
+          meta.put(Object.assign({}, prev, { [rejected.id]: 'رُفض الإرسال' }), 'syncErrors');
+        };
+        tx.objectStore('entries').put(rejected);
+        tx.objectStore('entries').put(pending);
+        tx.objectStore('outbox').put({ id: pending.id, queuedAt: stamp });
+        tx.oncomplete = () => { d.close(); resolve('ok'); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  })()`);
+  check('view-all fixtures are stored', plantedView === 'ok');
+  await go(`${BASE}index.html?role=owner&fresh=viewall#entries/p-school`);
+  await ev(`dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(300);
+  const viewAll = await ev(`(()=>{
+    const school = (AJ.get('entries') || []).filter(e => e && e.projectId === 'p-school');
+    const errors = AJ.get('syncErrors') || {};
+    const out = AJ.get('outbox') || [];
+    const rejectedIds = school.filter(e => errors[e.id]).map(e => e.id);
+    const pending = school.find(e => e.id === 'view-pending');
+    const note = ((document.querySelector('#entry-count') || {}).textContent || '').trim();
+    const m = note.match(/^(\\d+) من (\\d+)$/);
+    const ids = [...document.querySelectorAll('#entry-list a.entry-open')].map(a => (a.getAttribute('href') || '').replace('#detail/', ''));
+    const text = ((document.querySelector('#entry-list') || {}).innerText) || '';
+    return {
+      note,
+      shown: m ? Number(m[1]) : -1,
+      total: m ? Number(m[2]) : -1,
+      rows: ids.length,
+      rejectedIds,
+      listHasRejected: ids.some(id => rejectedIds.includes(id)),
+      listHasPending: ids.includes('view-pending'),
+      textHasRejectedParty: text.includes('جهة مرفوضة'),
+      textHasPendingParty: text.includes('جهة تنتظر'),
+      stored: school.length,
+      pendingOk: !!pending && pending.createdAtServer == null && out.includes('view-pending') && !errors['view-pending'],
+      rejectedStored: errors['view-rejected'] === 'رُفض الإرسال' && school.some(e => e.id === 'view-rejected'),
+    };
+  })()`);
+  console.log('view-all rejected ' + JSON.stringify(viewAll));
+  check('view-all count and list drop a server rejection and keep a pending entry', viewAll && viewAll.pendingOk === true && viewAll.rejectedStored === true && viewAll.rejectedIds.length >= 1 && viewAll.listHasRejected === false && viewAll.listHasPending === true && viewAll.textHasRejectedParty === false && viewAll.textHasPendingParty === true && viewAll.shown === viewAll.rows && viewAll.rows > 0 && viewAll.total === viewAll.stored - viewAll.rejectedIds.length && viewAll.total < viewAll.stored && viewAll.shown <= viewAll.total);
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

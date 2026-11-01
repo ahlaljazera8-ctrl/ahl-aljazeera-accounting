@@ -478,6 +478,12 @@ test('view-all counts the same entries as the screen totals', () => {
   const hidden = L.projectEntryList(owner, 'a', ctx, { limit: 0 });
   assert.deepEqual(hidden.rows, []);
   assert.equal(hidden.total, 2);
+  const original = E({ id: 'orig', amount: 4000, createdAtDevice: 10, createdAtServer: 5 });
+  const rev = E({ id: 'rev', amount: 4000, createdAtDevice: 50, createdAtServer: null, isReversal: true, reversesEntryId: 'orig', description: 'عكس مرفوض' });
+  const dropped = L.projectEntryList(owner, 'a', { projects, entries: [original, rev], syncErrors: { rev: 'رُفض الإرسال' } });
+  assert.deepEqual(dropped.rows.map(r => r.id), ['orig']);
+  assert.equal(dropped.total, 1);
+  assert.equal(dropped.rows[0].reversalStatus, '');
 });
 
 test('CSV populates partyName and createdByName', () => {

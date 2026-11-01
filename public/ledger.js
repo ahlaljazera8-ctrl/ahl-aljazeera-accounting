@@ -176,9 +176,9 @@
   }
   function canExportCSV(user) { return user.role === 'owner' && user.active; }
 
-  // Screen totals and the ledger file share this list. A server rejection is
-  // recorded in syncErrors and is left out. An entry still waiting to send has
-  // no error, so it stays in both.
+  // Screen totals, the ledger file, and «عرض جميع القيود» share this list.
+  // A server rejection is recorded in syncErrors and is left out. An entry
+  // still waiting to send has no error, so it stays.
   function countedEntries(entries, errors) {
     const err = errors || {};
     return (entries || []).filter(e => e && e.id && !err[e.id]);
@@ -279,18 +279,19 @@
     return n;
   }
 
-  // One project's entries, newest recorded first, using only rows this user may
-  // already see (visibleEntries). Fields are an allowlist: type, amount, ledger
-  // date, recorder, party, and reversal status. No contractAmount, profit, totals,
-  // or another person's client-payment amount. reads is always 0 — pass the
-  // IndexedDB/memory cache; this does not query Firestore.
+  // One project's counted entries, newest recorded first. countedEntries drops
+  // a server rejection; visibleEntries then keeps rows this user may already
+  // see. Fields are an allowlist: type, amount, ledger date, recorder, party,
+  // and reversal status. No contractAmount, profit, totals, or another person's
+  // client-payment amount. reads is always 0. Pass the IndexedDB/memory cache.
+  // This does not query Firestore.
   function projectEntryList(user, projectId, ctx = {}, opts) {
     if (!user || user.active !== true || (user.role !== 'owner' && user.role !== 'site')) return null;
     const projects = ctx.projects || [];
     const policy = ctx.policy || DEFAULT_POLICY;
     const project = visibleProjects(user, projects, policy).find(p => p && p.id === projectId);
     if (!project) return null;
-    const visible = visibleEntries(user, ctx.entries || [], projects, policy)
+    const visible = visibleEntries(user, countedEntries(ctx.entries, ctx.syncErrors), projects, policy)
       .filter(e => e && e.projectId === project.id)
       .sort(byNewest);
     const reversed = new Set();

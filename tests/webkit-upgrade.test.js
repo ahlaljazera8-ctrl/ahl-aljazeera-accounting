@@ -15,7 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
-const MARK = 'aj-p0-v17';
+const MARK = 'aj-p0-v18';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';
 const WEB = ['index.html', 'app.js', 'sw.js', 'style.css', 'ledger.js', 'sync.js', 'firebase-config.js', 'manifest.json', 'icon.svg'];
@@ -373,13 +373,13 @@ testSeq('WebKit lists one project for both roles, offline, and pages the rest', 
     // A document reload while offline makes this WebKit build abort. The shell is
     // already precached, so «المزيد» is used with the network switched off.
     await context.setOffline(true);
-    const page1 = await page.evaluate(async () => {
+    const page1 = await page.evaluate(async (mark) => {
       const u = AJ.get('users').find(x => x.uid === 'u-ameer');
       const list = Ledger.projectEntryList(u, 'p-school', { projects: AJ.get('projects'), entries: AJ.get('entries'), policy: Ledger.DEFAULT_POLICY }, { limit: 50 });
       const ids = [...document.querySelectorAll('#entry-list a.entry-open')].map(a => (a.getAttribute('href') || '').replace('#detail/', ''));
-      const keys = (await (await caches.open('aj-p0-v17')).keys()).map(r => new URL(r.url).pathname);
+      const keys = (await (await caches.open(mark)).keys()).map(r => new URL(r.url).pathname);
       return { same: ids.join('|') === list.rows.map(r => r.id).join('|'), reads: list.reads, total: list.total, online: navigator.onLine, keys };
-    });
+    }, MARK);
     assert.equal(page1.keys.includes('/index.html') && page1.keys.includes('/app.js') && page1.keys.includes('/ledger.js'), true);
     assert.equal(page1.same, true);
     assert.equal(page1.reads, 0);
