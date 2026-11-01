@@ -182,19 +182,31 @@ test('security headers still let the app boot, log in, sync an entry, and regist
   assert.equal(deployedCsp, PRODUCTION_CSP);
   assert.equal(/127\.0\.0\.1/.test(deployedCsp), false);
   const pageRes = await fetch(origin + '/index.html');
+  const rootRes = await fetch(origin + '/');
+  const appRes = await fetch(origin + '/app.js');
   const swRes = await fetch(origin + '/sw.js');
   const cssRes = await fetch(origin + '/style.css');
   assert.equal(pageRes.status, 200);
+  assert.equal(rootRes.status, 200);
+  assert.equal(appRes.status, 200);
   assert.equal(swRes.status, 200);
   assert.equal(cssRes.status, 200);
   const pageHeaders = headerMap(pageRes);
+  const rootHeaders = headerMap(rootRes);
+  const appHeaders = headerMap(appRes);
   const swHeaders = headerMap(swRes);
   const cssHeaders = headerMap(cssRes);
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     assert.equal(pageHeaders[key], value, origin + '/index.html missing ' + key);
+    assert.equal(rootHeaders[key], value, origin + '/ missing ' + key);
+    assert.equal(appHeaders[key], value, origin + '/app.js missing ' + key);
     assert.equal(swHeaders[key], value, origin + '/sw.js missing ' + key);
     assert.equal(cssHeaders[key], value, origin + '/style.css missing ' + key);
   }
+  assert.equal(pageHeaders['cache-control'], 'no-cache');
+  assert.equal(rootHeaders['cache-control'], 'no-cache');
+  assert.equal(appHeaders['cache-control'], 'no-cache');
+  assert.equal(cssHeaders['cache-control'], 'no-cache');
   assert.equal(swHeaders['cache-control'], 'no-cache, max-age=0');
 
   const testEnv = await initializeTestEnvironment({

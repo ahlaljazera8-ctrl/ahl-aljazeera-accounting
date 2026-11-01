@@ -113,6 +113,60 @@ test('service worker does not serve a cached error or a different query', { time
   }
 });
 
+test('a shell file is refetched when the HTTP cache still holds the previous copy', { timeout: 60000 }, async () => {
+  let generation = 0;
+  const shellHits = [];
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/style.css') {
+      generation += 1;
+      shellHits.push({
+        generation,
+        cacheControl: String(req.headers['cache-control'] || ''),
+        pragma: String(req.headers['pragma'] || ''),
+      });
+      res.writeHead(200, { 'content-type': 'text/css', 'cache-control': 'public, max-age=3600' });
+      res.end('GEN' + generation);
+      return;
+    }
+    const file = path.normalize(path.join(ROOT, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
+    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+      res.writeHead(404); res.end('missing'); return;
+    }
+    const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+    const cacheControl = path.basename(file) === 'sw.js' ? 'no-cache, max-age=0' : 'no-cache';
+    res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream', 'cache-control': cacheControl });
+    fs.createReadStream(file).pipe(res);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const origin = 'http://127.0.0.1:' + port;
+  const dir = '/tmp/aj-sw-fresh-' + port;
+  const opened = await openChrome({ userDataDir: dir, detached: true });
+  const chrome = opened.chrome;
+  let session;
+  try {
+    session = await connect(opened.port, chrome);
+    await openControlled(session, origin);
+    const before = shellHits.length;
+    const first = await session.ev(`fetch('style.css').then(r => r.text())`);
+    assert.ok(shellHits.length > before, 'style.css was served from the HTTP cache: ' + JSON.stringify(shellHits));
+    const hit = shellHits[shellHits.length - 1];
+    assert.equal(first, 'GEN' + hit.generation, 'the page kept an older stylesheet');
+    assert.match(hit.cacheControl + ' ' + hit.pragma, /no-cache|max-age=0/, JSON.stringify(hit));
+    const mid = shellHits.length;
+    const second = await session.ev(`fetch('style.css').then(r => r.text())`);
+    assert.ok(shellHits.length > mid, 'the second shell fetch did not reach the server');
+    assert.equal(second, 'GEN' + shellHits[shellHits.length - 1].generation);
+    assert.notEqual(first, second);
+  } finally {
+    if (session) session.close();
+    kill(chrome);
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('service worker does not answer Firestore or Auth hosts from cache', { timeout: 60000 }, async () => {
   const server = await startServer();
   const { port } = server.address();
