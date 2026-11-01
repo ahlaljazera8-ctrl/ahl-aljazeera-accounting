@@ -22,7 +22,7 @@
   }
 
   function projectHref(kind, id) {
-    if ((kind !== 'project' && kind !== 'entry') || !isSafeId(id)) return '#projects';
+    if ((kind !== 'project' && kind !== 'entry' && kind !== 'entries') || !isSafeId(id)) return '#projects';
     return '#' + kind + '/' + escapeHtml(id);
   }
 

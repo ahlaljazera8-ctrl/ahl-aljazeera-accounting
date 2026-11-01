@@ -314,6 +314,126 @@ test('entry CSV: BOM, Arabic, commas and quotes', () => {
   assert.equal(revCsv.includes('contractAmount'), false);
 });
 
+test('project entry list: role fields, newest first, reversal, no hidden money', () => {
+  const when = 1700000000000;
+  const namedOwner = { ...owner, displayName: 'أمير' };
+  const expense = E({
+    id: 'ex1', createdBy: 's', createdByName: 'أحمد', amount: 8200000, description: 'secret 40,000,000',
+    partyName: 'العمال', entryDate: '2026-10-06', createdAtDevice: when,
+    contractAmount: 60000000, profit: 123, received: 40000000,
+  });
+  const older = E({ id: 'ex0', createdBy: 'o', createdByName: 'أمير', amount: 100, partyName: 'قديم', entryDate: '2026-10-01', createdAtDevice: when - 5000 });
+  const hiddenPay = inc({ id: 'hid1', amount: 40000000, createdBy: 'o', createdByName: 'أمير', description: 'دفعة أولى', partyName: 'زبون سري', entryDate: '2026-10-02', createdAtDevice: when + 10 });
+  const ownPay = inc({ id: 'own1', amount: 2000000, createdBy: 's', createdByName: 'أحمد', description: 'دفعتي', partyName: 'أنا', entryDate: '2026-10-12', createdAtDevice: when + 20 });
+  const foreign = E({ id: 'foreign', projectId: 'b', createdBy: 's', amount: 4242, createdByName: 'أحمد', entryDate: '2026-10-08', createdAtDevice: when + 50, partyName: 'خارج' });
+  const rev = L.makeReversal(expense, { user: namedOwner, reason: 'عكس فيه 40,000,000', now: when + 30, deviceId: 'd', entryDate: '2026-10-20' });
+  const poisoned = [
+    { id: 'a', name: 'مشروع أ', contractAmount: 60000000, profit: 9, received: 8, clientName: 'زبون سري' },
+    { id: 'b', name: 'مشروع ب', contractAmount: 15000000 },
+  ];
+  const pack = { projects: poisoned, entries: [older, expense, hiddenPay, ownPay, foreign, rev], finance: { a: { contractAmount: 60000000, profit: 1, received: 9 } } };
+  const allow = ['id', 'type', 'amount', 'entryDate', 'recorder', 'party', 'reversalStatus'];
+  const ownerList = L.projectEntryList(namedOwner, 'a', pack);
+  assert.equal(ownerList.reads, 0);
+  assert.equal(ownerList.total, 5);
+  assert.deepEqual(ownerList.rows.map(r => r.id), ['rev_ex1', 'own1', 'hid1', 'ex1', 'ex0']);
+  for (const row of ownerList.rows) assert.deepEqual(Object.keys(row), allow);
+  const revRow = ownerList.rows[0];
+  assert.equal(revRow.type, 'تصحيح (قيد عكسي) · مواد');
+  assert.equal(revRow.amount, '−8,200,000 د.ع');
+  assert.equal(revRow.entryDate, '2026-10-20');
+  assert.equal(revRow.recorder, 'أمير');
+  assert.equal(revRow.party, 'العمال');
+  assert.equal(revRow.reversalStatus, 'قيد عكسي');
+  const original = ownerList.rows.find(r => r.id === 'ex1');
+  assert.equal(original.reversalStatus, 'معكوس');
+  assert.equal(original.type, 'مواد');
+  assert.equal(original.amount, '8,200,000 د.ع');
+  assert.equal(original.recorder, 'أحمد');
+  assert.equal(JSON.stringify(ownerList).includes('contractAmount'), false);
+  assert.equal(JSON.stringify(ownerList).includes('60000000'), false);
+  assert.equal(JSON.stringify(ownerList).includes('secret'), false);
+  const siteList = L.projectEntryList(site, 'a', pack);
+  assert.equal(siteList.reads, 0);
+  assert.deepEqual(siteList.rows.map(r => r.id), ['rev_ex1', 'own1', 'ex1', 'ex0']);
+  assert.equal(siteList.rows.find(r => r.id === 'own1').type, 'دفعة عميل');
+  assert.equal(siteList.rows.find(r => r.id === 'own1').amount, '2,000,000 د.ع');
+  assert.equal(siteList.rows.find(r => r.id === 'own1').party, 'أنا');
+  assert.equal(siteList.rows.find(r => r.id === 'own1').reversalStatus, '');
+  const siteJson = JSON.stringify(siteList);
+  for (const banned of ['contractAmount', 'profit', 'received', 'totals', 'spent', 'byType', 'clientName', '40,000,000', '40000000', '60,000,000', '60000000', '15,000,000', '15000000', 'دفعة أولى', 'زبون سري', 'خارج', '4,242', '4242', 'secret', 'المقبوض', 'ربح']) {
+    assert.equal(siteJson.includes(banned), false, banned);
+  }
+  const hiddenRev = L.makeReversal(hiddenPay, { user: namedOwner, reason: 'عكس دفعة 40,000,000', now: when + 40, deviceId: 'd', entryDate: '2026-10-21' });
+  const withHidden = L.projectEntryList(site, 'a', { ...pack, entries: pack.entries.concat([hiddenRev]) });
+  assert.equal(withHidden.rows.some(r => r.id === 'rev_hid1'), false);
+  assert.equal(withHidden.rows.find(r => r.id === 'hid1'), undefined);
+  assert.equal(JSON.stringify(withHidden).includes('40,000,000'), false);
+  assert.equal(JSON.stringify(withHidden).includes('عكس دفعة'), false);
+  const tied = [
+    E({ id: 'aa', createdAtDevice: 5, entryDate: '2026-10-02', amount: 2, createdByName: 'أمير' }),
+    E({ id: 'cc', createdAtDevice: 5, entryDate: '2026-10-03', amount: 4, createdByName: 'أمير' }),
+    E({ id: 'bb', createdAtDevice: 5, entryDate: '2026-10-03', amount: 3, createdByName: 'أمير' }),
+  ];
+  assert.deepEqual(L.projectEntryList(owner, 'a', { projects, entries: tied }).rows.map(r => r.id), ['cc', 'bb', 'aa']);
+});
+
+test('project entry list: paging stays in memory and costs no reads', () => {
+  assert.equal(L.PROJECT_ENTRY_PAGE, 50);
+  const when = 1800000000000;
+  const many = [];
+  for (let i = 0; i < 120; i++) {
+    many.push(E({
+      id: 'm' + String(i).padStart(3, '0'), amount: 1000 + i, createdAtDevice: when + i,
+      entryDate: '2026-11-01', partyName: 'ح' + i, createdByName: 'أمير', createdBy: 'o',
+      contractAmount: 60000000, profit: 5,
+    }));
+  }
+  const other = E({ id: 'other', projectId: 'b', amount: 999, createdAtDevice: when + 9999, createdBy: 'o', createdByName: 'أمير', partyName: 'سوق' });
+  const ctx = { projects, entries: many.concat([other]), finance: { a: { contractAmount: 60000000 } } };
+  const first = L.projectEntryList(owner, 'a', ctx);
+  assert.equal(first.rows.length, 50);
+  assert.equal(first.total, 120);
+  assert.equal(first.reads, 0);
+  assert.equal(first.rows[0].id, 'm119');
+  assert.equal(first.rows[49].id, 'm070');
+  assert.equal(first.rows.some(r => r.id === 'other'), false);
+  const wider = L.projectEntryList(owner, 'a', ctx, { limit: 100 });
+  assert.equal(wider.rows.length, 100);
+  assert.equal(wider.rows[50].id, 'm069');
+  assert.equal(wider.rows[99].id, 'm020');
+  assert.equal(wider.reads, 0);
+  const all = L.projectEntryList(owner, 'a', ctx, { limit: 1000 });
+  assert.equal(all.rows.length, 120);
+  assert.equal(all.rows[119].id, 'm000');
+  const sitePage = L.projectEntryList(site, 'a', ctx, { limit: 50 });
+  assert.equal(sitePage.total, 120);
+  assert.equal(sitePage.rows.length, 50);
+  assert.equal(sitePage.reads, 0);
+  assert.equal(JSON.stringify(sitePage).includes('999'), false);
+  assert.equal(JSON.stringify(sitePage).includes('سوق'), false);
+  assert.equal(JSON.stringify(sitePage).includes('contractAmount'), false);
+  assert.equal(JSON.stringify(sitePage).includes('60000000'), false);
+  assert.equal(L.projectEntryList(owner, 'a', ctx, { limit: -1 }).rows.length, 50);
+  assert.equal(L.projectEntryList(owner, 'a', ctx, { limit: 0 }).rows.length, 0);
+  assert.equal(L.projectEntryList(owner, 'a', ctx, { limit: 0 }).total, 120);
+});
+
+test('project entry list: empty, inactive, and unassigned projects', () => {
+  const row = E({ id: 'only-b', projectId: 'b', createdBy: 's', amount: 4242, createdByName: 'أحمد' });
+  const ctx = { projects, entries: [row] };
+  const empty = L.projectEntryList(owner, 'a', ctx);
+  assert.deepEqual(empty.rows, []);
+  assert.equal(empty.total, 0);
+  assert.equal(empty.reads, 0);
+  assert.equal(L.projectEntryList(site, 'b', ctx), null);
+  assert.equal(L.projectEntryList(site, 'missing', ctx), null);
+  assert.equal(L.projectEntryList({ ...site, active: false }, 'a', ctx), null);
+  assert.equal(L.projectEntryList({ ...owner, active: false }, 'a', ctx), null);
+  assert.equal(L.projectEntryList(null, 'a', ctx), null);
+  assert.equal(L.projectEntryList({ uid: 's', role: 'site', active: true, assignedProjectIds: [] }, 'a', ctx), null);
+});
+
 test('CSV populates partyName and createdByName', () => {
   const e = E({ id:'payee1', description:'حديد', partyName:'مورد حديد', createdByName:'أمير' });
   const csv = L.toCSV([e], projects);
