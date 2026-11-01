@@ -168,6 +168,93 @@ test('createdByName is the writer displayName, otherwise omitted', () => {
   const anon = L.makeReversal(e, { user:owner, reason:'خطأ', now:9, deviceId:'d', entryDate:'2026-10-30' });
   assert.equal(Object.prototype.hasOwnProperty.call(anon, 'createdByName'), false);
 });
+test('entry export fields: owner vs site, and site omits hidden money', () => {
+  const when = Date.parse('2026-10-01T09:00:00Z');
+  const expense = E({
+    id: 'ex1', createdBy: 's', createdByName: 'أحمد', amount: 8200000, description: 'أجور عمال',
+    partyName: 'العمال', entryDate: '2026-10-06', createdAtDevice: when,
+    contractAmount: 60000000, profit: 123, received: 40000000,
+  });
+  const hiddenPay = inc({ id: 'hid1', amount: 40000000, createdBy: 'o', createdByName: 'أمير', description: 'دفعة أولى', createdAtDevice: when });
+  const ownPay = inc({ id: 'own1', amount: 2000000, createdBy: 's', createdByName: 'أحمد', description: 'دفعتي', createdAtDevice: when });
+  const poisoned = [
+    { id: 'a', name: 'مشروع أ', contractAmount: 60000000, profit: 9, received: 8, clientName: 'زبون سري' },
+    { id: 'b', name: 'مشروع ب', contractAmount: 15000000 },
+  ];
+  const pack = { projects: poisoned, entries: [expense, hiddenPay, ownPay], finance: { a: { contractAmount: 60000000, profit: 1 } } };
+  const ownerExpense = L.entryExportFields(owner, expense, pack);
+  const siteExpense = L.entryExportFields(site, expense, pack);
+  const keys = rows => rows.map(f => f.key);
+  assert.deepEqual(keys(ownerExpense), keys(siteExpense));
+  assert.deepEqual(keys(siteExpense), ['company', 'projectName', 'entryType', 'amount', 'entryDate', 'recordedAt', 'recorder', 'party', 'note', 'id']);
+  assert.equal(siteExpense.find(f => f.key === 'company').value, 'أهل الجزيرة');
+  assert.equal(siteExpense.find(f => f.key === 'projectName').value, 'مشروع أ');
+  assert.equal(siteExpense.find(f => f.key === 'entryType').value, 'مواد');
+  assert.equal(siteExpense.find(f => f.key === 'amount').value, '8,200,000 د.ع');
+  assert.equal(siteExpense.find(f => f.key === 'recordedAt').value, '2026-10-01 12:00:00');
+  assert.equal(siteExpense.find(f => f.key === 'recorder').value, 'أحمد');
+  assert.equal(siteExpense.find(f => f.key === 'note').value, 'أجور عمال');
+  const siteJson = JSON.stringify(siteExpense);
+  for (const banned of ['contractAmount', 'profit', 'received', 'totals', 'spent', 'byType', 'clientName', 'زبون سري', '60,000,000', '60000000', '40,000,000', '40000000', '15,000,000', '15000000', 'دفعة أولى', '2,000,000']) {
+    assert.equal(siteJson.includes(banned), false, banned);
+  }
+  assert.equal(L.entryExportFields(site, hiddenPay, pack), null);
+  assert.equal(L.entryToCSV(site, hiddenPay, pack), null);
+  const ownerPay = L.entryExportFields(owner, hiddenPay, pack);
+  assert.equal(ownerPay.find(f => f.key === 'amount').value, '40,000,000 د.ع');
+  assert.equal(ownerPay.find(f => f.key === 'entryType').value, 'دفعة عميل');
+  assert.equal(JSON.stringify(ownerPay).includes('contractAmount'), false);
+  assert.equal(JSON.stringify(ownerPay).includes('60000000'), false);
+  const siteOwn = L.entryExportFields(site, ownPay, pack);
+  assert.equal(siteOwn.find(f => f.key === 'amount').value, '2,000,000 د.ع');
+  assert.equal(JSON.stringify(siteOwn).includes('40,000,000'), false);
+  assert.equal(JSON.stringify(siteOwn).includes('دفعة أولى'), false);
+  const ownerRev = L.makeReversal(hiddenPay, { user: owner, reason: 'عكس دفعة 40,000,000', now: when + 5000, deviceId: 'd', entryDate: '2026-10-30' });
+  const withRev = { ...pack, entries: [expense, hiddenPay, ownPay, ownerRev] };
+  const ownerSeen = L.entryExportFields(owner, hiddenPay, withRev);
+  const siteSeen = L.entryExportFields(site, ownPay, withRev);
+  assert.equal(ownerSeen.find(f => f.key === 'reversalStatus').value, 'معكوس');
+  assert.equal(ownerSeen.find(f => f.key === 'reversalReason').value, 'عكس دفعة 40,000,000');
+  assert.equal(siteSeen.some(f => f.key === 'reversalStatus'), false);
+  assert.equal(JSON.stringify(siteSeen).includes('عكس دفعة'), false);
+  assert.equal(L.entryExportFields({ ...site, active: false }, expense, pack), null);
+  const foreign = E({ id: 'foreign', projectId: 'b', createdBy: 's', createdAtDevice: when, amount: 4242 });
+  const abroad = { ...pack, entries: pack.entries.concat([foreign]) };
+  assert.equal(L.entryExportFields(site, foreign, abroad), null);
+  const ownerAbroad = L.entryExportFields(owner, foreign, abroad);
+  assert.equal(ownerAbroad.find(f => f.key === 'projectName').value, 'مشروع ب');
+  assert.equal(ownerAbroad.find(f => f.key === 'amount').value, '4,242 د.ع');
+  assert.equal(JSON.stringify(ownerAbroad).includes('contractAmount'), false);
+});
+
+test('entry CSV: BOM, Arabic, commas and quotes', () => {
+  const when = Date.parse('2026-10-01T09:00:00Z');
+  const row = E({
+    id: 'csv1', description: 'سمنت, "50" كيس', partyName: 'مورد "الأنوار"', createdByName: 'أمير',
+    amount: 1200, createdAtDevice: when, entryDate: '2026-10-30',
+  });
+  const named = [{ id: 'a', name: 'مشروع, "أ"' }];
+  const csv = L.entryToCSV(owner, row, { projects: named, entries: [row] });
+  assert.equal(typeof csv, 'string');
+  assert.equal(csv.charCodeAt(0), 0xFEFF);
+  assert.equal(csv.includes('\r\n'), true);
+  assert.ok(csv.includes('أهل الجزيرة'));
+  assert.ok(csv.includes('"سمنت, ""50"" كيس"'));
+  assert.ok(csv.includes('"مورد ""الأنوار"""'));
+  assert.ok(csv.includes('"مشروع, ""أ"""'));
+  assert.ok(csv.includes('"1,200 د.ع"'));
+  assert.ok(csv.includes('2026-10-01 12:00:00'));
+  const tricky = E({ id: 'csv2', description: '=1,2', createdByName: 'أمير', createdAtDevice: when });
+  const guarded = L.entryToCSV(owner, tricky, { projects, entries: [tricky] });
+  assert.ok(guarded.includes(`"'=1,2"`));
+  const expense = E({ id: 'ex2', createdBy: 's', amount: 50, createdByName: 'أحمد', createdAtDevice: when, description: 'ملاحظة' });
+  const rev = L.makeReversal(expense, { user: owner, reason: 'مبلغ, "مكرر"', now: when, deviceId: 'd', entryDate: '2026-10-30' });
+  const revCsv = L.entryToCSV(site, expense, { projects, entries: [expense, rev] });
+  assert.ok(revCsv.includes('معكوس'));
+  assert.ok(revCsv.includes('"مبلغ, ""مكرر"""'));
+  assert.equal(revCsv.includes('contractAmount'), false);
+});
+
 test('CSV populates partyName and createdByName', () => {
   const e = E({ id:'payee1', description:'حديد', partyName:'مورد حديد', createdByName:'أمير' });
   const csv = L.toCSV([e], projects);

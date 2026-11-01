@@ -15,7 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
-const MARK = 'aj-p0-v12';
+const MARK = 'aj-p0-v14';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';
 const WEB = ['index.html', 'app.js', 'sw.js', 'style.css', 'ledger.js', 'sync.js', 'firebase-config.js', 'manifest.json', 'icon.svg'];
@@ -197,6 +197,94 @@ async function plantedEntry(rev) {
 for (const rev of REVS) {
   testSeq('opening the app once heals a ' + rev + ' service worker and syncs the outbox', () => plantedEntry(rev), 120000);
 }
+
+testSeq('WebKit shows entry export for both roles and shares the CSV', async () => {
+  const server = await startServer(() => NEW);
+  const port = server.address().port;
+  const browser = await webkit.launch();
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; }; });
+    const open = async (role, hash) => {
+      await page.goto('http://127.0.0.1:' + port + '/index.html?role=' + role + '#' + hash, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForFunction(() => document.body && document.body.dataset.ready === '1', null, { timeout: 20000 });
+    };
+    await open('owner', 'detail/seed-2');
+    await page.waitForSelector('#entry-print', { timeout: 10000 });
+    assert.deepEqual(await page.locator('#entry-print, #entry-pdf, #entry-file').allTextContents(), ['طباعة', 'حفظ PDF', 'حفظ كملف']);
+    await page.click('#entry-print');
+    await page.click('#entry-pdf');
+    const ownerText = await page.locator('#print-root').textContent();
+    for (const bit of ['أهل الجزيرة', 'مشروع المدرسة', 'مواد', '30,000,000', 'د.ع', '2026-10-02', '2026-10-01 12:00:02', 'أمير', 'حديد وإسمنت', 'seed-2']) {
+      assert.equal(ownerText.includes(bit), true, bit);
+    }
+    assert.equal(await page.evaluate(() => window.__printed), 2);
+    const ownerCsv = await page.evaluate(async () => {
+      const u = AJ.get('users').find(x => x.uid === 'u-ameer');
+      const entry = AJ.get('entries').find(x => x.id === 'seed-2');
+      const expected = Ledger.entryToCSV(u, entry, { projects: AJ.get('projects'), entries: AJ.get('entries'), finance: AJ.get('projectFinance'), policy: Ledger.DEFAULT_POLICY });
+      let shared = null;
+      const share = async (data) => {
+        const file = data.files[0];
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        shared = { text: await file.text(), bom: bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF };
+      };
+      const can = () => true;
+      try { Object.defineProperty(navigator, 'canShare', { configurable: true, value: can }); } catch (e) { navigator.canShare = can; }
+      try { Object.defineProperty(navigator, 'share', { configurable: true, value: share }); } catch (e) { navigator.share = share; }
+      document.querySelector('#entry-file').click();
+      for (let i = 0; i < 20 && !shared; i++) await new Promise(r => setTimeout(r, 20));
+      return { shared, body: expected.slice(1), bom: expected.charCodeAt(0) === 0xFEFF };
+    });
+    assert.equal(ownerCsv.bom, true);
+    assert.equal(ownerCsv.shared.bom, true);
+    assert.equal(ownerCsv.shared.text, ownerCsv.body);
+
+    await open('site', 'detail/seed-6');
+    await page.waitForSelector('#entry-file', { timeout: 10000 });
+    assert.deepEqual(await page.locator('#entry-print, #entry-pdf, #entry-file').allTextContents(), ['طباعة', 'حفظ PDF', 'حفظ كملف']);
+    await page.click('#entry-pdf');
+    const siteText = await page.locator('#print-root').textContent();
+    for (const bit of ['أهل الجزيرة', 'مشروع الطريق', 'عمالة/سلفة', '8,200,000', 'أحمد', 'أجور عمال', 'seed-6', '2026-10-06', '2026-10-01 12:00:06']) {
+      assert.equal(siteText.includes(bit), true, bit);
+    }
+    for (const banned of ['ربح', 'المقبوض', 'خسارة', 'قيمة العقد', 'contractAmount', 'profit', '60,000,000', '40,000,000', '11,200,000', '30,000,000', '60000000']) {
+      assert.equal(siteText.includes(banned), false, banned);
+    }
+    const siteCsv = await page.evaluate(async () => {
+      const u = AJ.get('users').find(x => x.uid === 'u-ahmed');
+      const entry = AJ.get('entries').find(x => x.id === 'seed-6');
+      const ctx = { projects: AJ.get('projects'), entries: AJ.get('entries'), finance: AJ.get('projectFinance'), policy: Ledger.DEFAULT_POLICY };
+      const expected = Ledger.entryToCSV(u, entry, ctx);
+      const hidden = Ledger.entryToCSV(u, AJ.get('entries').find(x => x.id === 'seed-1'), ctx);
+      let shared = null;
+      const share = async (data) => {
+        const file = data.files[0];
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        shared = { text: await file.text(), bom: bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF };
+      };
+      const can = () => true;
+      try { Object.defineProperty(navigator, 'canShare', { configurable: true, value: can }); } catch (e) { navigator.canShare = can; }
+      try { Object.defineProperty(navigator, 'share', { configurable: true, value: share }); } catch (e) { navigator.share = share; }
+      document.querySelector('#entry-file').click();
+      for (let i = 0; i < 20 && !shared; i++) await new Promise(r => setTimeout(r, 20));
+      return { shared, body: expected.slice(1), hidden };
+    });
+    assert.equal(siteCsv.hidden, null);
+    assert.equal(siteCsv.shared.bom, true);
+    assert.equal(siteCsv.shared.text, siteCsv.body);
+    assert.equal(siteCsv.shared.text.includes('8,200,000'), true);
+    assert.equal(siteCsv.shared.text.includes('11,200,000'), false);
+    assert.equal(siteCsv.shared.text.includes('contractAmount'), false);
+
+    await open('site', 'detail/seed-1');
+    await page.waitForFunction(() => (document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes('القيد غير متاح'), null, { timeout: 10000 });
+    assert.equal(await page.locator('#entry-print').count(), 0);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+}, 90000);
 
 testSeq('a fresh profile signs in without a module error', async () => {
   let root = NEW;
