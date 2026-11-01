@@ -879,6 +879,20 @@ const views = {
 };
 const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
 
+function tabGlyph() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const circle = document.createElementNS(ns, 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '8.2');
+  circle.setAttribute('r', '3.1');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M5 19.3c1.15-2.85 3.55-4.25 7-4.25s5.85 1.4 7 4.25');
+  svg.append(circle, path);
+  return svg;
+}
 function syncPeopleTab(u) {
   const tabs = document.querySelector('.tabs');
   if (!tabs) return;
@@ -890,7 +904,7 @@ function syncPeopleTab(u) {
     a.dataset.tab = 'people';
     const span = document.createElement('span');
     span.textContent = 'الأشخاص';
-    a.append(document.createTextNode('●'), span);
+    a.append(tabGlyph(), span);
     tabs.appendChild(a);
   }
 }
