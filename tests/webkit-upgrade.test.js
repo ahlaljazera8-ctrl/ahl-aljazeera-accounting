@@ -15,7 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
-const MARK = 'aj-p0-v21';
+const MARK = 'aj-p0-v22';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';
 const WEB = ['index.html', 'app.js', 'sw.js', 'style.css', 'ledger.js', 'sync.js', 'firebase-config.js', 'manifest.json', 'icon.svg'];
