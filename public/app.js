@@ -640,6 +640,84 @@ function syncText(id) {
   if (get(K.outbox, []).includes(id)) return 'لم يُرسل';
   return 'مُرسَل';
 }
+function detailId() {
+  const [view, arg] = (location.hash.slice(1) || '').split('/');
+  return view === 'detail' ? (arg || '') : '';
+}
+function currentEntryExport() {
+  const u = me();
+  const id = detailId();
+  if (!u || !id) return null;
+  const entry = get(K.entries, []).find(e => e.id === id);
+  if (!entry) return null;
+  const ctx = { projects: get(K.projects, []), entries: get(K.entries, []), finance: get(K.finance, {}), policy: POLICY };
+  const fields = L.entryExportFields(u, entry, ctx);
+  if (!fields) return null;
+  const safe = String(entry.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'entry';
+  return { fields, csv: L.entryToCSV(u, entry, ctx), filename: 'aj-entry-' + safe + '.csv' };
+}
+function fillPrintRoot(fields) {
+  const root = $('#print-root');
+  if (!root) return;
+  const company = fields.find(f => f.key === 'company');
+  const ltrKeys = { amount: 1, entryDate: 1, recordedAt: 1, id: 1 };
+  const rows = fields.filter(f => f.key !== 'company').map(f => {
+    const cls = f.key === 'amount' ? ' class="print-amount-row"' : '';
+    const num = ltrKeys[f.key] ? ' class="num" dir="ltr"' : '';
+    return `<tr${cls}><th scope="row">${esc(f.label)}</th><td${num}>${esc(f.value)}</td></tr>`;
+  }).join('');
+  root.innerHTML = `<article class="print-sheet" dir="rtl" lang="ar">
+    <p class="print-kicker">قيد محاسبي</p>
+    <h1>${esc(company ? company.value : 'أهل الجزيرة')}</h1>
+    <table><tbody>${rows}</tbody></table>
+    <p class="print-foot">وثيقة للطباعة من حسابات أهل الجزيرة</p>
+  </article>`;
+}
+function downloadCsv(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { try { URL.revokeObjectURL(url); } catch (err) {} }, 2000);
+}
+function saveEntryFile(csv, filename) {
+  const file = new File([csv], filename, { type: 'text/csv' });
+  const payload = { files: [file], title: 'قيد أهل الجزيرة' };
+  let can = false;
+  try {
+    can = !!(navigator.share && typeof navigator.canShare === 'function' && navigator.canShare(payload));
+  } catch (err) { can = false; }
+  if (can) {
+    try {
+      const pending = navigator.share(payload);
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch(err => {
+          if (err && err.name === 'AbortError') return;
+          downloadCsv(csv, filename);
+        });
+      }
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+  }
+  downloadCsv(csv, filename);
+}
+function printCurrentEntry() {
+  const built = currentEntryExport();
+  if (!built) return;
+  fillPrintRoot(built.fields);
+  const prev = document.title;
+  const idField = built.fields.find(f => f.key === 'id');
+  document.title = 'أهل الجزيرة' + (idField ? ' ' + idField.value : '');
+  window.addEventListener('afterprint', () => { document.title = prev; }, { once: true });
+  window.print();
+}
 function entryRow(e, u, all) {
   const reversed = all.some(x => x.isReversal && x.reversesEntryId === e.id);
   const canRev = !e.isReversal && !reversed && (u.role === 'owner' || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
@@ -766,7 +844,12 @@ const views = {
       <div class="kv"><span>الجهة</span><b>${esc(e.partyName || '—')}</b></div>
       <div class="kv"><span>سجّله</span><b>${esc(L.displayRecorder(e))}</b></div>
       <div class="kv"><span>الإرسال</span><b>${esc(syncText(e.id))}</b></div>
-      ${linked}</div>`;
+      ${linked}</div>
+      <div class="export-actions">
+        <button type="button" class="btn ghost" id="entry-print">طباعة</button>
+        <button type="button" class="btn ghost" id="entry-pdf">حفظ PDF</button>
+        <button type="button" class="btn ghost" id="entry-file">حفظ كملف</button>
+      </div>`;
   },
 };
 const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
@@ -798,6 +881,8 @@ function captureForm() {
 function render() {
   captureForm();
   const u = me(); if (!u) return;
+  const printRoot = $('#print-root');
+  if (printRoot) printRoot.innerHTML = '';
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   const v = views[view] ? view : 'home';
   $('#role').value = u.role;
@@ -876,6 +961,11 @@ document.addEventListener('click', ev => {
     const reason = prompt('سبب التصحيح:', 'خطأ في الإدخال'); if (!reason) return;
     try { commit(L.makeReversal(orig, { user: u, reason, now: Date.now(), deviceId, entryDate: today() })); render(); }
     catch (err) { alert(err.message); }
+  } else if (b.id === 'entry-print' || b.id === 'entry-pdf') {
+    printCurrentEntry();
+  } else if (b.id === 'entry-file') {
+    const built = currentEntryExport();
+    if (built && built.csv) saveEntryFile(built.csv, built.filename);
   } else if (b.id === 'csv') {
     if (!L.canExportCSV(u)) return;
     const blob = new Blob([L.toCSV(get(K.entries, []), get(K.projects, []))], { type: 'text/csv;charset=utf-8' });

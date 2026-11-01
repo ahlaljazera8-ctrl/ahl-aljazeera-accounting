@@ -179,6 +179,76 @@
 
   function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
 
+  // Baghdad is UTC+3 all year. The ledger date is a separate calendar day, so the
+  // recorded value is only the clock. formatToParts keeps the digits stable.
+  function baghdadTime(ms) {
+    const n = typeof ms === 'number' ? ms : Number(ms);
+    if (!Number.isFinite(n)) return '—';
+    const d = new Date(n);
+    if (Number.isNaN(d.getTime())) return '—';
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Baghdad',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(d);
+    const g = type => {
+      const part = parts.find(p => p.type === type);
+      return part ? part.value : '';
+    };
+    return g('hour') + ':' + g('minute') + ':' + g('second');
+  }
+
+  // Fields of one entry the user is already allowed to open.
+  // Built from an allowlist: project name, the entry's own columns, and a reversal
+  // only when that reversal row is itself visible. Never contract, profit, or totals.
+  function entryExportFields(user, entry, ctx = {}) {
+    if (!user || user.active !== true || (user.role !== 'owner' && user.role !== 'site')) return null;
+    if (!entry || !entry.id) return null;
+    const projects = ctx.projects || [];
+    const entries = ctx.entries || [];
+    const visible = visibleEntries(user, entries, projects, ctx.policy || DEFAULT_POLICY);
+    const row = visible.find(e => e.id === entry.id);
+    if (!row) return null;
+    const project = projects.find(p => p.id === row.projectId);
+    const type = ENTRY_TYPES[row.entryType];
+    const fields = [];
+    const put = (key, label, value) => {
+      fields.push({ key, label, value: value == null || value === '' ? '—' : String(value) });
+    };
+    put('company', 'الشركة', 'أهل الجزيرة');
+    put('projectName', 'المشروع', project && project.name ? project.name : '—');
+    put('entryType', 'النوع', type ? type.label : '—');
+    put('amount', 'المبلغ', fmt(row.amount * sign(row)) + ' د.ع');
+    put('entryDate', 'تاريخ القيد', row.entryDate || '—');
+    put('recordedAt', 'وقت التسجيل', baghdadTime(row.createdAtDevice));
+    put('recorder', 'سجّله', displayRecorder(row));
+    put('party', 'الجهة', row.partyName || '—');
+    put('note', 'الملاحظة', row.description || '—');
+    put('id', 'المعرّف', row.id);
+    if (row.isReversal) {
+      put('reversalStatus', 'حالة العكس', 'قيد عكسي');
+      put('reversalReason', 'سبب التصحيح', row.reversalReason || '—');
+    } else {
+      const reversal = visible.find(e => e.isReversal && e.reversesEntryId === row.id);
+      if (reversal) {
+        put('reversalStatus', 'حالة العكس', 'معكوس');
+        put('reversalReason', 'سبب التصحيح', reversal.reversalReason || '—');
+      }
+    }
+    return fields;
+  }
+
+  function entryToCSV(user, entry, ctx) {
+    const fields = entryExportFields(user, entry, ctx);
+    if (!fields) return null;
+    const lines = [
+      fields.map(f => csvCell(f.label)).join(','),
+      fields.map(f => csvCell(f.value)).join(','),
+    ];
+    return '\uFEFF' + lines.join('\r\n') + '\r\n';
+  }
+
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, sign, totals, canSeeProject, visibleProjects, visibleEntries,
-    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt };
+    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt,
+    baghdadTime, entryExportFields, entryToCSV };
 });
