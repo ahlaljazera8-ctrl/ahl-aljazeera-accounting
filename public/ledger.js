@@ -129,7 +129,7 @@
     }
     if (user && entry.createdBy !== user.uid) errs.push('createdBy يجب أن يساوي المستخدم');
     if (typeof entry.isReversal !== 'boolean') errs.push('isReversal مطلوب');
-    if (user && user.role === 'site' && entry.entryType === 'subcontractor') errs.push('تسجيل دفعة المقاول للمالك فقط');
+    if (user && user.role === 'site' && entry.entryType === 'subcontractor' && !entry.subcontractId) errs.push('اختر مقاولاً من هذا المشروع');
     if (entry.subcontractId) {
       if (entry.entryType !== 'subcontractor') errs.push('الربط لعقد المقاول فقط');
       else if (typeof entry.subcontractId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.subcontractId)) errs.push('عقد غير صالح');

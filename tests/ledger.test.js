@@ -559,10 +559,13 @@ test('a subcontract balance is derived and an unlinked payment stays out of it',
   assert.equal(L.subcontractBalance(2500000, amendments, reversed, 'sc-kahraba').paid, 3000000);
 });
 
-test('only the owner can record a مقاول payment, and a reversal keeps its subcontract', () => {
+test('a site user records a linked مقاول payment, and a reversal keeps its subcontract', () => {
   const lg = L.createLedger();
   const subs = [{ id: 'sc-kahraba', projectId: 'a' }, { id: 'sc-other', projectId: 'b' }];
-  assert.throws(() => lg.append(E({ entryType: 'subcontractor', createdBy: 's', subcontractId: 'sc-kahraba' }), { user: site, projects, subcontracts: subs }), /للمالك فقط/);
+  assert.throws(() => lg.append(E({ entryType: 'subcontractor', createdBy: 's' }), { user: site, projects, subcontracts: subs }), /اختر مقاولاً/);
+  const sitePay = lg.append(E({ entryType: 'subcontractor', createdBy: 's', subcontractId: 'sc-kahraba', amount: 1000 }), { user: site, projects, subcontracts: subs });
+  assert.equal(sitePay.subcontractId, 'sc-kahraba');
+  assert.throws(() => lg.append(E({ entryType: 'subcontractor', createdBy: 's', subcontractId: 'sc-other', projectId: 'a' }), { user: site, projects, subcontracts: subs }), /مشروع آخر/);
   const linked = lg.append(E({ entryType: 'subcontractor', subcontractId: 'sc-kahraba', amount: 3200000 }), { user: owner, projects, subcontracts: subs });
   assert.equal(linked.subcontractId, 'sc-kahraba');
   const rev = L.makeReversal(linked, { user: owner, reason: 'تصحيح', now: 2, deviceId: 'd', entryDate: '2026-10-30' });

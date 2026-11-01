@@ -92,7 +92,7 @@ test('a person is assigned exactly the listed projects', () => {
   assert.equal(capped.value.assignedProjectIds.length, 20);
 });
 
-test('a subcontract name carries no amount, and a site client is not asked to read one', async () => {
+test('a subcontract name carries no amount, and a site client reads names only', async () => {
   const name = {
     id: 'sc-kahraba', projectId: 'p-school', name: 'مقاول الكهرباء', work: 'إنارة', agreedOn: '2026-10-03',
     createdBy: 'u-ameer', originalAmount: 2500000, contractAmount: 1,
@@ -111,11 +111,21 @@ test('a subcontract name carries no amount, and a site client is not asked to re
   const plain = Sync.toRemote({ id: 'e2', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 1000, currency: 'IQD', entryDate: '2026-10-30', isReversal: false, createdAtDevice: 1, createdBy: 'u-ameer', deviceId: 'd' });
   assert.equal(Object.prototype.hasOwnProperty.call(plain, 'subcontractId'), false);
   const site = { uid: 'u-ahmed', role: 'site', active: true, assignedProjectIds: ['p-school'] };
-  assert.deepEqual(Sync.subcontractReads(site, null), []);
+  assert.deepEqual(Sync.subcontractReads(site, null), [{ collection: 'subcontracts', where: [['projectId', '==', 'p-school']] }]);
+  assert.equal(JSON.stringify(Sync.subcontractReads(site, null)).includes('subcontractAmendments'), false);
+  assert.equal(JSON.stringify(Sync.subcontractReads(site, null)).includes('subcontractTerms'), false);
   const seen = [];
-  const pulled = await Sync.pullSubcontracts({ user: site, since: null, read: async spec => { seen.push(spec.collection); return []; } });
-  assert.deepEqual(seen, []);
-  assert.deepEqual(pulled.subcontracts, []);
+  const pulled = await Sync.pullSubcontracts({
+    user: site,
+    since: null,
+    read: async spec => {
+      seen.push(spec.collection + ':' + JSON.stringify(spec.where || []));
+      return [{ id: 'sc-kahraba', projectId: 'p-school', name: 'مقاول الكهرباء', work: 'إنارة', agreedOn: '2026-10-03', createdBy: 'u-ameer', originalAmount: 2500000 }];
+    },
+  });
+  assert.deepEqual(seen, ['subcontracts:' + JSON.stringify([['projectId', '==', 'p-school']])]);
+  assert.equal(pulled.subcontracts[0].name, 'مقاول الكهرباء');
+  assert.equal(Object.prototype.hasOwnProperty.call(pulled.subcontracts[0], 'originalAmount'), false);
   assert.deepEqual(pulled.amendments, []);
   const owner = { uid: 'u-ameer', role: 'owner', active: true };
   assert.deepEqual(Sync.subcontractReads(owner, null).map(spec => spec.collection), ['subcontracts', 'subcontractAmendments']);

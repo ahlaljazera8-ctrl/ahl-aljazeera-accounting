@@ -466,7 +466,7 @@ testSeq('entries, projects, and users reject unknown fields and wrong types', ()
   await assertSucceeds(setDoc(doc(db(OWNER), 'users', 'u-ok'), userDoc('u-ok', { displayName: 'سليم', email: 'ok@example.invalid' })));
 }));
 
-testSeq('subcontracts: site cannot read the amount, create مقاول, edit, or link another project', () => seeded(async () => {
+testSeq('subcontracts: an assigned site user can link a مقاول payment and cannot read or write the amount', () => seeded(async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     const d = ctx.firestore();
     const name = (id, projectId, label) => ({
@@ -489,11 +489,19 @@ testSeq('subcontracts: site cannot read the amount, create مقاول, edit, or 
   assert.equal(Object.prototype.hasOwnProperty.call(visible.data(), 'originalAmount'), false);
   await assertFails(getDoc(doc(db(SITE), 'subcontracts', 'sc-other-project')));
   await assertFails(getDoc(doc(db(SITE), 'subcontractTerms', 'sc-same')));
+  await assertFails(getDocs(collection(db(SITE), 'subcontractTerms')));
+  await assertFails(getDoc(doc(db(SITE), 'subcontractAmendments', 'am-1')));
+  await assertFails(getDocs(collection(db(SITE), 'subcontractAmendments')));
   await assertFails(getDoc(doc(db(null), 'subcontractTerms', 'sc-same')));
   const terms = await assertSucceeds(getDoc(doc(db(OWNER), 'subcontractTerms', 'sc-same')));
   assert.equal(terms.data().originalAmount, 2500000);
 
-  await assertFails(putEntry(SITE, 'site-sub', { entryType: 'subcontractor', amount: 3000000, subcontractId: 'sc-same' }));
+  await assertSucceeds(putEntry(SITE, 'site-sub', { entryType: 'subcontractor', amount: 3000000, subcontractId: 'sc-same' }));
+  const saved = await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'site-sub')));
+  assert.equal(saved.data().subcontractId, 'sc-same');
+  assert.equal(saved.data().entryType, 'subcontractor');
+  await assertFails(putEntry(SITE, 'site-plain', { entryType: 'subcontractor', amount: 1000 }));
+  await assertFails(putEntry(SITE, 'site-other-project', { entryType: 'subcontractor', amount: 1000, projectId: 'p2', subcontractId: 'sc-other-project' }));
   await assertFails(putEntry(SITE, 'site-cross', { entryType: 'subcontractor', amount: 1000, projectId: 'p1', subcontractId: 'sc-other-project' }));
   await assertFails(putEntry(SITE, 'site-link-materials', { entryType: 'materials', subcontractId: 'sc-other-project' }));
   const rev = entryFields(SITE, {

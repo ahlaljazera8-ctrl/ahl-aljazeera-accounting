@@ -1155,7 +1155,7 @@ const views = {
     const { u } = data();
     const projects = L.projectList(u, get(K.projects, []), POLICY, 'open');
     const types = Object.entries(L.ENTRY_TYPES).filter(([k, t]) => {
-      if (k === 'subcontractor') return u.role === 'owner';
+      if (k === 'subcontractor') return u.role === 'owner' || u.role === 'site';
       return u.role === 'owner' || t.direction === 'expense' || POLICY.siteCanCreateClientPayment;
     });
     if (!types.some(([k]) => k === state.type)) state.type = types[0][0];
@@ -1620,7 +1620,7 @@ document.addEventListener('click', ev => {
     let party = ($('#party') && $('#party').value || '').trim();
     let subcontractId = '';
     if (state.type === 'subcontractor') {
-      if (!u || u.role !== 'owner') { b.disabled = false; setFormMsg('تسجيل دفعة المقاول للمالك فقط', 'error'); return; }
+      if (!u || (u.role !== 'owner' && u.role !== 'site')) { b.disabled = false; setFormMsg('تسجيل دفعة المقاول غير مسموح', 'error'); return; }
       subcontractId = ($('#subcontract') && $('#subcontract').value) || '';
       const chosen = subcontractsOf(state.projectId).find(s => s.id === subcontractId);
       if (!chosen) { b.disabled = false; setFormMsg('اختر مقاولاً من هذا المشروع', 'error'); return; }

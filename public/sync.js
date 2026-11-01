@@ -104,13 +104,20 @@
     return { originalAmount: amount };
   }
 
-  // Owner only. A site client does not query names, terms, or amendments.
+  // Owner reads names and amendments. A site user reads names on assigned projects only, never terms or amendments.
   function subcontractReads(user, since) {
-    if (!user || user.role !== 'owner' || user.active !== true) return [];
-    return sinceClause([
-      { collection: 'subcontracts', where: [] },
-      { collection: 'subcontractAmendments', where: [] },
-    ], since);
+    if (!user || user.active !== true) return [];
+    if (user.role === 'owner') {
+      return sinceClause([
+        { collection: 'subcontracts', where: [] },
+        { collection: 'subcontractAmendments', where: [] },
+      ], since);
+    }
+    if (user.role !== 'site') return [];
+    return validProjectIds(user.assignedProjectIds).map(id => ({
+      collection: 'subcontracts',
+      where: [['projectId', '==', id]],
+    }));
   }
 
   async function pullSubcontracts(opts) {

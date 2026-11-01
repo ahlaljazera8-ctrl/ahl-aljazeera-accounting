@@ -93,13 +93,18 @@ service cloud.firestore {
           && partyNameOk()
           && createdByNameOk();
       }
+      function linkedSubcontract() {
+        return idOk(d().subcontractId)
+          && exists(/databases/$(database)/documents/subcontracts/$(d().subcontractId))
+          && get(/databases/$(database)/documents/subcontracts/$(d().subcontractId)).data.projectId == d().projectId;
+      }
+      // A missing subcontractId is an old owner row. A site «مقاول» payment must name a subcontract on the assigned project.
       function linkOk() {
         return !('subcontractId' in d())
-          || (isOwner()
-              && d().entryType == 'subcontractor'
-              && idOk(d().subcontractId)
-              && exists(/databases/$(database)/documents/subcontracts/$(d().subcontractId))
-              && get(/databases/$(database)/documents/subcontracts/$(d().subcontractId)).data.projectId == d().projectId);
+          ? (d().entryType != 'subcontractor' || isOwner())
+          : (d().entryType == 'subcontractor'
+              && linkedSubcontract()
+              && (isOwner() || (isSite() && assigned(d().projectId))));
       }
       function typeOk() {
         return (d().direction == 'expense' && d().entryType in ['expense', 'materials', 'labour', 'subcontractor'])
@@ -132,7 +137,7 @@ service cloud.firestore {
           && (isOwner() || (isSite() && orig.createdBy == request.auth.uid));
       }
 
-      allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk()) && linkOk() && (isOwner() || d().entryType != 'subcontractor');
+      allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk()) && linkOk();
       // F11: assignment is required for every site read, including the author's own rows.
       // Rules are not a filter. The site client queries each assigned project.
       allow read: if isOwner();
