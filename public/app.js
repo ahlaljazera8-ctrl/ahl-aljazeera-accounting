@@ -2,7 +2,7 @@
 // Storage: IndexedDB "aj-p0" (stores: projects, entries, outbox, meta). Loaded into memory at boot; every write is
 // persisted to IndexedDB (write-through, serialized). "Server" is simulated; outbox = ids not sent yet (no syncState).
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
+const K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
 const demoRole = () => { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; };
 const LIST = { projects:1, entries:1, outbox:1 };
 const cache = {};
@@ -98,11 +98,34 @@ function seed() {
   const pend1 = E('p-school','materials',250000,'إسمنت','u-ahmed'), pend2 = E('p-school','labour',100000,'سلفة عامل','u-ahmed');
   pend1.createdAtServer = pend2.createdAtServer = null;
   lg.append(pend1, { user:users[1], projects, policy:POLICY }); lg.append(pend2, { user:users[1], projects, policy:POLICY });
-  set(K.users, users); set(K.projects, projects); set(K.entries, lg.all()); set(K.outbox, [pend1.id, pend2.id]);
+  const subs = [
+    { id:'sc-hadaada', projectId:'p-school', name:'ورشة الحدادة', work:'أبواب وشبابيك الحديد للهيكل', agreedOn:'2026-10-06', createdAtServer:t, createdBy:'u-ameer' },
+    { id:'sc-noor', projectId:'p-school', name:'شركة النور للبناء', work:'أعمال الهيكل والطابوق', agreedOn:'2026-10-04', createdAtServer:t, createdBy:'u-ameer' },
+    { id:'sc-kahraba', projectId:'p-school', name:'مقاول الكهرباء', work:'التمديدات ونقاط الإنارة', agreedOn:'2026-10-03', createdAtServer:t, createdBy:'u-ameer' },
+  ];
+  const amendments = [
+    { id:'am-noor-1', subcontractId:'sc-noor', projectId:'p-school', amount:500000, date:'2026-10-12', note:'أعمال السور', createdAtServer:t, createdBy:'u-ameer' },
+    { id:'am-kahraba-1', subcontractId:'sc-kahraba', projectId:'p-school', amount:500000, date:'2026-10-18', note:'نقطة إنارة إضافية', createdAtServer:t, createdBy:'u-ameer' },
+  ];
+  const linkedPay = (subId, amount, description, date) => {
+    const sub = subs.find(s => s.id === subId);
+    return E('p-school', 'subcontractor', amount, description, 'u-ameer', { entryDate:date, partyName:sub.name, subcontractId:subId, createdAtDevice:t - 80000 });
+  };
+  [
+    linkedPay('sc-hadaada', 1500000, 'دفعة حدادة', '2026-10-15'),
+    linkedPay('sc-noor', 2500000, 'تسديد عقد البناء', '2026-10-25'),
+    linkedPay('sc-kahraba', 2000000, 'دفعة كهرباء أولى', '2026-10-08'),
+    linkedPay('sc-kahraba', 1200000, 'دفعة كهرباء ثانية', '2026-10-22'),
+  ].forEach(row => lg.append(row, { user:users[0], projects, policy:POLICY }));
+  const seededRows = lg.all().slice().sort((a, b) => a.createdAtDevice - b.createdAtDevice || (a.id < b.id ? -1 : 1));
+  set(K.users, users); set(K.projects, projects); set(K.entries, seededRows); set(K.outbox, [pend1.id, pend2.id]);
   set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
+  set(K.subcontracts, subs);
+  set(K.terms, { 'sc-hadaada': { originalAmount: 4000000 }, 'sc-noor': { originalAmount: 2000000 }, 'sc-kahraba': { originalAmount: 2500000 } });
+  set(K.amendments, amendments);
   set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
 let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
@@ -251,9 +274,33 @@ async function loadFirebase() {
         createdAtServer: createdAt,
       });
     },
+    async putIfMissing(col, id, data) {
+      const ref = fsMod.doc(fdb, col, id);
+      const snap = await fsMod.getDocFromServer(ref);
+      if (snap.exists()) return;
+      await fsMod.setDoc(ref, data);
+    },
     async writeLocal(local) {
       const clean = S.withoutContractAmount(local);
       const col = S.collectionFor(clean);
+      if (col === 'subcontracts') {
+        await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
+        const stored = get(K.terms, {})[clean.id];
+        const payload = S.termsPayload(stored && stored.originalAmount);
+        if (!payload) throw new Error('مبلغ العقد غير صالح');
+        await this.putIfMissing('subcontractTerms', clean.id, payload);
+        const terms = get(K.terms, {});
+        const current = terms[clean.id];
+        if (!current || current.originalAmount === payload.originalAmount) {
+          terms[clean.id] = { originalAmount: payload.originalAmount };
+          set(K.terms, terms);
+        }
+        return;
+      }
+      if (col === 'subcontractAmendments') {
+        await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
+        return;
+      }
       await fsMod.setDoc(fsMod.doc(fdb, col, clean.id), S.withServerTime(clean, fsMod.serverTimestamp()));
       if (col !== 'projects') return;
       const user = get(K.sessionUser, null);
@@ -294,9 +341,10 @@ async function loadFirebase() {
         const snap = await fsMod.getDocsFromServer(src);
         return snap.docs.map(d => d.data());
       };
+      const previousMark = get(K.pullWatermark, {}) || {};
       const result = await S.pullChanges({
         user,
-        watermark: get(K.pullWatermark, null),
+        watermark: previousMark,
         pendingIds: get(K.outbox, []),
         localEntries: get(K.entries, []),
         localProjects: get(K.projects, []),
@@ -322,6 +370,29 @@ async function loadFirebase() {
         if (again[spec.id] && again[spec.id].pending) continue;
         again[spec.id] = { contractAmount: amount };
         set(K.finance, again);
+      }
+      const owned = await S.pullSubcontracts({
+        user,
+        since: previousMark.subcontracts,
+        read: readSpec,
+      });
+      const pendingNow = get(K.outbox, []);
+      const names = S.mergeById(get(K.subcontracts, []), owned.subcontracts, pendingNow).map(S.stripMoney);
+      set(K.subcontracts, names);
+      set(K.amendments, S.mergeById(get(K.amendments, []), owned.amendments, pendingNow));
+      set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { subcontracts: owned.watermark }));
+      if (!user || user.role !== 'owner') return;
+      for (const sub of names) {
+        if (!sub || pendingNow.includes(sub.id)) continue;
+        const live = get(K.terms, {});
+        if (live[sub.id] && live[sub.id].pending) continue;
+        const rows = await readSpec({ collection: 'subcontractTerms', id: sub.id });
+        const amount = rows[0] && rows[0].originalAmount;
+        if (!Number.isInteger(amount) || amount <= 0) continue;
+        const again = get(K.terms, {});
+        if (again[sub.id] && again[sub.id].pending) continue;
+        again[sub.id] = { originalAmount: amount };
+        set(K.terms, again);
       }
     },
   };
@@ -381,9 +452,9 @@ function flushRemote() {
 function adoptEntry(local, remote) {
   const src = window.Sync.fromRemote(remote || {});
   const next = Object.assign({}, local);
-  ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdBy', 'createdByName', 'description', 'partyName', 'deviceId', 'createdAtDevice', 'createdAtServer'].forEach(k => {
-    if (src[k] === undefined || src[k] === null || src[k] === '') {
-      if (k === 'createdByName' || k === 'description' || k === 'partyName' || k === 'reversalReason') delete next[k];
+  ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdBy', 'createdByName', 'description', 'partyName', 'subcontractId', 'deviceId', 'createdAtDevice', 'createdAtServer'].forEach(k => {
+        if (src[k] === undefined || src[k] === null || src[k] === '') {
+      if (k === 'createdByName' || k === 'description' || k === 'partyName' || k === 'reversalReason' || k === 'subcontractId') delete next[k];
       return;
     }
     next[k] = src[k];
@@ -398,6 +469,18 @@ function queuePendingFinance() {
   let changed = false;
   Object.keys(fin).forEach(id => {
     if (!fin[id] || !fin[id].pending || errors[id] || out.includes(id)) return;
+    out.push(id);
+    changed = true;
+  });
+  if (changed) set(K.outbox, out);
+}
+function queuePendingSubcontracts() {
+  const terms = get(K.terms, {}) || {};
+  const errors = get(K.syncErrors, {}) || {};
+  const out = get(K.outbox, []).slice();
+  let changed = false;
+  Object.keys(terms).forEach(id => {
+    if (!terms[id] || !terms[id].pending || errors[id] || out.includes(id)) return;
     out.push(id);
     changed = true;
   });
@@ -490,7 +573,7 @@ async function performFlush(token, run) {
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
         ids,
-        load: id => get(K.entries, []).find(e => e.id === id) || get(K.projects, []).find(p => p.id === id) || null,
+        load: id => get(K.entries, []).find(e => e.id === id) || get(K.projects, []).find(p => p.id === id) || get(K.subcontracts, []).find(s => s.id === id) || get(K.amendments, []).find(a => a.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
         readServer: async local => {
@@ -579,6 +662,7 @@ async function performFlush(token, run) {
   // write, or an entry saved during the pull) is not in kept. Send it now.
   if (Array.isArray(keptIds) && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser)) {
     queuePendingFinance();
+    queuePendingSubcontracts();
     const kept = new Set(keptIds);
     const started = new Set(Array.isArray(statusAtStart) ? statusAtStart : get(K.statusPending, []));
     const freshStatus = get(K.statusPending, []).some(id => !started.has(id));
@@ -695,7 +779,101 @@ async function enterSession(fb, uid, data) {
 }
 const ledger = () => L.createLedger(get(K.entries, []));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money = n => `<b class="num">${L.fmt(n)} د.ع</b>`;
+const money = (n, cls) => `<b class="num${cls ? ' ' + cls : ''}">${L.fmt(n)} د.ع</b>`;
+function subHref(kind, id) {
+  if (!window.DomSafe || !DomSafe.isSafeId(id)) return '#projects';
+  if (kind !== 'sub' && kind !== 'subnew' && kind !== 'amend') return '#projects';
+  return '#' + kind + '/' + DomSafe.projectAttr(id);
+}
+function subcontractsOf(projectId) {
+  return get(K.subcontracts, []).filter(s => s.projectId === projectId);
+}
+function amendmentsOf(subId) {
+  return get(K.amendments, []).filter(a => a.subcontractId === subId).slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : 1));
+}
+function subFigures(sub, entries) {
+  const terms = (get(K.terms, {}) || {})[sub.id];
+  if (!terms || !Number.isInteger(terms.originalAmount)) return null;
+  return L.subcontractBalance(terms.originalAmount, get(K.amendments, []), entries, sub.id);
+}
+function subcontractCard(sub, entries) {
+  const fig = subFigures(sub, entries);
+  if (!fig) return `<a class="card proj" href="${subHref('sub', sub.id)}"><h2>${esc(sub.name)}</h2><div class="note">${esc(sub.work)}</div><div class="note">المبلغ غير متاح</div></a>`;
+  const badge = fig.settled ? '<span class="pill ok">مسدّد بالكامل</span>' : '';
+  const remainCls = fig.over ? 'bad' : (fig.settled ? 'ok' : '');
+  return `<a class="card proj" href="${subHref('sub', sub.id)}">
+    <div class="subhead"><h2>${esc(sub.name)}</h2>${badge}</div>
+    <div class="note">${esc(sub.work)}</div>
+    <div class="kv"><span>المتفق عليه</span>${money(fig.agreed)}</div>
+    <div class="kv"><span>المدفوع</span>${money(fig.paid)}</div>
+    <div class="kv"><span>المتبقي</span>${money(fig.remaining, remainCls)}</div>
+    <div class="bar${fig.over ? ' over' : ''}" data-bar="${esc(sub.id)}"><i style="width:${fig.width}%"></i></div>
+  </a>`;
+}
+function subcontractSection(project, entries) {
+  const cards = subcontractsOf(project.id).map(sub => subcontractCard(sub, entries)).join('');
+  return `<div class="card" id="subcontracts"><h2>المقاولون</h2></div>${cards || '<div class="card"><div class="note">لا توجد عقود.</div></div>'}
+    <a class="btn ghost" href="${subHref('subnew', project.id)}">+ عقد مقاول</a>`;
+}
+function queueDoc(id) {
+  const out = get(K.outbox, []);
+  if (!out.includes(id)) set(K.outbox, out.concat([id]));
+  if (!demoRole()) flushRemote();
+}
+function saveSubcontract(u, button) {
+  if (!u || u.role !== 'owner') return;
+  const projectId = (location.hash.slice(1).split('/')[1]) || '';
+  const project = get(K.projects, []).find(p => p.id === projectId);
+  if (!project) return;
+  if (button) button.disabled = true;
+  const name = ($('#sub-name') && $('#sub-name').value || '').trim();
+  const work = ($('#sub-work') && $('#sub-work').value || '').trim();
+  const parsed = L.parseAmount($('#sub-amount') && $('#sub-amount').value);
+  if (!name || name.length > 100) { state.subMsg = 'أدخل اسم المقاول'; if (button) button.disabled = false; render(); return; }
+  if (work.length > 500) { state.subMsg = 'وصف العمل بحد أقصى 500 حرفاً'; if (button) button.disabled = false; render(); return; }
+  if (!parsed.ok) { state.subMsg = parsed.error; if (button) button.disabled = false; render(); return; }
+  const id = state.subFormId || uuid();
+  const all = get(K.subcontracts, []);
+  if (!all.some(s => s.id === id)) {
+    set(K.subcontracts, [...all, { id, projectId, name, work, agreedOn: today(), createdAtServer: null, createdBy: u.uid }]);
+    const terms = get(K.terms, {});
+    terms[id] = { originalAmount: parsed.amount, pending: true };
+    set(K.terms, terms);
+    queueDoc(id);
+  }
+  state.subFormId = '';
+  state.subName = ''; state.subAmount = ''; state.subWork = ''; state.subMsg = '';
+  location.hash = subHref('sub', id);
+}
+function dateOk(s) {
+  return typeof s === 'string'
+    && /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(s)
+    && s >= '2000-01-01' && s <= '2100-12-31'
+    && !/^[0-9]{4}-02-3[01]$/.test(s)
+    && !/^[0-9]{4}-(04|06|09|11)-31$/.test(s);
+}
+function saveAmendment(u, button) {
+  if (!u || u.role !== 'owner') return;
+  const subcontractId = (location.hash.slice(1).split('/')[1]) || '';
+  const sub = get(K.subcontracts, []).find(s => s.id === subcontractId);
+  if (!sub) return;
+  if (button) button.disabled = true;
+  const date = ($('#am-date') && $('#am-date').value || '').trim();
+  const note = ($('#am-note') && $('#am-note').value || '').trim();
+  const parsed = L.parseAmount($('#am-amount') && $('#am-amount').value);
+  if (!dateOk(date)) { state.amMsg = 'التاريخ بصيغة YYYY-MM-DD'; if (button) button.disabled = false; render(); return; }
+  if (!note || note.length > 200) { state.amMsg = 'أدخل البيان'; if (button) button.disabled = false; render(); return; }
+  if (!parsed.ok) { state.amMsg = parsed.error; if (button) button.disabled = false; render(); return; }
+  const id = state.amFormId || uuid();
+  const all = get(K.amendments, []);
+  if (!all.some(a => a.id === id)) {
+    set(K.amendments, [...all, { id, subcontractId, projectId: sub.projectId, amount: parsed.amount, date, note, createdAtServer: null, createdBy: u.uid }]);
+    queueDoc(id);
+  }
+  state.amFormId = '';
+  state.amDate = ''; state.amAmount = ''; state.amNote = ''; state.amMsg = '';
+  location.hash = subHref('sub', subcontractId);
+}
 const $ = s => document.querySelector(s);
 const roleLabel = role => role === 'owner' ? 'مالك' : 'مستخدم موقع';
 function shownContract(id, project) {
@@ -804,7 +982,7 @@ function ensureDirectory() {
 
 function commit(entry) {
   const lg = ledger();
-  lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY });
+  lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY, subcontracts: get(K.subcontracts, []) });
   set(K.entries, lg.all()); set(K.outbox, [...get(K.outbox, []), entry.id]);
   if (!demoRole()) flushRemote();
 }
@@ -813,6 +991,17 @@ function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending t
   const now = Date.now();
   set(K.entries, get(K.entries, []).map(e => out.has(e.id) && !e.createdAtServer ? { ...e, createdAtServer: now } : e));
   set(K.projects, get(K.projects, []).map(p => out.has(p.id) && !p.createdAtServer ? { ...p, createdAtServer: now } : p));
+  set(K.subcontracts, get(K.subcontracts, []).map(s => out.has(s.id) && !s.createdAtServer ? Object.assign({}, s, { createdAtServer: now }) : s));
+  set(K.amendments, get(K.amendments, []).map(a => out.has(a.id) && !a.createdAtServer ? Object.assign({}, a, { createdAtServer: now }) : a));
+  const terms = get(K.terms, {});
+  let termsChanged = false;
+  Object.keys(terms).forEach(id => {
+    if (out.has(id) && terms[id] && terms[id].pending) {
+      terms[id] = { originalAmount: terms[id].originalAmount };
+      termsChanged = true;
+    }
+  });
+  if (termsChanged) set(K.terms, terms);
   set(K.outbox, []); render();
 }
 
@@ -965,18 +1154,28 @@ const views = {
   entry(pid) {
     const { u } = data();
     const projects = L.projectList(u, get(K.projects, []), POLICY, 'open');
-    const types = Object.entries(L.ENTRY_TYPES).filter(([, t]) => u.role === 'owner' || t.direction === 'expense' || POLICY.siteCanCreateClientPayment);
+    const types = Object.entries(L.ENTRY_TYPES).filter(([k, t]) => {
+      if (k === 'subcontractor') return u.role === 'owner' || u.role === 'site';
+      return u.role === 'owner' || t.direction === 'expense' || POLICY.siteCanCreateClientPayment;
+    });
     if (!types.some(([k]) => k === state.type)) state.type = types[0][0];
     if (pid) state.projectId = pid;
     if (!projects.some(p => p.id === state.projectId)) state.projectId = projects[0] && projects[0].id;
+    const subsHere = subcontractsOf(state.projectId);
+    if (state.type === 'subcontractor' && !subsHere.some(s => s.id === state.subcontractId)) state.subcontractId = (subsHere[0] && subsHere[0].id) || '';
+    const partyBlock = state.type === 'subcontractor'
+      ? `<label class="field">المقاول
+          <select id="subcontract" class="full">${subsHere.map(s => `<option value="${esc(s.id)}"${s.id === state.subcontractId ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+        </label>`
+      : `<label class="field">الجهة المستلمة / المورّد (اختياري)
+          <input id="party" class="full" maxlength="100" autocomplete="off" value="${esc(state.party || '')}">
+        </label>`;
     return `<div class="card"><div class="step">1 النوع</div><div class="pills">${types.map(([k, t]) => `<button class="pill ${k === state.type ? 'on' : ''}" data-type="${k}">${t.label}</button>`).join('')}</div></div>
       <div class="card"><div class="step">2 المبلغ</div><div class="amount"><input id="amt" inputmode="numeric" value="${esc(state.amountDraft || '')}" placeholder="0"> <span>د.ع</span></div>
         <div class="pills" style="justify-content:center"><button class="pill" data-add="1000">+ ألف</button><button class="pill" data-add="1000000">+ مليون</button><button class="pill bad" data-add="0">مسح</button></div></div>
       <div class="card"><div class="step">3 المشروع${u.role === 'site' ? ' (مشاريعي فقط)' : ''}</div><div class="pills">${projects.map(p => window.DomSafe ? DomSafe.projectButton(p.id, p.name, p.id === state.projectId) : `<button class="pill ${p.id === state.projectId ? 'on' : ''}" data-proj="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div></div>
       <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)">${esc(state.desc || '')}</textarea>
-      <label class="field">الجهة المستلمة / المورّد (اختياري)
-        <input id="party" class="full" maxlength="100" autocomplete="off" value="${esc(state.party || '')}">
-      </label>
+      ${partyBlock}
       <button class="btn" id="save">حفظ</button><div id="msg" class="msg">${state.formMsgKind === 'saved' ? '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>' : esc(state.formMsg || '')}</div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
   },
@@ -1008,10 +1207,11 @@ const views = {
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
+    const subs = u.role === 'owner' ? subcontractSection(p, counts(es)) : '';
     const manage = L.nextProjectStatus(u, p, 'archive')
       ? `<section class="project-manage" id="project-manage"><h2>إدارة المشروع</h2><button type="button" class="btn ghost" id="archive-project">أرشفة المشروع</button></section>`
       : '';
-    return `<div class="card">${card}</div><div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
+    return `<div class="card">${card}</div>${subs}<div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
       <a class="btn ghost" id="all-entries" href="${allHref}">عرض جميع القيود</a>
       <a class="btn" href="${window.DomSafe ? DomSafe.projectHref('entry', p.id) : '#projects'}">+ قيد لهذا المشروع</a>${manage}`;
   },
@@ -1086,8 +1286,89 @@ const views = {
         <button type="button" class="btn ghost" id="entry-file">حفظ كملف</button>
       </div>`}`;
   },
+  sub(id) {
+    const u = me();
+    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    const sub = get(K.subcontracts, []).find(s => s.id === id);
+    if (!sub) return '<div class="card">العقد غير متاح</div>';
+    const entries = counts(get(K.entries, []).filter(e => e.projectId === sub.projectId));
+    const fig = subFigures(sub, entries);
+    const agreed = fig ? fig.agreed : null;
+    const warn = fig && fig.over ? `<div class="warnbox">المدفوع أكبر من المتفق عليه بـ ${L.fmt(fig.paid - fig.agreed)} د.ع. تنبيه فقط، ولا يمنع تسجيل دفعة.</div>` : '';
+    const badge = fig && fig.settled ? '<span class="pill ok">مسدّد بالكامل</span>' : '';
+    const remainCls = fig && fig.over ? 'bad' : (fig && fig.settled ? 'ok' : '');
+    const terms = (get(K.terms, {}) || {})[sub.id];
+    const original = terms && Number.isInteger(terms.originalAmount) ? money(terms.originalAmount) : '<b>غير متاح</b>';
+    const amRows = amendmentsOf(sub.id).map(a => `<div class="kv"><span><span class="num">${esc(a.date)}</span> ${esc(a.note)}</span><b class="num">+${L.fmt(a.amount)}</b></div>`).join('') || '<div class="note">لا ملاحق.</div>';
+    const payRows = entries.filter(e => e.entryType === 'subcontractor' && e.subcontractId === sub.id).slice().sort((a, b) => a.entryDate < b.entryDate ? -1 : 1).map(e => `<div class="kv"><span><span class="num">${esc(e.entryDate)}</span> ${esc(e.description || '—')}</span><b class="num">${L.fmt(e.amount * L.sign(e))}</b></div>`).join('') || '<div class="note">لا دفعات.</div>';
+    const loose = entries.filter(e => e.entryType === 'subcontractor' && !e.subcontractId);
+    const looseRows = loose.map(e => `<div class="entry"><div class="meta"><span>${esc(e.description || '—')}</span><small class="num">${esc(e.entryDate)}</small></div><span class="pill">غير مرتبط</span><b class="num">${L.fmt(e.amount * L.sign(e))}</b></div>`).join('') || '<div class="note">لا قيود سابقة بلا عقد.</div>';
+    const syncNote = (get(K.syncErrors, {}) || {})[sub.id] || (get(K.outbox, []).includes(sub.id) ? 'لم يُرسل' : '');
+    return `<button type="button" class="mini" id="back-sub">رجوع</button>
+      <div class="card">
+        <div class="subhead"><h2>${esc(sub.name)}</h2>${badge}</div>
+        <div class="note">${esc(sub.work)}</div>
+        ${warn}
+        ${syncNote ? `<div class="note">${esc(syncNote)}</div>` : ''}
+        <div class="kv"><span>الأصل</span>${original}</div>
+        <div class="kv"><span>المتفق عليه</span>${agreed === null ? '<b>غير متاح</b>' : money(agreed)}</div>
+        <div class="kv"><span>المدفوع</span>${fig ? money(fig.paid) : '<b>غير متاح</b>'}</div>
+        <div class="kv"><span>المتبقي</span>${fig ? money(fig.remaining, remainCls) : '<b>غير متاح</b>'}</div>
+        ${fig ? `<div class="bar${fig.over ? ' over' : ''}"><i style="width:${fig.width}%"></i></div>` : ''}
+        <a class="btn ghost" href="${subHref('amend', sub.id)}">+ ملحق</a>
+      </div>
+      <div class="card"><h2>سجل الملاحق</h2><div class="note">كل ملحق صف بتاريخ. لا يُعدَّل صف ولا يُحذف.</div>${amRows}</div>
+      <div class="card"><h2>الدفعات</h2>${payRows}</div>
+      <div class="card" id="unlinked"><h2>قيود بلا عقد</h2><div class="note">قيد «مقاول» سابق بلا عقد. لا يدخل في المدفوع ولا في المتبقي.</div>${looseRows}</div>`;
+  },
+  subnew(projectId) {
+    const u = me();
+    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    const project = get(K.projects, []).find(p => p.id === projectId);
+    if (!project) return '<div class="card">المشروع غير متاح</div>';
+    if (!state.subFormId) {
+      state.subFormId = uuid();
+      if (!state.subName) state.subName = 'مقاول السباكة';
+      if (!state.subAmount) state.subAmount = L.fmt(1500000);
+      if (!state.subWork) state.subWork = 'تمديد شبكة الماء للمجمع المدرسي';
+    }
+    return `<button type="button" class="mini" id="back-project">رجوع</button>
+      <div class="card">
+        <div class="step">عقد مقاول · ${esc(project.name)}</div>
+        <label class="field">اسم المقاول<input id="sub-name" class="full" maxlength="100" value="${esc(state.subName)}"></label>
+        <label class="field">المبلغ المتفق عليه<input id="sub-amount" class="full" inputmode="numeric" value="${esc(state.subAmount)}"></label>
+        <label class="field">وصف العمل<textarea id="sub-work" rows="2" maxlength="500">${esc(state.subWork)}</textarea></label>
+        <button type="button" class="btn" id="save-sub">حفظ العقد</button>
+        <div id="sub-msg" class="msg">${esc(state.subMsg || '')}</div>
+        <div class="note">بعد الحفظ لا يتغير المبلغ إلا بملحق مؤرخ.</div>
+      </div>`;
+  },
+  amend(id) {
+    const u = me();
+    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    const sub = get(K.subcontracts, []).find(s => s.id === id);
+    if (!sub) return '<div class="card">العقد غير متاح</div>';
+    const fig = subFigures(sub, counts(get(K.entries, [])));
+    if (!state.amFormId) {
+      state.amFormId = uuid();
+      if (!state.amDate) state.amDate = '2026-10-28';
+      if (!state.amAmount) state.amAmount = L.fmt(200000);
+      if (!state.amNote) state.amNote = 'خزان ماء إضافي';
+    }
+    return `<button type="button" class="mini" id="back-sub">رجوع</button>
+      <div class="card">
+        <div class="step">ملحق · ${esc(sub.name)}</div>
+        <div class="kv"><span>المتفق عليه الآن</span>${fig ? money(fig.agreed) : '<b>غير متاح</b>'}</div>
+        <label class="field">تاريخ الملحق<input id="am-date" class="full" value="${esc(state.amDate)}"></label>
+        <label class="field">المبلغ المضاف<input id="am-amount" class="full" inputmode="numeric" value="${esc(state.amAmount)}"></label>
+        <label class="field">البيان<input id="am-note" class="full" maxlength="200" value="${esc(state.amNote)}"></label>
+        <button type="button" class="btn" id="save-amend">إضافة الملحق</button>
+        <div id="am-msg" class="msg">${esc(state.amMsg || '')}</div>
+        <div class="note">الملحق يُضاف فقط. لا تعديل ولا حذف.</div>
+      </div>`;
+  },
 };
-const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص' };
+const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص', sub:'عقد مقاول', subnew:'عقد مقاول', amend:'ملحق' };
 
 function tabGlyph() {
   const ns = 'http://www.w3.org/2000/svg';
@@ -1126,6 +1407,14 @@ function captureForm() {
   if (desc) state.desc = desc.value;
   if (party) state.party = party.value;
   if (amt) state.amountDraft = amt.value;
+  const subPick = $('#subcontract');
+  if (subPick) state.subcontractId = subPick.value;
+  const subName = $('#sub-name'); if (subName) state.subName = subName.value;
+  const subAmount = $('#sub-amount'); if (subAmount) state.subAmount = subAmount.value;
+  const subWork = $('#sub-work'); if (subWork) state.subWork = subWork.value;
+  const amDate = $('#am-date'); if (amDate) state.amDate = amDate.value;
+  const amAmount = $('#am-amount'); if (amAmount) state.amAmount = amAmount.value;
+  const amNote = $('#am-note'); if (amNote) state.amNote = amNote.value;
 }
 function confirmDialog() {
   const c = state.confirm;
@@ -1243,6 +1532,8 @@ function render() {
   if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
   if (v !== 'person') state.personMsg = '';
   if (u.role !== 'owner') { state.confirm = null; state.projectList = 'open'; }
+  if (v !== 'subnew') state.subMsg = '';
+  if (v !== 'amend') state.amMsg = '';
   $('#role').value = u.role;
   $('#role-label').hidden = !demoRole();
   $('#logout').hidden = !!demoRole();
@@ -1251,7 +1542,7 @@ function render() {
     : ((u.role === 'owner' ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
   paintBell();
   syncPeopleTab(u);
-  const tab = (v === 'project' || v === 'entries') ? 'projects' : (v === 'person' ? 'people' : v);
+  const tab = (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   if (!demoRole() && u.role === 'owner' && (v === 'people' || v === 'person') && !directoryPromise) {
     $('#title').textContent = titles[v] || 'الأشخاص';
@@ -1262,7 +1553,12 @@ function render() {
     return;
   }
   const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
-  $('#title').textContent = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
+  let heading = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
+  if (v === 'sub' || v === 'amend') {
+    const found = get(K.subcontracts, []).find(s => s.id === arg);
+    heading = found ? found.name : 'عقد مقاول';
+  } else if (v === 'subnew') heading = arg && projectTitle !== 'مشروع' ? projectTitle : 'عقد مقاول';
+  $('#title').textContent = heading;
   $('#main').innerHTML = views[v](arg) + confirmDialog();
 }
 
@@ -1300,6 +1596,15 @@ document.addEventListener('click', ev => {
   else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote(); }
   else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
   else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
+  else if (b.id === 'back-sub') {
+    const parts = location.hash.slice(1).split('/');
+    const id = parts[1] || '';
+    if (parts[0] === 'amend' && id) { location.hash = subHref('sub', id); return; }
+    const sub = get(K.subcontracts, []).find(s => s.id === id);
+    const projectId = sub ? sub.projectId : '';
+    const href = window.DomSafe ? DomSafe.projectHref('project', projectId) : '#projects';
+    location.hash = data().projects.some(p => p.id === projectId) ? href : '#projects';
+  }
   else if (b.id === 'back-project') {
     const id = (location.hash.slice(1).split('/')[1]) || '';
     const href = window.DomSafe ? DomSafe.projectHref('project', id) : '#projects';
@@ -1312,12 +1617,21 @@ document.addEventListener('click', ev => {
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
     const desc = $('#desc').value.trim();
-    const party = ($('#party') && $('#party').value || '').trim();
+    let party = ($('#party') && $('#party').value || '').trim();
+    let subcontractId = '';
+    if (state.type === 'subcontractor') {
+      if (!u || (u.role !== 'owner' && u.role !== 'site')) { b.disabled = false; setFormMsg('تسجيل دفعة المقاول غير مسموح', 'error'); return; }
+      subcontractId = ($('#subcontract') && $('#subcontract').value) || '';
+      const chosen = subcontractsOf(state.projectId).find(s => s.id === subcontractId);
+      if (!chosen) { b.disabled = false; setFormMsg('اختر مقاولاً من هذا المشروع', 'error'); return; }
+      party = chosen.name;
+    }
     const parsed = L.parseAmount($('#amt') && $('#amt').value);
     if (!parsed.ok) { b.disabled = false; setFormMsg(parsed.error, 'error'); return; }
     const e = { id: state.formId, projectId: state.projectId, direction: L.ENTRY_TYPES[state.type].direction, entryType: state.type,
       amount: parsed.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
       createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
+    if (subcontractId) e.subcontractId = subcontractId;
     const recorded = L.recorderName(u);
     if (recorded) e.createdByName = recorded;
     try {
@@ -1370,6 +1684,8 @@ document.addEventListener('click', ev => {
     if (!demoRole()) flushRemote();
   } else if (b.id === 'save-contract') saveContract(u);
   else if (b.id === 'save-person') savePerson(u);
+  else if (b.id === 'save-sub') saveSubcontract(u, b);
+  else if (b.id === 'save-amend') saveAmendment(u, b);
 });
 document.addEventListener('beforeinput', ev => {
   const el = ev.target;

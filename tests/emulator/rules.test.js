@@ -465,3 +465,85 @@ testSeq('entries, projects, and users reject unknown fields and wrong types', ()
   await assertSucceeds(setDoc(doc(db(OWNER), 'projects', 'p-ok'), projectDoc('p-ok', 'مشروع سليم')));
   await assertSucceeds(setDoc(doc(db(OWNER), 'users', 'u-ok'), userDoc('u-ok', { displayName: 'سليم', email: 'ok@example.invalid' })));
 }));
+
+testSeq('subcontracts: an assigned site user can link a مقاول payment and cannot read or write the amount', () => seeded(async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const d = ctx.firestore();
+    const name = (id, projectId, label) => ({
+      id, projectId, name: label, work: 'عمل', agreedOn: '2026-10-03', createdAtServer: new Date(), createdBy: OWNER,
+    });
+    await setDoc(doc(d, 'subcontracts', 'sc-same'), name('sc-same', 'p1', 'مقاول الكهرباء'));
+    await setDoc(doc(d, 'subcontracts', 'sc-other-project'), name('sc-other-project', 'p2', 'مقاول آخر'));
+    await setDoc(doc(d, 'subcontractTerms', 'sc-same'), { originalAmount: 2500000 });
+    await setDoc(doc(d, 'subcontractAmendments', 'am-1'), {
+      id: 'am-1', subcontractId: 'sc-same', projectId: 'p1', amount: 500000, date: '2026-10-18',
+      note: 'ملحق', createdAtServer: new Date(), createdBy: OWNER,
+    });
+    await setDoc(doc(d, 'ledgerEntries', 'old-site-sub'), plain(SITE, {
+      id: 'old-site-sub', entryType: 'subcontractor', amount: 7200000,
+    }));
+  });
+
+  const visible = await assertSucceeds(getDoc(doc(db(SITE), 'subcontracts', 'sc-same')));
+  assert.equal(visible.data().name, 'مقاول الكهرباء');
+  assert.equal(Object.prototype.hasOwnProperty.call(visible.data(), 'originalAmount'), false);
+  await assertFails(getDoc(doc(db(SITE), 'subcontracts', 'sc-other-project')));
+  await assertFails(getDoc(doc(db(SITE), 'subcontractTerms', 'sc-same')));
+  await assertFails(getDocs(collection(db(SITE), 'subcontractTerms')));
+  await assertFails(getDoc(doc(db(SITE), 'subcontractAmendments', 'am-1')));
+  await assertFails(getDocs(collection(db(SITE), 'subcontractAmendments')));
+  await assertFails(getDoc(doc(db(null), 'subcontractTerms', 'sc-same')));
+  const terms = await assertSucceeds(getDoc(doc(db(OWNER), 'subcontractTerms', 'sc-same')));
+  assert.equal(terms.data().originalAmount, 2500000);
+
+  await assertSucceeds(putEntry(SITE, 'site-sub', { entryType: 'subcontractor', amount: 3000000, subcontractId: 'sc-same' }));
+  const saved = await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'site-sub')));
+  assert.equal(saved.data().subcontractId, 'sc-same');
+  assert.equal(saved.data().entryType, 'subcontractor');
+  await assertFails(putEntry(SITE, 'site-plain', { entryType: 'subcontractor', amount: 1000 }));
+  await assertFails(putEntry(SITE, 'site-other-project', { entryType: 'subcontractor', amount: 1000, projectId: 'p2', subcontractId: 'sc-other-project' }));
+  await assertFails(putEntry(SITE, 'site-cross', { entryType: 'subcontractor', amount: 1000, projectId: 'p1', subcontractId: 'sc-other-project' }));
+  await assertFails(putEntry(SITE, 'site-link-materials', { entryType: 'materials', subcontractId: 'sc-other-project' }));
+  const rev = entryFields(SITE, {
+    id: 'rev_old-site-sub', isReversal: true, reversesEntryId: 'old-site-sub', reversalReason: 'تصحيح',
+    amount: 7200000, entryType: 'subcontractor', direction: 'expense', projectId: 'p1',
+  });
+  await assertFails(setDoc(doc(db(SITE), 'ledgerEntries', 'rev_old-site-sub'), rev));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'ledgerEntries', 'rev_old-site-sub'), entryFields(OWNER, {
+    id: 'rev_old-site-sub', isReversal: true, reversesEntryId: 'old-site-sub', reversalReason: 'تصحيح',
+    amount: 7200000, entryType: 'subcontractor', direction: 'expense', projectId: 'p1',
+  })));
+
+  for (const uid of [SITE, OWNER]) {
+    await assertFails(updateDoc(doc(db(uid), 'subcontracts', 'sc-same'), { name: 'تغيير' }));
+    await assertFails(deleteDoc(doc(db(uid), 'subcontracts', 'sc-same')));
+    await assertFails(updateDoc(doc(db(uid), 'subcontractTerms', 'sc-same'), { originalAmount: 1 }));
+    await assertFails(deleteDoc(doc(db(uid), 'subcontractTerms', 'sc-same')));
+    await assertFails(updateDoc(doc(db(uid), 'subcontractAmendments', 'am-1'), { amount: 1 }));
+    await assertFails(deleteDoc(doc(db(uid), 'subcontractAmendments', 'am-1')));
+  }
+  await assertFails(setDoc(doc(db(SITE), 'subcontracts', 'sc-site'), {
+    id: 'sc-site', projectId: 'p1', name: 'ممنوع', work: '', agreedOn: '2026-10-28',
+    createdAtServer: serverTimestamp(), createdBy: SITE,
+  }));
+  await assertFails(setDoc(doc(db(SITE), 'subcontractTerms', 'sc-same'), { originalAmount: 9 }));
+
+  await assertSucceeds(setDoc(doc(db(OWNER), 'subcontracts', 'sc-new'), {
+    id: 'sc-new', projectId: 'p1', name: 'مقاول السباكة', work: 'تمديد', agreedOn: '2026-10-28',
+    createdAtServer: serverTimestamp(), createdBy: OWNER,
+  }));
+  await assertFails(setDoc(doc(db(OWNER), 'subcontracts', 'sc-money'), {
+    id: 'sc-money', projectId: 'p1', name: 'بمبلغ', work: '', agreedOn: '2026-10-28',
+    originalAmount: 1500000, createdAtServer: serverTimestamp(), createdBy: OWNER,
+  }));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'subcontractTerms', 'sc-new'), { originalAmount: 1500000 }));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'subcontractAmendments', 'am-new'), {
+    id: 'am-new', subcontractId: 'sc-new', projectId: 'p1', amount: 200000, date: '2026-10-28',
+    note: 'خزان', createdAtServer: serverTimestamp(), createdBy: OWNER,
+  }));
+  await assertSucceeds(putEntry(OWNER, 'owner-sub', { entryType: 'subcontractor', amount: 3000000, subcontractId: 'sc-same' }));
+  await assertSucceeds(putEntry(OWNER, 'owner-unlinked', { entryType: 'subcontractor', amount: 1000 }));
+  await assertFails(putEntry(OWNER, 'owner-cross', { entryType: 'subcontractor', amount: 1000, projectId: 'p1', subcontractId: 'sc-other-project' }));
+  await assertFails(deleteDoc(doc(db(OWNER), 'ledgerEntries', 'owner-sub')));
+  await assertFails(updateDoc(doc(db(OWNER), 'ledgerEntries', 'owner-sub'), { subcontractId: 'sc-new' }));
+}));

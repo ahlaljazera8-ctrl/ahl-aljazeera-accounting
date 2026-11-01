@@ -34,11 +34,13 @@
 
   function sameContent(local, remote) {
     if (!local || !remote) return false;
+    if (!local.entryType && !(local.currency && local.name)) return false;
     const keys = ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdBy'];
     for (const k of keys) if (local[k] !== remote[k]) return false;
     if (norm(local.description) !== norm(remote.description)) return false;
     if (norm(local.partyName) !== norm(remote.partyName)) return false;
     if (norm(local.createdByName) !== norm(remote.createdByName)) return false;
+    if (norm(local.subcontractId) !== norm(remote.subcontractId)) return false;
     if (local.isReversal || remote.isReversal) {
       if (norm(local.reversesEntryId) !== norm(remote.reversesEntryId)) return false;
     }

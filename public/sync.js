@@ -14,6 +14,8 @@
     if (!doc) return null;
     if (doc.entryType) return 'ledgerEntries';
     if (typeof doc.name === 'string' && doc.currency) return 'projects';
+    if (typeof doc.agreedOn === 'string' && doc.projectId && !doc.currency) return 'subcontracts';
+    if (doc.subcontractId && doc.date && !doc.entryType) return 'subcontractAmendments';
     return null;
   }
 
@@ -35,7 +37,16 @@
         out.reversesEntryId = doc.reversesEntryId;
         out.reversalReason = doc.reversalReason;
       }
+      if (doc.entryType === 'subcontractor' && doc.subcontractId) out.subcontractId = doc.subcontractId;
       return out;
+    }
+    if (typeof doc.agreedOn === 'string' && doc.projectId && !doc.currency) {
+      const name = copyFields(doc, ['id', 'projectId', 'name', 'work', 'agreedOn', 'createdBy']);
+      if (!name.work) name.work = '';
+      return name;
+    }
+    if (doc.subcontractId && doc.date && !doc.entryType) {
+      return copyFields(doc, ['id', 'subcontractId', 'projectId', 'amount', 'date', 'note', 'createdBy']);
     }
     const out = copyFields(doc, ['id', 'name', 'clientName', 'currency', 'status', 'createdAtDevice', 'createdBy', 'deviceId']);
     if (doc.location) out.location = doc.location;
@@ -75,6 +86,56 @@
   function financeReads(user, projectIds) {
     if (!user || user.role !== 'owner' || user.active !== true) return [];
     return validProjectIds(projectIds).map(id => ({ collection: 'projectFinance', id }));
+  }
+
+  function stripMoney(doc) {
+    if (!doc) return doc;
+    const out = Object.assign({}, doc);
+    delete out.originalAmount;
+    delete out.contractAmount;
+    delete out.paid;
+    delete out.agreed;
+    delete out.remaining;
+    return out;
+  }
+
+  function termsPayload(amount) {
+    if (!Number.isInteger(amount) || amount <= 0 || amount > MAX_CONTRACT) return null;
+    return { originalAmount: amount };
+  }
+
+  // Owner reads names and amendments. A site user reads names on assigned projects only, never terms or amendments.
+  function subcontractReads(user, since) {
+    if (!user || user.active !== true) return [];
+    if (user.role === 'owner') {
+      return sinceClause([
+        { collection: 'subcontracts', where: [] },
+        { collection: 'subcontractAmendments', where: [] },
+      ], since);
+    }
+    if (user.role !== 'site') return [];
+    return validProjectIds(user.assignedProjectIds).map(id => ({
+      collection: 'subcontracts',
+      where: [['projectId', '==', id]],
+    }));
+  }
+
+  async function pullSubcontracts(opts) {
+    const specs = subcontractReads(opts.user, opts.since);
+    if (!specs.length) return { subcontracts: [], amendments: [], watermark: finiteMillis(opts.since) };
+    const rows = await readSpecs(specs, opts.read);
+    const subcontracts = [];
+    const amendments = [];
+    rows.forEach(row => {
+      if (!row) return;
+      if (row.agreedOn && !row.entryType && !row.currency) subcontracts.push(stripMoney(row));
+      else if (row.subcontractId && row.date) amendments.push(row);
+    });
+    return {
+      subcontracts,
+      amendments,
+      watermark: nextWatermark(opts.since, subcontracts.concat(amendments)),
+    };
   }
 
   function personInput(input) {
@@ -304,6 +365,6 @@
   return {
     isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
-    readSetKey, readSetChanged,
+    readSetKey, readSetChanged, stripMoney, termsPayload, subcontractReads, pullSubcontracts,
   };
 });
