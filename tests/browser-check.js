@@ -1,10 +1,51 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
-const { spawn } = require('child_process'); const fs = require('fs'); const path = require('path');
+const { spawn } = require('child_process'); const fs = require('fs'); const http = require('http'); const net = require('net'); const path = require('path');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
-const chrome = spawn('google-chrome', ['--headless=new', '--no-sandbox', '--remote-debugging-port=9333', '--user-data-dir=/tmp/aj-chrome-' + Date.now(), 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); });
+  });
+}
+// Read the loopback debugger with node:http. fetch() follows HTTP_PROXY, and
+// the runner's Chrome can take longer than 10s to publish its first page.
+function debuggerText(port, pathname) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 2000 }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve(body.replace(/^\)\]\}'\s*/, '')));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('debugger timeout')); });
+  });
+}
+let chrome;
 (async () => {
-  let tgt; for (let i = 0; i < 50 && !tgt; i++) { try { tgt = (await (await fetch('http://127.0.0.1:9333/json')).json()).find(t => t.type === 'page'); } catch {} await sleep(200); }
+  const port = await freePort();
+  let chromeLog = '';
+  chrome = spawn('google-chrome', [
+    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+    '--no-first-run', '--no-default-browser-check',
+    '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
+    '--remote-debugging-port=' + port, '--user-data-dir=/tmp/aj-chrome-' + Date.now(),
+    'about:blank',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const keep = chunk => { chromeLog = (chromeLog + chunk).slice(-4000); };
+  chrome.stdout.on('data', keep); chrome.stderr.on('data', keep);
+  let tgt; let last = '';
+  for (let i = 0; i < 100 && !tgt; i++) {
+    try {
+      const list = JSON.parse(await debuggerText(port, '/json/list'));
+      last = JSON.stringify(list).slice(0, 400);
+      tgt = list.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+    } catch (err) { last = String(err && err.message || err); }
+    if (!tgt) await sleep(200);
+  }
+  if (!tgt) throw new Error('Chrome did not open a page (' + last + ')\n' + chromeLog);
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
@@ -450,4 +491,4 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('owner المزيد keeps the other project out and shows the client payments', ownerAll && ownerAll.same && ownerAll.n === ownerAll.total && ownerAll.more === false && ownerAll.text.includes('777,777') && ownerAll.text.includes('40,000,000') && !ownerAll.text.includes('654,321') && !ownerAll.text.includes('بناية السوق') && !ownerAll.text.includes('قيمة العقد'));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
-})().catch(e => { console.error(e); chrome.kill(); process.exit(2); });
+})().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
