@@ -72,7 +72,7 @@ service cloud.firestore {
               && d().createdByName == me().displayName);
       }
       function shapeOk() {
-        return d().keys().hasOnly(['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'description', 'partyName', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'createdByName', 'deviceId'])
+        return d().keys().hasOnly(['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'description', 'partyName', 'subcontractId', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'createdByName', 'deviceId'])
           && d().id == entryId
           && idOk(entryId)
           && idOk(d().projectId)
@@ -92,6 +92,14 @@ service cloud.firestore {
           && optString('description', 500)
           && partyNameOk()
           && createdByNameOk();
+      }
+      function linkOk() {
+        return !('subcontractId' in d())
+          || (isOwner()
+              && d().entryType == 'subcontractor'
+              && idOk(d().subcontractId)
+              && exists(/databases/$(database)/documents/subcontracts/$(d().subcontractId))
+              && get(/databases/$(database)/documents/subcontracts/$(d().subcontractId)).data.projectId == d().projectId);
       }
       function typeOk() {
         return (d().direction == 'expense' && d().entryType in ['expense', 'materials', 'labour', 'subcontractor'])
@@ -124,7 +132,7 @@ service cloud.firestore {
           && (isOwner() || (isSite() && orig.createdBy == request.auth.uid));
       }
 
-      allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk());
+      allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk()) && linkOk() && (isOwner() || d().entryType != 'subcontractor');
       // F11: assignment is required for every site read, including the author's own rows.
       // Rules are not a filter. The site client queries each assigned project.
       allow read: if isOwner();
@@ -191,6 +199,65 @@ service cloud.firestore {
       }
       allow read: if isOwner() && idOk(projectId);
       allow create, update: if isOwner() && idOk(projectId) && financeShape();
+    }
+
+    // The name is readable by the project. The agreed amount is subcontractTerms.
+    match /subcontracts/{id} {
+      function s() { return request.resource.data; }
+      function nameShape() {
+        return s().keys().hasOnly(['id', 'projectId', 'name', 'work', 'agreedOn', 'createdAtServer', 'createdBy'])
+          && s().id == id
+          && idOk(id)
+          && idOk(s().projectId)
+          && projectOpen(s().projectId)
+          && s().name is string && s().name.size() > 0 && s().name.size() <= 100
+          && s().work is string && s().work.size() <= 500
+          && entryDateOk(s().agreedOn)
+          && s().createdAtServer == request.time
+          && s().createdBy == request.auth.uid;
+      }
+      allow read: if isOwner() || (isSite() && assigned(resource.data.projectId));
+      allow create: if isOwner() && nameShape();
+      allow update, delete: if false;
+    }
+
+    match /subcontractTerms/{id} {
+      function t() { return request.resource.data; }
+      function termsShape() {
+        return idOk(id)
+          && exists(/databases/$(database)/documents/subcontracts/$(id))
+          && t().keys().hasOnly(['originalAmount'])
+          && t().originalAmount is int
+          && t().originalAmount > 0
+          && t().originalAmount <= MAX_AMOUNT_IQD();
+      }
+      allow read: if isOwner() && idOk(id);
+      allow create: if isOwner() && termsShape();
+      allow update, delete: if false;
+    }
+
+    match /subcontractAmendments/{amendmentId} {
+      function a() { return request.resource.data; }
+      function amendmentShape() {
+        return a().keys().hasOnly(['id', 'subcontractId', 'projectId', 'amount', 'date', 'note', 'createdAtServer', 'createdBy'])
+          && a().id == amendmentId
+          && idOk(amendmentId)
+          && idOk(a().subcontractId)
+          && idOk(a().projectId)
+          && projectOpen(a().projectId)
+          && exists(/databases/$(database)/documents/subcontracts/$(a().subcontractId))
+          && get(/databases/$(database)/documents/subcontracts/$(a().subcontractId)).data.projectId == a().projectId
+          && a().amount is int
+          && a().amount > 0
+          && a().amount <= MAX_AMOUNT_IQD()
+          && entryDateOk(a().date)
+          && a().note is string && a().note.size() > 0 && a().note.size() <= 200
+          && a().createdAtServer == request.time
+          && a().createdBy == request.auth.uid;
+      }
+      allow read: if isOwner();
+      allow create: if isOwner() && amendmentShape();
+      allow update, delete: if false;
     }
   }
 }

@@ -91,3 +91,32 @@ test('a person is assigned exactly the listed projects', () => {
   assert.equal(capped.ok, true);
   assert.equal(capped.value.assignedProjectIds.length, 20);
 });
+
+test('a subcontract name carries no amount, and a site client is not asked to read one', async () => {
+  const name = {
+    id: 'sc-kahraba', projectId: 'p-school', name: 'مقاول الكهرباء', work: 'إنارة', agreedOn: '2026-10-03',
+    createdBy: 'u-ameer', originalAmount: 2500000, contractAmount: 1,
+  };
+  const remote = Sync.toRemote(name);
+  assert.equal(remote.name, 'مقاول الكهرباء');
+  assert.equal(remote.work, 'إنارة');
+  assert.equal(Object.prototype.hasOwnProperty.call(remote, 'originalAmount'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(remote, 'contractAmount'), false);
+  assert.deepEqual(Sync.termsPayload(2500000), { originalAmount: 2500000 });
+  assert.equal(Sync.termsPayload(0), null);
+  assert.equal(Sync.collectionFor(name), 'subcontracts');
+  assert.equal(Sync.collectionFor({ id: 'am-1', subcontractId: 'sc-kahraba', projectId: 'p-school', amount: 500000, date: '2026-10-18', note: 'ملحق', createdBy: 'u-ameer' }), 'subcontractAmendments');
+  const entry = Sync.toRemote({ id: 'e1', projectId: 'p-school', direction: 'expense', entryType: 'subcontractor', amount: 1000, currency: 'IQD', entryDate: '2026-10-30', isReversal: false, createdAtDevice: 1, createdBy: 'u-ameer', deviceId: 'd', subcontractId: 'sc-kahraba' });
+  assert.equal(entry.subcontractId, 'sc-kahraba');
+  const plain = Sync.toRemote({ id: 'e2', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 1000, currency: 'IQD', entryDate: '2026-10-30', isReversal: false, createdAtDevice: 1, createdBy: 'u-ameer', deviceId: 'd' });
+  assert.equal(Object.prototype.hasOwnProperty.call(plain, 'subcontractId'), false);
+  const site = { uid: 'u-ahmed', role: 'site', active: true, assignedProjectIds: ['p-school'] };
+  assert.deepEqual(Sync.subcontractReads(site, null), []);
+  const seen = [];
+  const pulled = await Sync.pullSubcontracts({ user: site, since: null, read: async spec => { seen.push(spec.collection); return []; } });
+  assert.deepEqual(seen, []);
+  assert.deepEqual(pulled.subcontracts, []);
+  assert.deepEqual(pulled.amendments, []);
+  const owner = { uid: 'u-ameer', role: 'owner', active: true };
+  assert.deepEqual(Sync.subcontractReads(owner, null).map(spec => spec.collection), ['subcontracts', 'subcontractAmendments']);
+});

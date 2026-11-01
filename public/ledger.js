@@ -129,6 +129,15 @@
     }
     if (user && entry.createdBy !== user.uid) errs.push('createdBy يجب أن يساوي المستخدم');
     if (typeof entry.isReversal !== 'boolean') errs.push('isReversal مطلوب');
+    if (user && user.role === 'site' && entry.entryType === 'subcontractor') errs.push('تسجيل دفعة المقاول للمالك فقط');
+    if (entry.subcontractId) {
+      if (entry.entryType !== 'subcontractor') errs.push('الربط لعقد المقاول فقط');
+      else if (typeof entry.subcontractId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.subcontractId)) errs.push('عقد غير صالح');
+      else if (Array.isArray(ctx.subcontracts)) {
+        const sub = ctx.subcontracts.find(s => s && s.id === entry.subcontractId);
+        if (!sub || sub.projectId !== entry.projectId) errs.push('عقد مشروع آخر');
+      }
+    }
     if (user && user.role === 'site' && entry.direction === 'income' && !policy.siteCanCreateClientPayment) errs.push('دفعة عميل للمالك فقط');
     if (entry.isReversal) {
       const orig = ledger.find(e => e.id === entry.reversesEntryId);
@@ -167,6 +176,7 @@
       amount: orig.amount, currency: 'IQD', entryDate, description: 'تصحيح: ' + (orig.description || ''),
       partyName: orig.partyName || '', isReversal: true, reversesEntryId: orig.id, reversalReason: reason,
       createdAtDevice: now, createdAtServer: null, createdBy: user.uid, deviceId };
+    if (typeof orig.subcontractId === 'string' && orig.subcontractId) row.subcontractId = orig.subcontractId;
     const name = recorderName(user);
     if (name) row.createdByName = name;
     return row;
@@ -199,6 +209,22 @@
   function canCreateProject(user) { return user.role === 'owner' && user.active; }
 
   function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
+
+  // Agreed, paid, and «مسدّد بالكامل» are derived. Nothing here is stored.
+  function subcontractBalance(originalAmount, amendments, entries, subcontractId) {
+    const agreed = originalAmount + (amendments || []).reduce((sum, row) => {
+      if (!row || row.subcontractId !== subcontractId || !Number.isInteger(row.amount)) return sum;
+      return sum + row.amount;
+    }, 0);
+    const paid = (entries || []).reduce((sum, row) => {
+      if (!row || row.entryType !== 'subcontractor' || row.subcontractId !== subcontractId) return sum;
+      return sum + row.amount * sign(row);
+    }, 0);
+    const remaining = agreed - paid;
+    const ratio = agreed > 0 ? paid / agreed : 0;
+    const width = Math.max(0, Math.min(100, Math.round(ratio * 1000) / 10));
+    return { agreed, paid, remaining, over: paid > agreed, settled: remaining === 0, width };
+  }
 
   // Baghdad is UTC+3 all year. The ledger date is a separate calendar day, so the
   // recorded value is only the clock. formatToParts keeps the digits stable.
@@ -327,6 +353,6 @@
   }
 
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
-    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt,
+    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
     baghdadTime, entryExportFields, entryToCSV, projectEntryList };
 });

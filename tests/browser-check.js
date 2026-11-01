@@ -55,7 +55,7 @@ let chrome;
     const info = await ev(`({dir:document.documentElement.dir, text:document.querySelector('main').innerText, hz:document.documentElement.scrollWidth>innerWidth})`);
     check(`${name}: dir=rtl`, info.dir === 'rtl'); check(`${name}: no horizontal overflow`, !info.hz);
     if (role === 'site') check(`${name}: no profit/received/loss text`, !/ربح|المقبوض|خسارة/.test(info.text));
-    if (role === 'site' && hash === 'entry') check('s2: all 5 types offered', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)));
+    if (role === 'site' && hash === 'entry') check('s2: site entry types omit مقاول', ['مصروف','مواد','عمالة/سلفة','دفعة عميل'].every(t => info.text.includes(t)) && !info.text.includes('مقاول'));
     if (role === 'site') check(`${name}: reverse buttons only on own non-reversed entries`, await ev(`(()=>{const es=AJ.get('entries');const bs=[...document.querySelectorAll('[data-rev]')].map(b=>b.dataset.rev);return bs.every(id=>{const e=es.find(x=>x.id===id);return e.createdBy==='u-ahmed'&&!e.isReversal&&!es.some(x=>x.reversesEntryId===id)})&&(location.hash!=='#project/p-school'||bs.length>0)})()`));
     if (role === 'site' && hash === 'home') check('s1: own client payment listed', /دفعة عميل/.test(info.text));
     if (role === 'site' && hash === 'projects') {
@@ -103,6 +103,112 @@ let chrome;
         && text.split('متصل').length === 2;
     })()`));
   }
+  await go(`${BASE}index.html?role=owner#project/p-school`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(300);
+  const subScreen = await ev(`(()=>{
+    const text = document.querySelector('#main').innerText;
+    const bars = [...document.querySelectorAll('[data-bar]')].map(el => ({ id: el.getAttribute('data-bar'), over: el.classList.contains('over'), width: (el.querySelector('i') || {}).style.width }));
+    const cards = [...document.querySelectorAll('a.card.proj')];
+    const badged = cards.filter(c => c.innerText.includes('مسدّد بالكامل')).map(c => (c.querySelector('h2') || {}).textContent);
+    const linkish = [...document.querySelectorAll('#main button, #main a')].filter(el => /ربط/.test(el.textContent || ''));
+    const stored = (AJ.get('subcontracts') || []).map(s => Object.keys(s).slice().sort().join(','));
+    const terms = AJ.get('subcontractTerms') || {};
+    const noor = terms['sc-noor'] || {};
+    return {
+      rtl: document.documentElement.dir,
+      width: window.innerWidth,
+      hz: document.documentElement.scrollWidth > window.innerWidth,
+      text,
+      bars, badged, links: linkish.length, stored,
+      noorKeys: Object.keys(noor).slice().sort().join(','),
+      section: !!document.querySelector('#subcontracts'),
+    };
+  })()`);
+  check('subcontracts: project section for the owner', subScreen && subScreen.section && subScreen.text.includes('المقاولون') && subScreen.text.includes('ورشة الحدادة') && subScreen.text.includes('شركة النور للبناء') && subScreen.text.includes('مقاول الكهرباء') && subScreen.text.includes('+ عقد مقاول'));
+  check('subcontracts: agreed, paid, and remaining are on the project', subScreen && subScreen.text.includes('4,000,000') && subScreen.text.includes('1,500,000') && subScreen.text.includes('2,500,000') && subScreen.text.includes('3,000,000') && subScreen.text.includes('3,200,000') && subScreen.text.includes(await ev(`Ledger.fmt(-200000)`)));
+  check('subcontracts: bars match the paid ratio and clamp the overpayment', subScreen && JSON.stringify(subScreen.bars) === JSON.stringify([{id:'sc-hadaada',over:false,width:'37.5%'},{id:'sc-noor',over:false,width:'100%'},{id:'sc-kahraba',over:true,width:'100%'}]));
+  check('subcontracts: fully paid badge is only on Noor and is not stored', subScreen && JSON.stringify(subScreen.badged) === JSON.stringify(['شركة النور للبناء']) && subScreen.noorKeys === 'originalAmount' && subScreen.stored.every(keys => !keys.includes('paid') && !keys.includes('remaining') && !keys.includes('originalAmount')));
+  check('subcontracts: project has no link control', subScreen && subScreen.links === 0 && !subScreen.text.includes('ربط'));
+  check('subcontracts: project rtl, 390px, no overflow', subScreen && subScreen.rtl === 'rtl' && subScreen.width === 390 && subScreen.hz === false);
+  await go(`${BASE}index.html?role=owner#sub/sc-kahraba`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(300);
+  const detail = await ev(`(()=>{
+    const text = document.querySelector('#main').innerText;
+    const paid = [...document.querySelectorAll('.kv')].find(el => (el.innerText || '').includes('المدفوع'));
+    const unlinked = document.querySelector('#unlinked');
+    return {
+      title: document.querySelector('#title').textContent,
+      text,
+      paid: paid ? paid.innerText : '',
+      unlinked: unlinked ? unlinked.innerText : '',
+      buttons: unlinked ? unlinked.querySelectorAll('button, a').length : -1,
+      rtl: document.documentElement.dir,
+      width: window.innerWidth,
+      hz: document.documentElement.scrollWidth > window.innerWidth,
+      warn: !!document.querySelector('.warnbox'),
+    };
+  })()`);
+  check('subcontracts: electricity detail shows agreed 3,000,000 and paid 3,200,000', detail && detail.title === 'مقاول الكهرباء' && detail.text.includes('3,000,000') && detail.paid.includes('3,200,000') && !detail.paid.includes('7,200,000'));
+  check('subcontracts: overpayment warns and names the extra 200,000', detail && detail.warn && detail.text.includes('تنبيه فقط') && detail.text.includes('لا يمنع') && detail.text.includes('200,000'));
+  check('subcontracts: dated amendment is listed and old entry stays unlinked', detail && detail.text.includes('2026-10-18') && detail.text.includes('نقطة إنارة إضافية') && detail.text.includes('لا يُعدَّل صف ولا يُحذف') && detail.unlinked.includes('غير مرتبط') && detail.unlinked.includes('7,200,000') && detail.unlinked.includes('مقاول كهرباء'));
+  check('subcontracts: unlinked row has no link control', detail && detail.buttons === 0 && !detail.text.includes('ربط'));
+  check('subcontracts: detail rtl, 390px, no overflow', detail && detail.rtl === 'rtl' && detail.width === 390 && detail.hz === false);
+  await go(`${BASE}index.html?role=owner#entry/p-school`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  await ev(`document.querySelector('[data-type="subcontractor"]').click(); 1`);
+  await sleep(200);
+  const picker = await ev(`(()=>{
+    const sel = document.querySelector('#subcontract');
+    const names = sel ? [...sel.options].map(o => o.textContent) : [];
+    const digits = names.some(n => /[0-9٠-٩]/.test(n));
+    return { names, digits, party: !!document.querySelector('#party'), rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth };
+  })()`);
+  check('subcontracts: owner payment replaces the free-text name with this project only', picker && !picker.party && JSON.stringify(picker.names) === JSON.stringify(['ورشة الحدادة','شركة النور للبناء','مقاول الكهرباء']) && picker.digits === false);
+  check('subcontracts: payment form rtl, 390px, no overflow', picker && picker.rtl === 'rtl' && picker.width === 390 && picker.hz === false);
+  await go(`${BASE}index.html?role=owner#entry`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  await ev(`document.querySelector('[data-proj="p-school"]').click(); document.querySelector('[data-type="subcontractor"]').click(); 1`);
+  await sleep(150);
+  await ev(`document.querySelector('[data-proj="p-road"]').click(); 1`);
+  await sleep(150);
+  check('subcontracts: another project does not offer this project\'s names', await ev(`(()=>{const sel=document.querySelector('#subcontract'); const names=sel?[...sel.options].map(o=>o.textContent):['missing']; return names.length===0 || !names.includes('مقاول الكهرباء');})()`));
+  await go(`${BASE}index.html?role=owner#subnew/p-school`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  const addSub = await ev(`(()=>{
+    return { name: (document.querySelector('#sub-name')||{}).value, amount: (document.querySelector('#sub-amount')||{}).value, work: (document.querySelector('#sub-work')||{}).value, text: document.querySelector('#main').innerText, rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth };
+  })()`);
+  check('subcontracts: add form is name, agreed amount, and the work', addSub && addSub.name === 'مقاول السباكة' && addSub.amount === '1,500,000' && addSub.work === 'تمديد شبكة الماء للمجمع المدرسي' && addSub.text.includes('حفظ العقد') && addSub.text.includes('لا يتغير المبلغ إلا بملحق'));
+  check('subcontracts: add form rtl, 390px, no overflow', addSub && addSub.rtl === 'rtl' && addSub.width === 390 && addSub.hz === false);
+  await go(`${BASE}index.html?role=owner#amend/sc-kahraba`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  const addAm = await ev(`(()=>{
+    return { title: document.querySelector('#title').textContent, date: (document.querySelector('#am-date')||{}).value, amount: (document.querySelector('#am-amount')||{}).value, note: (document.querySelector('#am-note')||{}).value, text: document.querySelector('#main').innerText, rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth };
+  })()`);
+  check('subcontracts: amendment form shows the current agreed amount and an add-only row', addAm && addAm.title === 'مقاول الكهرباء' && addAm.text.includes('3,000,000') && addAm.date === '2026-10-28' && addAm.amount === '200,000' && addAm.note === 'خزان ماء إضافي' && addAm.text.includes('يُضاف فقط') && addAm.text.includes('لا تعديل ولا حذف'));
+  check('subcontracts: amendment form rtl, 390px, no overflow', addAm && addAm.rtl === 'rtl' && addAm.width === 390 && addAm.hz === false);
+  await go(`${BASE}index.html?role=site#entry`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  const siteForm = await ev(`(()=>{
+    const pills = [...document.querySelectorAll('[data-type]')].map(b => ({ id: b.getAttribute('data-type'), label: b.textContent }));
+    return { who: document.querySelector('#who').textContent, pills, picker: !!document.querySelector('#subcontract'), party: !!document.querySelector('#party'), text: document.querySelector('#main').innerText, rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth };
+  })()`);
+  check('subcontracts: site entry types have no مقاول and no contract picker', siteForm && siteForm.who.includes('أحمد') && JSON.stringify(siteForm.pills) === JSON.stringify([{id:'expense',label:'مصروف'},{id:'materials',label:'مواد'},{id:'labour',label:'عمالة/سلفة'},{id:'clientPayment',label:'دفعة عميل'}]) && siteForm.picker === false && siteForm.party === true && !siteForm.text.includes('مقاول'));
+  check('subcontracts: site entry rtl, 390px, no overflow', siteForm && siteForm.rtl === 'rtl' && siteForm.width === 390 && siteForm.hz === false);
+  await go(`${BASE}index.html?role=site#project/p-school`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  check('subcontracts: site project hides names, agreed amounts, and the badge', await ev(`(()=>{const text=document.querySelector('#main').innerText; return !document.querySelector('#subcontracts') && !text.includes('المتفق عليه') && !text.includes('مسدّد بالكامل') && !text.includes('3,000,000') && !text.includes('4,000,000') && !text.includes('3,200,000') && !text.includes('قيمة العقد');})()`));
+  await go(`${BASE}index.html?role=site#sub/sc-kahraba`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  check('subcontracts: site detail does not show the amount', await ev(`(()=>{const text=document.querySelector('#main').innerText; return text.includes('هذه الشاشة للمالك') && !text.includes('3,000,000') && !text.includes('3,200,000') && !document.querySelector('.warnbox');})()`));
   // functional: save expense as site -> outbox +1; send now drains
   await go(`${BASE}index.html?role=site#entry`);
   const before = await ev(`AJ.get('outbox').length`);
@@ -833,6 +939,33 @@ let chrome;
   await ev(`document.querySelector('[data-list="open"]').click(); 1`);
   await sleep(150);
   check('the restored project is back on the main list', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';return text.includes('بناية السوق')&&text.includes('مشروع المدرسة')&&!!document.querySelector('#newproj')})()`));
+  await go(`${BASE}index.html?role=owner#entry/p-school`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  const overPaid = await ev(`(()=>{
+    document.querySelector('[data-type="subcontractor"]').click();
+    const sel = document.querySelector('#subcontract');
+    sel.value = 'sc-kahraba';
+    document.querySelector('#amt').value = '1000';
+    document.querySelector('#desc').value = 'دفعة فوق العقد';
+    document.querySelector('#save').click();
+    const row = (AJ.get('entries') || []).find(e => e.description === 'دفعة فوق العقد');
+    return row ? { type: row.entryType, sub: row.subcontractId, amount: row.amount } : null;
+  })()`);
+  check('subcontracts: an overpayment is saved and does not block', overPaid && overPaid.type === 'subcontractor' && overPaid.sub === 'sc-kahraba' && overPaid.amount === 1000);
+  await ev(`location.hash='#sub/sc-kahraba'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  check('subcontracts: the warning is still a warning after the extra payment', await ev(`(()=>{const text=document.querySelector('#main').innerText; return !!document.querySelector('.warnbox') && text.includes('تنبيه فقط') && text.includes('دفعة فوق العقد');})()`));
+  await ev(`location.hash='#amend/sc-kahraba'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const added = await ev(`(()=>{
+    const before = (AJ.get('subcontractAmendments') || []).length;
+    document.querySelector('#save-amend').click();
+    const rows = AJ.get('subcontractAmendments') || [];
+    const row = rows.find(a => a.note === 'خزان ماء إضافي' && a.subcontractId === 'sc-kahraba');
+    return { before, after: rows.length, amount: row && row.amount, date: row && row.date, controls: document.querySelectorAll('#main button').length };
+  })()`);
+  check('subcontracts: an amendment is appended and the form does not offer edit or delete', added && added.after === added.before + 1 && added.amount === 200000 && added.date === '2026-10-28');
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

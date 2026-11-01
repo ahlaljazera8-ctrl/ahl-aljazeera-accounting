@@ -522,3 +522,54 @@ test('CSV populates partyName and createdByName', () => {
   assert.equal(cells[L.CSV_COLS.indexOf('createdByName')], 'أمير');
   assert.equal(cells[L.CSV_COLS.indexOf('description')], 'حديد');
 });
+
+test('a subcontract balance is derived and an unlinked payment stays out of it', () => {
+  const amendments = [
+    { id: 'am-noor-1', subcontractId: 'sc-noor', amount: 500000 },
+    { id: 'am-kahraba-1', subcontractId: 'sc-kahraba', amount: 500000 },
+  ];
+  const entries = [
+    { entryType: 'subcontractor', subcontractId: 'sc-hadaada', amount: 1500000, isReversal: false },
+    { entryType: 'subcontractor', subcontractId: 'sc-noor', amount: 2500000, isReversal: false },
+    { entryType: 'subcontractor', subcontractId: 'sc-kahraba', amount: 2000000, isReversal: false },
+    { entryType: 'subcontractor', subcontractId: 'sc-kahraba', amount: 1200000, isReversal: false },
+    { entryType: 'subcontractor', amount: 7200000, isReversal: false },
+  ];
+  const steel = L.subcontractBalance(4000000, amendments, entries, 'sc-hadaada');
+  assert.equal(steel.agreed, 4000000);
+  assert.equal(steel.paid, 1500000);
+  assert.equal(steel.remaining, 2500000);
+  assert.equal(steel.over, false);
+  assert.equal(steel.settled, false);
+  assert.equal(steel.width, 37.5);
+  const noor = L.subcontractBalance(2000000, amendments, entries, 'sc-noor');
+  assert.equal(noor.agreed, 2500000);
+  assert.equal(noor.paid, 2500000);
+  assert.equal(noor.remaining, 0);
+  assert.equal(noor.settled, true);
+  assert.equal(noor.width, 100);
+  const power = L.subcontractBalance(2500000, amendments, entries, 'sc-kahraba');
+  assert.equal(power.agreed, 3000000);
+  assert.equal(power.paid, 3200000);
+  assert.equal(power.remaining, -200000);
+  assert.equal(power.over, true);
+  assert.equal(power.settled, false);
+  assert.equal(power.width, 100);
+  const reversed = entries.concat([{ entryType: 'subcontractor', subcontractId: 'sc-kahraba', amount: 200000, isReversal: true }]);
+  assert.equal(L.subcontractBalance(2500000, amendments, reversed, 'sc-kahraba').paid, 3000000);
+});
+
+test('only the owner can record a مقاول payment, and a reversal keeps its subcontract', () => {
+  const lg = L.createLedger();
+  const subs = [{ id: 'sc-kahraba', projectId: 'a' }, { id: 'sc-other', projectId: 'b' }];
+  assert.throws(() => lg.append(E({ entryType: 'subcontractor', createdBy: 's', subcontractId: 'sc-kahraba' }), { user: site, projects, subcontracts: subs }), /للمالك فقط/);
+  const linked = lg.append(E({ entryType: 'subcontractor', subcontractId: 'sc-kahraba', amount: 3200000 }), { user: owner, projects, subcontracts: subs });
+  assert.equal(linked.subcontractId, 'sc-kahraba');
+  const rev = L.makeReversal(linked, { user: owner, reason: 'تصحيح', now: 2, deviceId: 'd', entryDate: '2026-10-30' });
+  assert.equal(rev.subcontractId, 'sc-kahraba');
+  assert.doesNotThrow(() => lg.append(rev, { user: owner, projects, subcontracts: subs }));
+  const loose = E({ entryType: 'subcontractor', amount: 7200000 });
+  assert.equal(L.makeReversal(loose, { user: owner, reason: 'تصحيح', now: 3, deviceId: 'd', entryDate: '2026-10-30' }).subcontractId, undefined);
+  assert.throws(() => lg.append(E({ entryType: 'materials', subcontractId: 'sc-kahraba' }), { user: owner, projects, subcontracts: subs }), /لعقد المقاول فقط/);
+  assert.throws(() => lg.append(E({ entryType: 'subcontractor', subcontractId: 'sc-other', projectId: 'a' }), { user: owner, projects, subcontracts: subs }), /مشروع آخر/);
+});
