@@ -934,12 +934,18 @@ function entryRow(e, u, all) {
     ${canRev ? `<button type="button" class="mini" data-rev="${esc(e.id)}">عكس</button>` : ''}</div>`;
 }
 
+function connectionLabel() {
+  if (!demoRole()) return navigator.onLine ? 'متصل' : 'بدون إنترنت';
+  return navigator.onLine ? 'متصل (محاكاة)' : 'بدون إنترنت';
+}
+function phoneSyncNote() {
+  if (demoRole()) return 'لم تُرسل بعد. اضغط «إرسال الآن» للمحاكاة (لا يوجد خادم حقيقي).';
+  return navigator.onLine ? 'يُرسل تلقائياً عند الاتصال.' : 'محفوظ على الهاتف. يُرسل عند عودة الاتصال.';
+}
 const views = {
   home() {
-    const { u, projects, entries } = data(); const out = get(K.outbox, []).length;
-    const onlineLabel = !demoRole() ? (navigator.onLine ? 'متصل' : 'بدون إنترنت') : (navigator.onLine ? 'متصل (محاكاة)' : 'بدون إنترنت');
-    const syncNote = !demoRole() ? (navigator.onLine ? 'يُرسل تلقائياً عند الاتصال.' : 'محفوظ على الهاتف. يُرسل عند عودة الاتصال.') : 'لم تُرسل بعد. اضغط «إرسال الآن» للمحاكاة (لا يوجد خادم حقيقي).';
-    const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${onlineLabel}</span><b style="font-size:14px">${out} قيود محفوظة على الهاتف</b></div><div class="note">${syncNote}</div></div>`;
+    const { u, projects, entries } = data();
+    const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${connectionLabel()}</span></div></div>`;
     const ex = (demoRole() || get(K.entries, []).some(e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
     if (u.role === 'owner') {
       const t = L.totals(counts(entries));
@@ -1208,8 +1214,10 @@ function paintBell() {
       : '';
     const retry = syncNotice ? '<p class="bell-fail">' + esc(syncNotice) + '</p>' : '';
     panel.innerHTML = '<p class="bell-k">لم يُرسل بعد</p><p class="bell-count">' + count + '</p>'
+      + '<p class="bell-k">' + esc(count + ' قيود محفوظة على الهاتف') + '</p>'
       + '<p class="bell-k">آخر مزامنة</p><p class="bell-time">' + esc(when ? formatSyncTime(when) : 'لم تتم بعد') + '</p>'
       + '<p class="bell-k">' + esc(stateLine) + '</p>'
+      + '<p class="bell-note">' + esc(phoneSyncNote()) + '</p>'
       + failBlock + retry
       + '<button type="button" class="btn" id="bell-send"' + (sending ? ' disabled' : '') + '>'
       + (sending ? 'جارٍ الإرسال' : 'إرسال الآن') + '</button>';

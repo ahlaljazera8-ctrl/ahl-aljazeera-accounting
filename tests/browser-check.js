@@ -82,6 +82,26 @@ let chrome;
     }
     if (role === 'site' && hash === 'home') check('s1: own rows show the recorder', info.text.includes('أحمد'));
     if (role === 'owner' && hash === 'home') check('o1: totals shown', /صافي الربح/.test(info.text));
+    if (hash === 'home') check(name + ': home card is only the connection pill', await ev(`(()=>{
+      const card = document.querySelector('#main .card');
+      const pill = card && card.querySelector('.pill');
+      const n = (AJ.get('outbox') || []).length;
+      const mainText = document.querySelector('#main').innerText;
+      const btn = document.querySelector('#outbox');
+      if (btn.getAttribute('aria-expanded') !== 'true') btn.click();
+      const panel = document.querySelector('#bell-panel');
+      const text = panel.innerText;
+      const visible = panel.hidden === false && panel.getBoundingClientRect().height > 0;
+      btn.click();
+      return pill && pill.textContent === 'متصل (محاكاة)'
+        && card.innerText.trim() === 'متصل (محاكاة)'
+        && !mainText.includes('قيود محفوظة على الهاتف')
+        && !mainText.includes('يُرسل تلقائياً')
+        && text.includes(n + ' قيود محفوظة على الهاتف')
+        && text.includes('لم تُرسل بعد. اضغط «إرسال الآن» للمحاكاة (لا يوجد خادم حقيقي).')
+        && visible
+        && text.split('متصل').length === 2;
+    })()`));
   }
   // functional: save expense as site -> outbox +1; send now drains
   await go(`${BASE}index.html?role=site#entry`);
