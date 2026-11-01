@@ -150,7 +150,7 @@ service cloud.firestore {
           && p().clientName is string && p().clientName.size() <= 200
           && optString('location', 200)
           && p().currency == 'IQD'
-          && p().status in ['active', 'closed']
+          && p().status in ['active', 'closed', 'archived']
           && p().createdAtDevice is int
           && p().createdAtServer is timestamp
           && idOk(p().createdBy)

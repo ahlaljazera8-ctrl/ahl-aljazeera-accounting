@@ -268,6 +268,28 @@ testSeq('a fresh self-signed-up account with no users doc can read and write not
   await assertFails(setDoc(doc(d, 'projects', 'p-fresh'), projectDoc('p-fresh', 'ممنوع')));
 }));
 
+testSeq('owner can archive and restore a project; a site user cannot', () => seeded(async () => {
+  const before = await getDoc(doc(db(OWNER), 'projects', 'p1'));
+  await assertFails(updateDoc(doc(db(SITE), 'projects', 'p1'), { status: 'archived' }));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'archived' }));
+  const archived = await getDoc(doc(db(OWNER), 'projects', 'p1'));
+  assert.equal(archived.data().status, 'archived');
+  assert.equal(archived.data().name, before.data().name);
+  assert.equal(archived.data().createdBy, before.data().createdBy);
+  await assertFails(putEntry(SITE, 'arch-site', { projectId: 'p1' }));
+  await assertFails(putEntry(OWNER, 'arch-owner', { projectId: 'p1' }));
+  await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'own-exp')));
+  await assertFails(updateDoc(doc(db(OWNER), 'ledgerEntries', 'own-exp'), { amount: 1 }));
+  await assertFails(deleteDoc(doc(db(OWNER), 'ledgerEntries', 'own-exp')));
+  await assertFails(deleteDoc(doc(db(OWNER), 'projects', 'p1')));
+  await assertFails(updateDoc(doc(db(SITE), 'projects', 'p1'), { status: 'active' }));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'active' }));
+  const restored = await getDoc(doc(db(OWNER), 'projects', 'p1'));
+  assert.equal(restored.data().status, 'active');
+  assert.equal(restored.data().name, before.data().name);
+  await assertSucceeds(putEntry(OWNER, 'arch-open', { projectId: 'p1', amount: 80 }));
+}));
+
 testSeq('entries on a closed project are rejected and an open project still accepts them', () => seeded(async () => {
   await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'closed' }));
   await assertFails(putEntry(SITE, 'closed-site', { projectId: 'p1' }));

@@ -107,6 +107,32 @@ test('site visibility: only assigned projects, cannot write to others', () => {
   assert.throws(() => L.createLedger().append(E({ projectId:'b', createdBy:'s' }), ctx(site)));
   assert.equal(L.visibleProjects({ ...site, active:false }, projects).length, 0);
 });
+test('archived projects leave the open list and a site user cannot see them', () => {
+  const rows = [
+    { id:'a', name:'مشروع أ', status:'active' },
+    { id:'b', name:'مشروع ب', status:'archived' },
+    { id:'c', name:'مشروع ج', status:'closed' },
+  ];
+  const assigned = { ...site, assignedProjectIds:['a','b','c'] };
+  assert.deepEqual(L.projectList(owner, rows, L.DEFAULT_POLICY, 'open').map(p => p.id), ['a','c']);
+  assert.deepEqual(L.projectList(owner, rows, L.DEFAULT_POLICY, 'archived').map(p => p.id), ['b']);
+  assert.deepEqual(L.visibleProjects(owner, rows).map(p => p.id), ['a','b','c']);
+  assert.deepEqual(L.projectList(assigned, rows, L.DEFAULT_POLICY, 'open').map(p => p.id), ['a','c']);
+  assert.deepEqual(L.projectList(assigned, rows, L.DEFAULT_POLICY, 'archived').map(p => p.id), ['a','c']);
+  assert.equal(L.visibleEntries(assigned, [E({ id:'arch-entry', projectId:'b', createdBy:'s' })], rows).length, 0);
+  assert.equal(L.visibleEntries(owner, [E({ id:'arch-owner', projectId:'b' })], rows).length, 1);
+  assert.equal(L.nextProjectStatus(owner, rows[0], 'archive'), 'archived');
+  assert.equal(L.nextProjectStatus(owner, rows[0], 'restore'), null);
+  assert.equal(L.nextProjectStatus(owner, rows[1], 'archive'), null);
+  assert.equal(L.nextProjectStatus(owner, rows[1], 'restore'), 'active');
+  assert.equal(L.nextProjectStatus(owner, rows[2], 'archive'), 'archived');
+  assert.equal(L.nextProjectStatus(owner, rows[2], 'restore'), null);
+  assert.equal(L.nextProjectStatus(assigned, rows[0], 'archive'), null);
+  assert.equal(L.nextProjectStatus({ ...owner, active:false }, rows[0], 'archive'), null);
+  const lg = L.createLedger([E({ id:'kept', projectId:'b' })]);
+  assert.equal(lg.all().length, 1);
+  assert.equal(lg.all()[0].id, 'kept');
+});
 test('site visibility: own income visible, others\' income hidden, summary has no received/profit', () => {
   const own = inc({ amount:300, createdBy:'s' });
   const es = [inc({ amount:9000 }), own, E({ amount:100 }), E({ projectId:'b', amount:5 }), inc({ projectId:'b', createdBy:'s' })];
