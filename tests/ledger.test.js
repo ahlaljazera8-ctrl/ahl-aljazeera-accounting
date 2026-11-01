@@ -456,6 +456,30 @@ test('screen totals and export skip a server rejection and keep an unsent entry'
   assert.equal(L.entryToCSV(owner, accepted, ctx).includes('مقبول'), true);
 });
 
+test('view-all counts the same entries as the screen totals', () => {
+  const accepted = E({ id: 'acc', amount: 1000, createdAtDevice: 30, createdAtServer: 5, description: 'مقبول' });
+  const pending = E({ id: 'pend', amount: 2000, createdAtDevice: 20, createdAtServer: null, description: 'ينتظر' });
+  const rejected = E({ id: 'bad', amount: 9000, createdAtDevice: 40, createdAtServer: null, description: 'مرفوض من الخادم' });
+  const errors = { bad: 'رُفض الإرسال' };
+  const entries = [accepted, pending, rejected];
+  const ctx = { projects, entries, syncErrors: errors };
+  const list = L.projectEntryList(owner, 'a', ctx, { limit: 50 });
+  assert.deepEqual(list.rows.map(r => r.id), ['acc', 'pend']);
+  assert.equal(list.total, 2);
+  assert.equal(list.rows.length, 2);
+  assert.equal(JSON.stringify(list).includes('bad'), false);
+  assert.equal(JSON.stringify(list).includes('9,000'), false);
+  assert.equal(JSON.stringify(list).includes('مرفوض'), false);
+  assert.equal(list.rows.some(r => r.amount.includes('2,000')), true);
+  assert.equal(list.rows.some(r => r.amount.includes('1,000')), true);
+  const siteList = L.projectEntryList(site, 'a', ctx, { limit: 50 });
+  assert.deepEqual(siteList.rows.map(r => r.id), ['acc', 'pend']);
+  assert.equal(siteList.total, 2);
+  const hidden = L.projectEntryList(owner, 'a', ctx, { limit: 0 });
+  assert.deepEqual(hidden.rows, []);
+  assert.equal(hidden.total, 2);
+});
+
 test('CSV populates partyName and createdByName', () => {
   const e = E({ id:'payee1', description:'حديد', partyName:'مورد حديد', createdByName:'أمير' });
   const csv = L.toCSV([e], projects);
