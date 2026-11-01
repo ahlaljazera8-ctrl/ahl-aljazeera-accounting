@@ -175,6 +175,14 @@
     return '\uFEFF' + lines.join('\r\n') + '\r\n'; // BOM so Excel reads Arabic UTF-8
   }
   function canExportCSV(user) { return user.role === 'owner' && user.active; }
+
+  // Screen totals and the ledger file share this list. A server rejection is
+  // recorded in syncErrors and is left out. An entry still waiting to send has
+  // no error, so it stays in both.
+  function countedEntries(entries, errors) {
+    const err = errors || {};
+    return (entries || []).filter(e => e && e.id && !err[e.id]);
+  }
   function canCreateProject(user) { return user.role === 'owner' && user.active; }
 
   function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
@@ -204,6 +212,7 @@
   function entryExportFields(user, entry, ctx = {}) {
     if (!user || user.active !== true || (user.role !== 'owner' && user.role !== 'site')) return null;
     if (!entry || !entry.id) return null;
+    if (ctx.syncErrors && ctx.syncErrors[entry.id]) return null;
     const projects = ctx.projects || [];
     const entries = ctx.entries || [];
     const visible = visibleEntries(user, entries, projects, ctx.policy || DEFAULT_POLICY);
@@ -304,6 +313,6 @@
   }
 
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, canSeeProject, visibleProjects, visibleEntries,
-    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt,
+    projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt,
     baghdadTime, entryExportFields, entryToCSV, projectEntryList };
 });

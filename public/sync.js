@@ -126,6 +126,18 @@
     return (ids || []).filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id));
   }
 
+  // What a pull is allowed to read. A display-name edit does not change it.
+  // An assignment, role, or active-flag change does: the old watermark was
+  // measured on a different set, and an incremental query would skip history.
+  function readSetKey(user) {
+    const ids = validProjectIds(user && user.assignedProjectIds).slice().sort();
+    const role = user && user.role === 'owner' ? 'owner' : 'site';
+    return role + '\n' + (user && user.active === true ? '1' : '0') + '\n' + ids.join('\n');
+  }
+  function readSetChanged(prev, next) {
+    return readSetKey(prev) !== readSetKey(next);
+  }
+
   function finiteMillis(v) {
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
   }
@@ -259,6 +271,10 @@
         await write(local);
         synced.push(id);
       } catch (err) {
+        if (Status && Status.isDeadAuth(err)) {
+          kept.push(id);
+          return { synced, kept, failed, adopted, authDead: true };
+        }
         if (!Status || Status.isTransient(err)) { kept.push(id); continue; }
         let remote = null;
         let unverified = false;
@@ -266,6 +282,10 @@
           if (typeof readServer === 'function') remote = await readServer(local);
           else if (typeof exists === 'function' && await exists(local)) unverified = true;
         } catch (readErr) {
+          if (Status.isDeadAuth(readErr)) {
+            kept.push(id);
+            return { synced, kept, failed, adopted, authDead: true };
+          }
           if (Status.isTransient(readErr)) { kept.push(id); continue; }
           unverified = true;
         }
@@ -278,11 +298,12 @@
         failed.push({ id, message: Status.failureMessage(err, local, remote, unverified && !remote) });
       }
     }
-    return { synced, kept, failed, adopted };
+    return { synced, kept, failed, adopted, authDead: false };
   }
 
   return {
     isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
+    readSetKey, readSetChanged,
   };
 });

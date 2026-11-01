@@ -344,6 +344,13 @@ let chrome;
   check('amount -3 is rejected and not stored as 3', neg.added === 0 && /صحيحاً/.test(neg.msg));
   const frac = await attempt('1.5');
   check('amount 1.5 is rejected and not stored as 15', frac.added === 0 && /صحيحاً/.test(frac.msg));
+  const fracKept = await ev(`(()=>{
+    dispatchEvent(new Event('offline'));
+    dispatchEvent(new Event('online'));
+    const msg = (document.querySelector('#msg') && document.querySelector('#msg').innerText) || '';
+    return { msg, saved: (AJ.get('entries') || []).some(e => e && e.description === 'amount-case' && e.amount === 1.5) };
+  })()`);
+  check('amount 1.5 message survives a redraw', fracKept && fracKept.saved === false && /صحيحاً/.test(fracKept.msg));
   const comma = await attempt('2,5');
   check('amount 2,5 is rejected and not stored as 25', comma.added === 0 && /صحيحاً/.test(comma.msg));
   const indic = await attempt('٧');
@@ -362,6 +369,12 @@ let chrome;
     return (document.querySelector('#msg') && document.querySelector('#msg').textContent) || '';
   })()`);
   check('an over-long party name shows a limit message', /100/.test(partyLimit));
+  const partyKept = await ev(`(()=>{
+    dispatchEvent(new Event('offline'));
+    dispatchEvent(new Event('online'));
+    return (document.querySelector('#msg') && document.querySelector('#msg').textContent) || '';
+  })()`);
+  check('the party limit message survives a redraw', /100/.test(partyKept || ''));
   const nameLimit = await ev(`(()=>{
     const role = document.querySelector('#role');
     role.value = 'owner';
@@ -377,6 +390,12 @@ let chrome;
     return (document.querySelector('#person-msg') && document.querySelector('#person-msg').textContent) || 'empty';
   })()`);
   check('an over-long person name shows a limit message', /80/.test(nameLimit || ''));
+  const nameKept = await ev(`(()=>{
+    dispatchEvent(new Event('offline'));
+    dispatchEvent(new Event('online'));
+    return (document.querySelector('#person-msg') && document.querySelector('#person-msg').textContent) || '';
+  })()`);
+  check('the person-name limit message survives a redraw', /80/.test(nameKept || ''));
   const wide = await ev(`(()=>{
     const who = document.querySelector('#who');
     who.textContent = 'مستخدم موقع · ' + 'و'.repeat(80);
@@ -577,6 +596,164 @@ let chrome;
   await send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, left: 0, right: 0, bottom: 0 } });
   console.log('safe area ' + JSON.stringify({ beforeSafe, afterSafe, safeError: safeCall && safeCall.error }));
   check('safe area inset lifts the bar and the page padding', beforeSafe && afterSafe && !safeCall.error && beforeSafe.bottom >= 46 && afterSafe.bottom >= beforeSafe.bottom + 12 && afterSafe.pad >= beforeSafe.pad + 12);
+  await ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const savedKept = await ev(`(()=>{
+    const before = (AJ.get('entries') || []).length;
+    document.querySelector('#amt').value = '1000';
+    document.querySelector('#desc').value = 'يبقى بعد الرسم';
+    document.querySelector('#save').click();
+    const msg = (document.querySelector('#msg') && document.querySelector('#msg').innerText) || '';
+    dispatchEvent(new Event('offline'));
+    dispatchEvent(new Event('online'));
+    const after = (document.querySelector('#msg') && document.querySelector('#msg').innerText) || '';
+    return { added: (AJ.get('entries') || []).length - before, msg, after };
+  })()`);
+  check('the saved confirmation survives a redraw', savedKept && savedKept.added === 1 && /حُفظ/.test(savedKept.msg) && /حُفظ/.test(savedKept.after));
+  const longName = 'W'.repeat(80);
+  const planted = await ev(`(async () => {
+    const name = ${JSON.stringify(longName)};
+    const stamp = (AJ.get('entries') || []).reduce((m, e) => Math.max(m, e.createdAtDevice || 0), 0) + 1000;
+    return await new Promise((resolve, reject) => {
+      const q = indexedDB.open('aj-p0');
+      q.onerror = () => reject(q.error || new Error('idb'));
+      q.onsuccess = () => {
+        const d = q.result;
+        const tx = d.transaction('entries', 'readwrite');
+        tx.objectStore('entries').put({
+          id: 'long-name-row', projectId: 'p-school', direction: 'expense', entryType: 'materials',
+          amount: 17, currency: 'IQD', entryDate: '2026-11-01', description: 'اسم طويل', partyName: 'جهة',
+          isReversal: false, createdAtDevice: stamp, createdAtServer: stamp,
+          createdBy: 'u-ameer', createdByName: name, deviceId: 'long'
+        });
+        tx.oncomplete = () => {
+          const check = d.transaction('entries').objectStore('entries').get('long-name-row');
+          check.onsuccess = () => { const hit = check.result && check.result.createdByName === name; d.close(); resolve(hit ? 'stored' : 'missing'); };
+          check.onerror = () => { d.close(); reject(check.error); };
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  })()`);
+  check('a long recorder name can be stored', planted === 'stored');
+  await send('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true });
+  await go(`${BASE}index.html?role=owner&fresh=long#project/p-school`);
+  await ev(`dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(300);
+  const longRow = await ev(`(async ()=>{
+    const name = ${JSON.stringify(longName)};
+    const row = [...document.querySelectorAll('.entry')].find(el => (el.innerText || '').includes(name));
+    const page = document.documentElement;
+    const small = row && [...row.querySelectorAll('small')].find(el => (el.textContent || '').includes(name));
+    const cs = small ? getComputedStyle(small) : null;
+    const ids = (AJ.get('entries') || []).map(e => e.id);
+    const idb = await new Promise(resolve => {
+      const q = indexedDB.open('aj-p0');
+      q.onerror = () => resolve('err');
+      q.onsuccess = () => {
+        const d = q.result;
+        const g = d.transaction('entries').objectStore('entries').get('long-name-row');
+        g.onsuccess = () => { d.close(); resolve(g.result ? 'yes' : 'no'); };
+        g.onerror = () => { d.close(); resolve('get-err'); };
+      };
+    });
+    return {
+      found: !!row,
+      full: !!row && row.innerText.includes(name),
+      hz: page.scrollWidth > page.clientWidth + 1,
+      wrap: cs ? cs.overflowWrap : '',
+      rowWide: row ? row.scrollWidth > page.clientWidth + 1 : true,
+      has: ids.includes('long-name-row'),
+      idb,
+      n: ids.length,
+      hash: location.hash,
+      title: document.querySelector('#title') && document.querySelector('#title').textContent,
+      rows: document.querySelectorAll('.entry').length
+    };
+  })()`);
+  console.log('long name row ' + JSON.stringify(longRow));
+  check('an 80-character recorder name stays inside the entry row', longRow && longRow.found && longRow.full && longRow.hz === false && longRow.rowWide === false && (longRow.wrap === 'anywhere' || longRow.wrap === 'break-word'));
+  await ev(`location.hash='#entries/p-school'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const longList = await ev(`(()=>{
+    const name = ${JSON.stringify(longName)};
+    const row = [...document.querySelectorAll('#entry-list .entry')].find(el => (el.innerText || '').includes(name));
+    const page = document.documentElement;
+    return { found: !!row, full: !!row && row.innerText.includes(name), hz: page.scrollWidth > page.clientWidth + 1 };
+  })()`);
+  check('the long recorder name does not widen the full entry list', longList && longList.found && longList.full && longList.hz === false);
+  await ev(`document.querySelector('#entry-list a.entry-open').click(); 1`);
+  await sleep(200);
+  const longDetail = await ev(`(()=>{
+    const page = document.documentElement;
+    return { hz: page.scrollWidth > page.clientWidth + 1, text: (document.querySelector('#main') && document.querySelector('#main').innerText) || '' };
+  })()`);
+  check('the long recorder name does not widen the entry details', longDetail && longDetail.hz === false && longDetail.text.includes(longName.slice(0, 40)));
+  const rejectedId = await ev(`(async () => {
+    const entries = AJ.get('entries') || [];
+    const bad = entries.find(e => e && e.id === 'long-name-row');
+    const good = entries.find(e => e && e.projectId === 'p-school' && e.id !== 'long-name-row' && !e.isReversal);
+    if (!bad || !good) return null;
+    await new Promise((resolve, reject) => {
+      const q = indexedDB.open('aj-p0');
+      q.onerror = () => reject(q.error || new Error('idb'));
+      q.onsuccess = () => {
+        const d = q.result;
+        const tx = d.transaction('meta', 'readwrite');
+        tx.objectStore('meta').put({ [bad.id]: 'رُفض الإرسال' }, 'syncErrors');
+        tx.oncomplete = () => { d.close(); resolve(1); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+    return { bad: bad.id, good: good.id, goodAmount: good.amount };
+  })()`);
+  check('a rejected entry id was chosen for the export', !!(rejectedId && rejectedId.bad && rejectedId.good));
+  await go(`${BASE}index.html?role=owner&fresh=csv#home`);
+  await sleep(300);
+  const csvExport = await ev(`(async () => {
+    const orig = URL.createObjectURL;
+    let text = '';
+    URL.createObjectURL = function (blob) {
+      window.__csvBlob = blob;
+      return orig.apply(this, arguments);
+    };
+    const btn = document.querySelector('#csv');
+    if (btn) btn.click();
+    if (window.__csvBlob) text = await window.__csvBlob.text();
+    URL.createObjectURL = orig;
+    const lines = text.replace(/^\\uFEFF/, '').trim().split(/\\r?\\n/).filter(Boolean);
+    const screen = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    return { text, rows: Math.max(0, lines.length - 1), hasBad: text.includes(${JSON.stringify(rejectedId && rejectedId.bad)}), hasGood: text.includes(${JSON.stringify(rejectedId && rejectedId.good)}), screen };
+  })()`);
+  check('the ledger CSV matches the screen and omits a server rejection', csvExport && csvExport.hasBad === false && csvExport.hasGood === true && csvExport.rows === (await ev(`(AJ.get('entries') || []).filter(e => !(AJ.get('syncErrors') || {})[e.id]).length`)));
+  await ev(`location.hash=${JSON.stringify('#detail/' + (rejectedId && rejectedId.bad))}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const rejectedPrint = await ev(`(()=>{
+    window.__printed = 0;
+    window.print = () => { window.__printed++; };
+    const printBtn = document.querySelector('#entry-print');
+    const pdfBtn = document.querySelector('#entry-pdf');
+    if (printBtn) printBtn.click();
+    if (pdfBtn) pdfBtn.click();
+    return {
+      buttons: !!printBtn || !!pdfBtn,
+      printed: window.__printed,
+      sheet: (document.querySelector('#print-root') && document.querySelector('#print-root').textContent) || '',
+      reason: (document.querySelector('#main') && document.querySelector('#main').innerText) || ''
+    };
+  })()`);
+  check('print and PDF are not offered for a server-rejected entry', rejectedPrint && rejectedPrint.buttons === false && rejectedPrint.printed === 0 && rejectedPrint.sheet.trim() === '' && /رُفض الإرسال/.test(rejectedPrint.reason));
+  await ev(`location.hash=${JSON.stringify('#detail/' + (rejectedId && rejectedId.good))}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const acceptedPrint = await ev(`(()=>{
+    window.__printed = 0;
+    window.print = () => { window.__printed++; };
+    document.querySelector('#entry-print').click();
+    document.querySelector('#entry-pdf').click();
+    const text = (document.querySelector('#print-root') && document.querySelector('#print-root').textContent) || '';
+    return { printed: window.__printed, text, hasId: text.includes(${JSON.stringify(rejectedId && rejectedId.good)}) };
+  })()`);
+  check('print and PDF still include an entry the server accepted', acceptedPrint && acceptedPrint.printed === 2 && acceptedPrint.hasId === true);
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
