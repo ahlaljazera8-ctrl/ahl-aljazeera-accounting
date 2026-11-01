@@ -191,7 +191,10 @@ test('entry export fields: owner vs site, and site omits hidden money', () => {
   assert.equal(siteExpense.find(f => f.key === 'projectName').value, 'مشروع أ');
   assert.equal(siteExpense.find(f => f.key === 'entryType').value, 'مواد');
   assert.equal(siteExpense.find(f => f.key === 'amount').value, '8,200,000 د.ع');
-  assert.equal(siteExpense.find(f => f.key === 'recordedAt').value, '2026-10-01 12:00:00');
+  assert.equal(siteExpense.find(f => f.key === 'entryDate').label, 'تاريخ القيد');
+  assert.equal(siteExpense.find(f => f.key === 'entryDate').value, '2026-10-06');
+  assert.equal(siteExpense.find(f => f.key === 'recordedAt').label, 'وقت التسجيل');
+  assert.equal(siteExpense.find(f => f.key === 'recordedAt').value, '12:00:00');
   assert.equal(siteExpense.find(f => f.key === 'recorder').value, 'أحمد');
   assert.equal(siteExpense.find(f => f.key === 'note').value, 'أجور عمال');
   const siteJson = JSON.stringify(siteExpense);
@@ -227,6 +230,30 @@ test('entry export fields: owner vs site, and site omits hidden money', () => {
   assert.equal(JSON.stringify(ownerAbroad).includes('contractAmount'), false);
 });
 
+test('entry export keeps the ledger date separate from the Baghdad clock', () => {
+  const when = Date.parse('2026-10-01T09:00:06Z');
+  const row = E({
+    id: 'clock1', createdBy: 's', createdByName: 'أحمد', entryDate: '2026-10-06', createdAtDevice: when,
+    description: 'أجور عمال (مثال)', amount: 8200000,
+  });
+  const fields = L.entryExportFields(site, row, { projects, entries: [row] });
+  const date = fields.find(f => f.key === 'entryDate');
+  const time = fields.find(f => f.key === 'recordedAt');
+  assert.equal(date.label, 'تاريخ القيد');
+  assert.equal(date.value, '2026-10-06');
+  assert.equal(time.label, 'وقت التسجيل');
+  assert.equal(time.value, '12:00:06');
+  assert.equal(/^\d{2}:\d{2}:\d{2}$/.test(time.value), true);
+  assert.equal(time.value.includes(date.value), false);
+  assert.equal(time.value.includes('2026-10-01'), false);
+  const csv = L.entryToCSV(site, row, { projects, entries: [row] });
+  assert.ok(csv.includes('تاريخ القيد'));
+  assert.ok(csv.includes('وقت التسجيل'));
+  assert.ok(csv.includes('2026-10-06'));
+  assert.ok(csv.includes('12:00:06'));
+  assert.equal(csv.includes('2026-10-01'), false);
+});
+
 test('entry CSV: BOM, Arabic, commas and quotes', () => {
   const when = Date.parse('2026-10-01T09:00:00Z');
   const row = E({
@@ -243,7 +270,8 @@ test('entry CSV: BOM, Arabic, commas and quotes', () => {
   assert.ok(csv.includes('"مورد ""الأنوار"""'));
   assert.ok(csv.includes('"مشروع, ""أ"""'));
   assert.ok(csv.includes('"1,200 د.ع"'));
-  assert.ok(csv.includes('2026-10-01 12:00:00'));
+  assert.ok(csv.includes('12:00:00'));
+  assert.equal(csv.includes('2026-10-01'), false);
   const tricky = E({ id: 'csv2', description: '=1,2', createdByName: 'أمير', createdAtDevice: when });
   const guarded = L.entryToCSV(owner, tricky, { projects, entries: [tricky] });
   assert.ok(guarded.includes(`"'=1,2"`));

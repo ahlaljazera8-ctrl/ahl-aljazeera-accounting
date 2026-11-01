@@ -215,9 +215,10 @@ testSeq('WebKit shows entry export for both roles and shares the CSV', async () 
     await page.click('#entry-print');
     await page.click('#entry-pdf');
     const ownerText = await page.locator('#print-root').textContent();
-    for (const bit of ['أهل الجزيرة', 'مشروع المدرسة', 'مواد', '30,000,000', 'د.ع', '2026-10-02', '2026-10-01 12:00:02', 'أمير', 'حديد وإسمنت', 'seed-2']) {
+    for (const bit of ['أهل الجزيرة', 'مشروع المدرسة', 'مواد', '30,000,000', 'د.ع', 'تاريخ القيد', '2026-10-02', 'وقت التسجيل', '12:00:02', 'أمير', 'حديد وإسمنت', 'seed-2']) {
       assert.equal(ownerText.includes(bit), true, bit);
     }
+    assert.equal(ownerText.includes('2026-10-01'), false);
     assert.equal(await page.evaluate(() => window.__printed), 2);
     const ownerCsv = await page.evaluate(async () => {
       const u = AJ.get('users').find(x => x.uid === 'u-ameer');
@@ -245,9 +246,10 @@ testSeq('WebKit shows entry export for both roles and shares the CSV', async () 
     assert.deepEqual(await page.locator('#entry-print, #entry-pdf, #entry-file').allTextContents(), ['طباعة', 'حفظ PDF', 'حفظ كملف']);
     await page.click('#entry-pdf');
     const siteText = await page.locator('#print-root').textContent();
-    for (const bit of ['أهل الجزيرة', 'مشروع الطريق', 'عمالة/سلفة', '8,200,000', 'أحمد', 'أجور عمال', 'seed-6', '2026-10-06', '2026-10-01 12:00:06']) {
+    for (const bit of ['أهل الجزيرة', 'مشروع الطريق', 'عمالة/سلفة', '8,200,000', 'أحمد', 'أجور عمال', 'seed-6', 'تاريخ القيد', '2026-10-06', 'وقت التسجيل', '12:00:06']) {
       assert.equal(siteText.includes(bit), true, bit);
     }
+    assert.equal(siteText.includes('2026-10-01'), false);
     for (const banned of ['ربح', 'المقبوض', 'خسارة', 'قيمة العقد', 'contractAmount', 'profit', '60,000,000', '40,000,000', '11,200,000', '30,000,000', '60000000']) {
       assert.equal(siteText.includes(banned), false, banned);
     }

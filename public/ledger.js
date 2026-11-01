@@ -152,15 +152,15 @@
 
   function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
 
-  // Baghdad is UTC+3 all year. formatToParts keeps the digits stable for Excel and tests.
-  function baghdadDateTime(ms) {
+  // Baghdad is UTC+3 all year. The ledger date is a separate calendar day, so the
+  // recorded value is only the clock. formatToParts keeps the digits stable.
+  function baghdadTime(ms) {
     const n = typeof ms === 'number' ? ms : Number(ms);
     if (!Number.isFinite(n)) return '—';
     const d = new Date(n);
     if (Number.isNaN(d.getTime())) return '—';
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Baghdad',
-      year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hourCycle: 'h23',
     }).formatToParts(d);
@@ -168,7 +168,7 @@
       const part = parts.find(p => p.type === type);
       return part ? part.value : '';
     };
-    return g('year') + '-' + g('month') + '-' + g('day') + ' ' + g('hour') + ':' + g('minute') + ':' + g('second');
+    return g('hour') + ':' + g('minute') + ':' + g('second');
   }
 
   // Fields of one entry the user is already allowed to open.
@@ -192,8 +192,8 @@
     put('projectName', 'المشروع', project && project.name ? project.name : '—');
     put('entryType', 'النوع', type ? type.label : '—');
     put('amount', 'المبلغ', fmt(row.amount * sign(row)) + ' د.ع');
-    put('entryDate', 'التاريخ', row.entryDate || '—');
-    put('recordedAt', 'الوقت', baghdadDateTime(row.createdAtDevice));
+    put('entryDate', 'تاريخ القيد', row.entryDate || '—');
+    put('recordedAt', 'وقت التسجيل', baghdadTime(row.createdAtDevice));
     put('recorder', 'سجّله', displayRecorder(row));
     put('party', 'الجهة', row.partyName || '—');
     put('note', 'الملاحظة', row.description || '—');
@@ -223,5 +223,5 @@
 
   return { ENTRY_TYPES, DEFAULT_POLICY, sign, totals, canSeeProject, visibleProjects, visibleEntries,
     projectSummary, validateEntry, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, fmt,
-    baghdadDateTime, entryExportFields, entryToCSV };
+    baghdadTime, entryExportFields, entryToCSV };
 });
