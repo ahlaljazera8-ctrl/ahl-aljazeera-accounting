@@ -10,7 +10,7 @@ h1{margin:0;font-size:22px}
 .sub{color:var(--sub);font-size:12px}
 .rolebar{display:flex;justify-content:space-between;align-items:center;padding:0 16px 8px;font-size:12px;color:var(--sub);gap:8px}
 .rolebar select{font:inherit;padding:2px 4px}
-main{flex:1;padding:4px 16px 96px;display:flex;flex-direction:column;gap:12px}
+main{flex:1;padding:4px 16px calc(136px + max(34px, env(safe-area-inset-bottom)));display:flex;flex-direction:column;gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}
 .card h2{margin:0;font-size:16px}
 .kv{display:flex;justify-content:space-between;gap:8px;font-size:14px}
@@ -48,10 +48,14 @@ a.detail-link{color:var(--pri);font-weight:700}
 .export-actions{display:flex;flex-direction:column;gap:8px}
 .note{font-size:11px;color:var(--sub)}
 .msg{text-align:center}
-.tabs{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;display:flex;background:var(--card);border-top:1px solid var(--line);padding:8px 0 20px}
-.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--sub);text-decoration:none}
-.tabs a span{font-size:12px}
-.tabs a.on{color:var(--pri);font-weight:700}
+.tabs{position:fixed;left:0;right:0;bottom:calc(12px + max(34px, env(safe-area-inset-bottom)));width:min(448px,calc(100% - 24px));max-width:448px;margin:0 auto;display:flex;align-items:stretch;gap:4px;padding:6px;background:var(--card);border:1px solid rgba(15,92,77,.12);border-radius:26px;box-shadow:0 10px 28px rgba(15,92,77,.16),0 2px 6px rgba(27,31,36,.06);z-index:5}
+.tabs::before{content:"";position:absolute;z-index:-1;left:0;right:0;bottom:calc(-12px - max(34px, env(safe-area-inset-bottom)));height:calc(12px + max(34px, env(safe-area-inset-bottom)));background:var(--bg)}
+.tabs svg,.tabs svg *{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tabs svg{width:22px;height:22px;display:block;flex:none}
+.tabs a{flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 2px;border-radius:20px;min-width:44px;min-height:44px;font-size:0;text-decoration:none;color:var(--sub);-webkit-tap-highlight-color:transparent}
+.tabs a span{font-size:11px;font-weight:600;line-height:1.2;white-space:nowrap}
+.tabs a.on{background:var(--pri);color:#fff}
+.tabs a.on span{font-weight:700}
 #login{padding:28px 16px 40px}
 #login form{display:flex;flex-direction:column;gap:12px}
 #login label{display:flex;flex-direction:column;gap:4px;font-size:14px}

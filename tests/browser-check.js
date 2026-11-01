@@ -489,6 +489,94 @@ let chrome;
   await sleep(200);
   const ownerAll = await listView('owner', 'p-school', 1000);
   check('owner المزيد keeps the other project out and shows the client payments', ownerAll && ownerAll.same && ownerAll.n === ownerAll.total && ownerAll.more === false && ownerAll.text.includes('777,777') && ownerAll.text.includes('40,000,000') && !ownerAll.text.includes('654,321') && !ownerAll.text.includes('بناية السوق') && !ownerAll.text.includes('قيمة العقد'));
+  const clearOfBar = async (selector) => ev(`(()=>{
+    const el = document.querySelector(${JSON.stringify(selector)});
+    const bar = document.querySelector('.tabs');
+    if (!el || !bar) return { ok: false, reason: 'missing' };
+    const scroller = document.scrollingElement || document.documentElement;
+    scroller.scrollTop = scroller.scrollHeight;
+    let er = el.getBoundingClientRect();
+    let br = bar.getBoundingClientRect();
+    if (er.top < 0) {
+      scroller.scrollTop += er.bottom - (br.top - 12);
+      er = el.getBoundingClientRect();
+      br = bar.getBoundingClientRect();
+    }
+    return {
+      ok: er.width >= 1 && er.height >= 1 && er.top >= -0.5 && er.bottom <= br.top + 0.5,
+      top: Math.round(er.top), bottom: Math.round(er.bottom), barTop: Math.round(br.top), gap: Math.round(br.top - er.bottom)
+    };
+  })()`);
+  const lastRow = await clearOfBar('#entry-list .entry:last-child');
+  console.log('last row clearance ' + JSON.stringify(lastRow));
+  check('owner list last row stays above the bar', lastRow && lastRow.ok === true);
+  await ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const saveClear = await clearOfBar('#save');
+  console.log('save button clearance ' + JSON.stringify(saveClear));
+  check('entry save button stays above the bar', saveClear && saveClear.ok === true);
+  await ev(`location.hash='#home'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  const tabs = await ev(`(()=>{
+    const links = [...document.querySelectorAll('.tabs a')];
+    const bar = document.querySelector('.tabs');
+    const on = document.querySelector('.tabs a.on');
+    const cs = on ? getComputedStyle(on) : null;
+    const xs = links.map(a => a.getBoundingClientRect().x);
+    const boxes = links.map(a => { const r = a.getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    const barCs = bar ? getComputedStyle(bar) : null;
+    return {
+      order: links.map(a => a.dataset.tab).join(','),
+      labels: links.map(a => (a.querySelector('span') || {}).textContent || '').join('|'),
+      icons: links.every(a => !!a.querySelector('svg')),
+      rtl: xs.length > 1 && xs.every((x, i) => i === 0 || x < xs[i - 1] - 1),
+      on: on && on.dataset.tab,
+      bg: cs && cs.backgroundColor,
+      color: cs && cs.color,
+      others: links.filter(a => a !== on).map(a => getComputedStyle(a).backgroundColor).join('|'),
+      boxes,
+      radius: barCs ? parseFloat(barCs.borderTopLeftRadius) : 0,
+      shadow: barCs ? barCs.boxShadow : '',
+      side: bar ? Math.min(bar.getBoundingClientRect().left, innerWidth - bar.getBoundingClientRect().right) : 0,
+      bottom: barCs ? parseFloat(barCs.bottom) : 0,
+      pad: parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom),
+      hz: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+    };
+  })()`);
+  console.log('owner tabs ' + JSON.stringify(tabs));
+  const green = 'rgb(15, 92, 77)';
+  check('owner home fills the home tab and keeps four tappable tabs', tabs && tabs.order === 'home,entry,projects,people' && tabs.labels === 'الرئيسية|قيد جديد|المشاريع|الأشخاص' && tabs.icons === true && tabs.rtl === true && tabs.on === 'home' && tabs.bg === green && tabs.color === 'rgb(255, 255, 255)' && tabs.others.indexOf(green) === -1 && tabs.boxes.every(b => b.w >= 44 && b.h >= 44) && tabs.radius >= 20 && tabs.shadow && tabs.shadow !== 'none' && tabs.side >= 8 && tabs.bottom >= 46 && tabs.pad >= 170 && tabs.hz === false);
+  const entryBox = await ev(`(()=>{
+    const a = document.querySelector('.tabs a[data-tab="entry"]');
+    const r = a.getBoundingClientRect();
+    const x = r.x + r.width / 2;
+    const y = r.y + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, w: r.width, h: r.height, tab: hit && hit.closest('a') && hit.closest('a').dataset.tab };
+  })()`);
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: entryBox.x, y: entryBox.y });
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: entryBox.x, y: entryBox.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: entryBox.x, y: entryBox.y, button: 'left', clickCount: 1 });
+  await sleep(250);
+  const tapped = await ev(`(()=>{
+    const on = document.querySelector('.tabs a.on');
+    const home = document.querySelector('.tabs a[data-tab="home"]');
+    return {
+      hash: location.hash,
+      on: on && on.dataset.tab,
+      bg: on ? getComputedStyle(on).backgroundColor : '',
+      homeBg: home ? getComputedStyle(home).backgroundColor : ''
+    };
+  })()`);
+  console.log('entry tap ' + JSON.stringify({ entryBox, tapped }));
+  check('entry tab is a 44px target and shows the new entry screen', entryBox && entryBox.tab === 'entry' && entryBox.w >= 44 && entryBox.h >= 44 && tapped && tapped.hash === '#entry' && tapped.on === 'entry' && tapped.bg === green && tapped.homeBg !== green);
+  const beforeSafe = await ev(`({bottom:parseFloat(getComputedStyle(document.querySelector('.tabs')).bottom), pad:parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom)})`);
+  const safeCall = await send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, left: 0, right: 0, bottom: 50 } });
+  await sleep(150);
+  const afterSafe = await ev(`({bottom:parseFloat(getComputedStyle(document.querySelector('.tabs')).bottom), pad:parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom), err:${JSON.stringify(!!(safeCall && safeCall.error))}})`);
+  await send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, left: 0, right: 0, bottom: 0 } });
+  console.log('safe area ' + JSON.stringify({ beforeSafe, afterSafe, safeError: safeCall && safeCall.error }));
+  check('safe area inset lifts the bar and the page padding', beforeSafe && afterSafe && !safeCall.error && beforeSafe.bottom >= 46 && afterSafe.bottom >= beforeSafe.bottom + 12 && afterSafe.pad >= beforeSafe.pad + 12);
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

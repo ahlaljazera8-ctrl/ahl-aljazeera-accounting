@@ -15,7 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
-const MARK = 'aj-p0-v15';
+const MARK = 'aj-p0-v16';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';
 const WEB = ['index.html', 'app.js', 'sw.js', 'style.css', 'ledger.js', 'sync.js', 'firebase-config.js', 'manifest.json', 'icon.svg'];
@@ -377,7 +377,7 @@ testSeq('WebKit lists one project for both roles, offline, and pages the rest', 
       const u = AJ.get('users').find(x => x.uid === 'u-ameer');
       const list = Ledger.projectEntryList(u, 'p-school', { projects: AJ.get('projects'), entries: AJ.get('entries'), policy: Ledger.DEFAULT_POLICY }, { limit: 50 });
       const ids = [...document.querySelectorAll('#entry-list a.entry-open')].map(a => (a.getAttribute('href') || '').replace('#detail/', ''));
-      const keys = (await (await caches.open('aj-p0-v15')).keys()).map(r => new URL(r.url).pathname);
+      const keys = (await (await caches.open('aj-p0-v16')).keys()).map(r => new URL(r.url).pathname);
       return { same: ids.join('|') === list.rows.map(r => r.id).join('|'), reads: list.reads, total: list.total, online: navigator.onLine, keys };
     });
     assert.equal(page1.keys.includes('/index.html') && page1.keys.includes('/app.js') && page1.keys.includes('/ledger.js'), true);
