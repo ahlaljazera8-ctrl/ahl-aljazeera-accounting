@@ -14,6 +14,7 @@ const {
 } = require('firebase/auth');
 const { doc, setDoc, getDoc, updateDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
+const { waitForPage } = require('../chrome-debug.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const PASS = 'emulator-only-pass';
@@ -82,15 +83,8 @@ function killChrome(chrome) {
   }
 }
 
-async function connect(port) {
-  let tgt;
-  for (let i = 0; i < 50 && !tgt; i++) {
-    try {
-      tgt = (await (await fetch('http://127.0.0.1:' + port + '/json')).json()).find(t => t.type === 'page');
-    } catch (e) {}
-    await sleep(200);
-  }
-  if (!tgt) throw new Error('Chrome did not open a page');
+async function connect(port, chrome) {
+  const tgt = await waitForPage(port, chrome);
   const ws = new WebSocket(tgt.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error('debugger socket failed')); });
   let id = 0;
@@ -157,7 +151,7 @@ async function openBrowser(dir) {
   const port = await freePort();
   const chrome = launchChrome(dir, port);
   try {
-    const session = await connect(port);
+    const session = await connect(port, chrome);
     session.chrome = chrome;
     return session;
   } catch (err) {

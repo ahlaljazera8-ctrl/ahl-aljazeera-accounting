@@ -7,6 +7,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { waitForPage } = require('./chrome-debug.js');
 
 const ROOT = path.join(__dirname, '../public');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -61,13 +62,8 @@ function kill(chrome) {
   if (chrome && chrome.pid) { try { process.kill(-chrome.pid, 'SIGKILL'); } catch (e) { try { chrome.kill('SIGKILL'); } catch (e2) {} } }
 }
 
-async function connect(port) {
-  let tgt;
-  for (let i = 0; i < 50 && !tgt; i++) {
-    try { tgt = (await (await fetch('http://127.0.0.1:' + port + '/json')).json()).find(t => t.type === 'page'); } catch (e) {}
-    await sleep(200);
-  }
-  if (!tgt) throw new Error('Chrome did not open a page');
+async function connect(port, chrome) {
+  const tgt = await waitForPage(port, chrome);
   const ws = new WebSocket(tgt.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error('debugger socket failed')); });
   let id = 0; const pend = {};
@@ -117,7 +113,7 @@ test('service worker does not serve a cached error or a different query', { time
   const chrome = launch(dir, debug);
   let session;
   try {
-    session = await connect(debug);
+    session = await connect(debug, chrome);
     await openControlled(session, origin);
     const queries = await session.ev(`Promise.all(['1','2'].map(v => fetch('style.css?v=' + v).then(r => r.text())))`);
     assert.deepEqual(queries, ['QUERY1', 'QUERY2']);
@@ -142,7 +138,7 @@ test('service worker does not answer Firestore or Auth hosts from cache', { time
   const chrome = launch(dir, debug);
   let session;
   try {
-    session = await connect(debug);
+    session = await connect(debug, chrome);
     await openControlled(session, origin);
     const bodies = await session.ev(`(async () => {
       const hosts = ['https://firestore.googleapis.com/v1/poison', 'https://identitytoolkit.googleapis.com/v1/poison', 'https://securetoken.googleapis.com/v1/poison'];

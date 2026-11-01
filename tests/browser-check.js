@@ -1,5 +1,6 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
-const { spawn } = require('child_process'); const fs = require('fs'); const http = require('http'); const net = require('net'); const path = require('path');
+const { spawn } = require('child_process'); const fs = require('fs'); const net = require('net'); const path = require('path');
+const { waitForPage } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function freePort() {
@@ -7,20 +8,6 @@ function freePort() {
     const server = net.createServer();
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); });
-  });
-}
-// Read the loopback debugger with node:http. fetch() follows HTTP_PROXY, and
-// the runner's Chrome can take longer than 10s to publish its first page.
-function debuggerText(port, pathname) {
-  return new Promise((resolve, reject) => {
-    const req = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 2000 }, res => {
-      let body = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => { body += chunk; });
-      res.on('end', () => resolve(body.replace(/^\)\]\}'\s*/, '')));
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('debugger timeout')); });
   });
 }
 let chrome;
@@ -36,16 +23,9 @@ let chrome;
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   const keep = chunk => { chromeLog = (chromeLog + chunk).slice(-4000); };
   chrome.stdout.on('data', keep); chrome.stderr.on('data', keep);
-  let tgt; let last = '';
-  for (let i = 0; i < 100 && !tgt; i++) {
-    try {
-      const list = JSON.parse(await debuggerText(port, '/json/list'));
-      last = JSON.stringify(list).slice(0, 400);
-      tgt = list.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
-    } catch (err) { last = String(err && err.message || err); }
-    if (!tgt) await sleep(200);
-  }
-  if (!tgt) throw new Error('Chrome did not open a page (' + last + ')\n' + chromeLog);
+  let tgt;
+  try { tgt = await waitForPage(port, chrome); }
+  catch (err) { throw new Error(err.message + '\n' + chromeLog); }
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });

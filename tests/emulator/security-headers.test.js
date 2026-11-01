@@ -13,6 +13,7 @@ const {
 } = require('firebase/auth');
 const { doc, setDoc, getDocs, collection } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
+const { waitForPage } = require('../chrome-debug.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'csp.headers@example.invalid';
@@ -122,15 +123,8 @@ function killChrome(chrome) {
   try { process.kill(-chrome.pid, 'SIGKILL'); } catch (e) { try { chrome.kill('SIGKILL'); } catch (e2) {} }
 }
 
-async function connect(port) {
-  let tgt;
-  for (let i = 0; i < 50 && !tgt; i++) {
-    try {
-      tgt = (await (await fetch('http://127.0.0.1:' + port + '/json')).json()).find(t => t.type === 'page');
-    } catch (e) {}
-    await sleep(200);
-  }
-  if (!tgt) throw new Error('Chrome did not open a page');
+async function connect(port, chrome) {
+  const tgt = await waitForPage(port, chrome);
   const ws = new WebSocket(tgt.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
     ws.onopen = resolve;
@@ -263,7 +257,7 @@ test('security headers still let the app boot, log in, sync an entry, and regist
   const chrome = launchChrome(dir, debug);
   let session;
   try {
-    session = await connect(debug);
+    session = await connect(debug, chrome);
     // iPhone Safari proactively opens the Firebase Auth iframe. Desktop Chrome does not.
     await session.send('Emulation.setUserAgentOverride', {
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',

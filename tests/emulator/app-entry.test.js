@@ -12,6 +12,7 @@ const { initializeApp, deleteApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword } = require('firebase/auth');
 const { doc, setDoc, getDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
+const { waitForPage } = require('../chrome-debug.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'app.entry@example.invalid';
@@ -80,14 +81,8 @@ function killChrome(chrome) {
   }
 }
 
-async function connect(port) {
-  let tgt;
-  for (let i = 0; i < 50 && !tgt; i++) {
-    try { tgt = (await (await fetch('http://127.0.0.1:' + port + '/json')).json()).find(t => t.type === 'page'); }
-    catch (e) {}
-    await sleep(200);
-  }
-  if (!tgt) throw new Error('Chrome did not open a page');
+async function connect(port, chrome) {
+  const tgt = await waitForPage(port, chrome);
   const ws = new WebSocket(tgt.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error('debugger socket failed')); });
   let id = 0;
@@ -196,7 +191,7 @@ test('the app entry with createdByName and partyName is accepted, and a wrong na
   const chrome = launchChrome(dir, debug);
   let session;
   try {
-    session = await connect(debug);
+    session = await connect(debug, chrome);
     await session.send('Page.navigate', { url: origin + '/index.html?emulator=1' });
     assert.equal(await waitFor(session, `document.body && document.body.dataset.ready === '1'`, 20000), true, 'login page ready');
     assert.equal(session.production, '', 'refusing live Firebase traffic');
@@ -277,7 +272,7 @@ async function withSession(label, fn) {
   const chrome = launchChrome(dir, debug);
   let session;
   try {
-    session = await connect(debug);
+    session = await connect(debug, chrome);
     await session.send('Page.navigate', { url: origin + '/index.html?emulator=1' });
     assert.equal(await waitFor(session, `document.body && document.body.dataset.ready === '1'`, 20000), true, 'login page ready');
     await session.ev(`(()=>{
