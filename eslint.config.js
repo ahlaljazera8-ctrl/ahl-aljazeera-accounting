@@ -63,6 +63,7 @@ module.exports = [
     files: [
       'tests/emulator/offline-cold-start.test.js',
       'tests/emulator/offline-reconnect.test.js',
+      'tests/emulator/logout-fields.test.js',
       'tests/webkit-upgrade.test.js',
     ],
     languageOptions: {
