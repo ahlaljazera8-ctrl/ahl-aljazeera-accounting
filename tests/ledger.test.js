@@ -67,11 +67,12 @@ test('createdBy must equal user; syncState not stored', () => {
 });
 test('append-only: no update/delete API, entries frozen, duplicate id rejected', () => {
   const lg = L.createLedger(); const e = lg.append(E(), ctx(owner));
-  assert.equal(lg.update, undefined); assert.equal(lg.delete, undefined); assert.equal(lg.remove, undefined);
+  const api = /** @type {any} */ (lg);
+  assert.equal(api.update, undefined); assert.equal(api.delete, undefined); assert.equal(api.remove, undefined);
   assert.throws(() => { 'use strict'; e.amount = 9; }); assert.equal(lg.all()[0].amount, 1000);
   const snap = lg.all(); snap.pop(); assert.equal(lg.all().length, 1);
   assert.throws(() => lg.append({ ...e }, ctx(owner)), /DUPLICATE/); assert.equal(lg.all().length, 1);
-  assert.throws(() => { 'use strict'; lg.append = () => {}; });
+  assert.throws(() => { 'use strict'; api.append = () => {}; });
 });
 test('reversal: positive amount, isReversal, reversesEntryId; sign only in profit', () => {
   const lg = L.createLedger(); const o = lg.append(E({ amount:50000 }), ctx(owner)); lg.append(inc({ amount:100000 }), ctx(owner));

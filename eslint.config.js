@@ -1,0 +1,75 @@
+const js = require('@eslint/js');
+const globals = require('globals');
+
+// Names published by the classic scripts in public/.
+const pageGlobals = {
+  Ledger: 'readonly',
+  Sync: 'readonly',
+  SyncStatus: 'readonly',
+  DomSafe: 'readonly',
+  AppCheck: 'readonly',
+  AJ: 'readonly',
+};
+
+// Empty catches are best-effort cleanup (close a database, kill Chrome, ignore a
+// failed cache write). The binding is unused on purpose. Replacing an internal
+// failure with a fixed Arabic message must not keep that failure on `cause`.
+const rules = {
+  ...js.configs.recommended.rules,
+  'no-empty': ['error', { allowEmptyCatch: true }],
+  'no-unused-vars': ['error', { caughtErrors: 'none' }],
+  'preserve-caught-error': 'off',
+};
+
+module.exports = [
+  { ignores: ['node_modules/**', 'shots/**', '.firebase/**'] },
+  {
+    files: ['public/sw.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: globals.serviceworker,
+    },
+    rules,
+  },
+  {
+    files: ['public/app.js', 'public/firebase-config.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: { ...globals.browser, ...pageGlobals },
+    },
+    rules,
+  },
+  {
+    files: ['public/ledger.js', 'public/sync.js', 'public/sync-status.js', 'public/dom-safe.js', 'public/appcheck.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: { ...globals.browser, ...globals.node },
+    },
+    rules,
+  },
+  {
+    files: ['tests/**/*.js', 'scripts/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
+      globals: globals.node,
+    },
+    rules,
+  },
+  {
+    files: [
+      'tests/emulator/offline-cold-start.test.js',
+      'tests/emulator/offline-reconnect.test.js',
+      'tests/webkit-upgrade.test.js',
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
+      globals: { ...globals.node, ...globals.browser, ...pageGlobals },
+    },
+    rules,
+  },
+];

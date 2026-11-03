@@ -406,6 +406,9 @@
     return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending };
   }
 
+  /**
+   * @param {{ ids: any[], load: (id: any) => any, write: (local: any) => any, exists?: (local: any) => any, readServer?: (local: any) => any }} opts
+   */
   async function flushOutbox({ ids, load, write, exists, readServer }) {
     const Status = statusApi();
     const synced = [];

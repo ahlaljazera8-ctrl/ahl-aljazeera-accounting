@@ -168,6 +168,7 @@ testSeq('site reads own entries and assigned expenses, not another person\'s inc
 
 testSeq('site queries: own entries and assigned expenses are allowed; a full scan is not', () => seeded(async () => {
   for (const spec of Sync.siteReads(SITE, ['p1'])) {
+    /** @type {any} */
     let q = collection(db(SITE), spec.collection);
     q = query(q, ...spec.where.map(([f, op, v]) => where(f, op, v)));
     const snap = await assertSucceeds(getDocs(q));
@@ -364,7 +365,7 @@ testSeq('createdByName must equal the writer displayName', () => seeded(async ()
 }));
 
 testSeq('a displayName of 61 to 80 characters can be stored and attached as createdByName', () => seeded(async () => {
-  for (const [id, n] of [['name-61', 61], ['name-80', 80]]) {
+  for (const [id, n] of /** @type {[string, number][]} */ ([['name-61', 61], ['name-80', 80]])) {
     const name = 'ن'.repeat(n);
     await assertSucceeds(updateDoc(doc(db(OWNER), 'users', SITE), { displayName: name }));
     await assertSucceeds(putEntry(SITE, id, { createdByName: name }));

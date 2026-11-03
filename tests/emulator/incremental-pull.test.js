@@ -262,6 +262,7 @@ testSeq('site sync stays on assigned projects and does not re-read the ledger', 
     }));
     await setDoc(doc(d, 'projects', 'p-ok'), projectDoc('p-ok', 'المشروع المعيّن', at(1)));
     await setDoc(doc(d, 'projects', 'p-no'), projectDoc('p-no', 'مشروع آخر', at(2)));
+    /** @type {Array<[string, Record<string, any>]>} */
     const rows = [
       ['vis-exp-other', { projectId: 'p-ok', createdBy: OTHER, direction: 'expense', entryType: 'materials', createdAtServer: at(3) }],
       ['vis-exp-site', { projectId: 'p-ok', createdBy: SITE, direction: 'expense', entryType: 'labour', amount: 400, createdAtServer: at(4) }],
@@ -372,6 +373,7 @@ testSeq('a missing index falls back to a full site pull and keeps the watermark'
     }));
     await setDoc(doc(d, 'projects', 'p-ok'), projectDoc('p-ok', 'المشروع المعيّن', at(1)));
     await setDoc(doc(d, 'projects', 'p-no'), projectDoc('p-no', 'مشروع آخر', at(2)));
+    /** @type {Array<[string, Record<string, any>]>} */
     const rows = [
       ['idx-exp', { projectId: 'p-ok', createdBy: OTHER, direction: 'expense', entryType: 'materials', createdAtServer: at(3), amount: 300 }],
       ['idx-own', { projectId: 'p-ok', createdBy: SITE, direction: 'income', entryType: 'clientPayment', createdAtServer: at(5), amount: 2500 }],
@@ -382,7 +384,7 @@ testSeq('a missing index falls back to a full site pull and keeps the watermark'
   });
 
   const siteDb = authed(SITE);
-  const first = await pull(siteDb, site, store);
+  await pull(siteDb, site, store);
   assert.equal(copies(store.entries, 'idx-exp'), 1);
   assert.equal(copies(store.entries, 'idx-own'), 1);
   assert.equal(copies(store.entries, 'idx-hid-inc'), 0);

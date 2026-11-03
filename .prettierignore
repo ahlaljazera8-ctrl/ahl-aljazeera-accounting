@@ -1,0 +1,11 @@
+node_modules
+# Shipped shell. Reformatting these files would change bytes and force a service-worker bump.
+public
+# Tests pack several statements on one line. Prettier would reflow thousands of lines.
+tests
+firebase.json
+firestore.rules
+firestore.indexes.json
+package-lock.json
+shots
+.firebase

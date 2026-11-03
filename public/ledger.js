@@ -171,6 +171,10 @@
 
   // Deterministic id => one reversal per original (a 2nd create hits the same doc and is refused).
   function reversalId(originalId) { return 'rev_' + originalId; }
+  /**
+   * @param {any} orig
+   * @param {{ user: any, reason: any, now: any, deviceId: any, entryDate: any, id?: any }} ctx
+   */
   function makeReversal(orig, { user, reason, now, deviceId, entryDate }) {
     const row = { id: reversalId(orig.id), projectId: orig.projectId, direction: orig.direction, entryType: orig.entryType,
       amount: orig.amount, currency: 'IQD', entryDate, description: 'تصحيح: ' + (orig.description || ''),

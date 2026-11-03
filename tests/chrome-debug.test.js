@@ -11,7 +11,7 @@ function closedPort() {
     const s = net.createServer();
     s.once('error', reject);
     s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address();
+      const { port } = /** @type {import('net').AddressInfo} */ (s.address());
       s.close(() => resolve(port));
     });
   });
