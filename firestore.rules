@@ -13,6 +13,8 @@ service cloud.firestore {
     function assigned(pid) { return pid in me().get('assignedProjectIds', []); }
     function entryPath(id) { return /databases/$(database)/documents/ledgerEntries/$(id); }
     function projectPath(id) { return /databases/$(database)/documents/projects/$(id); }
+    function foremanPath(id) { return /databases/$(database)/documents/foremen/$(id); }
+    function cashMovePath(id) { return /databases/$(database)/documents/cashMoves/$(id); }
     function MAX_AMOUNT_IQD() { return 10000000000; }
     function idOk(id) { return id is string && id.matches('^[A-Za-z0-9_-]{1,64}$'); }
     // Each item uses idOk. Rules have no loop, so the twenty slots are spelled out.
@@ -78,7 +80,7 @@ service cloud.firestore {
               && d().createdByName == me().displayName);
       }
       function shapeOk() {
-        return d().keys().hasOnly(['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'description', 'partyName', 'subcontractId', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'createdByName', 'deviceId'])
+        return d().keys().hasOnly(['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'description', 'partyName', 'subcontractId', 'foremanId', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'createdByName', 'deviceId'])
           && d().id == entryId
           && idOk(entryId)
           && idOk(d().projectId)
@@ -140,10 +142,18 @@ service cloud.firestore {
           && d().reversalReason is string
           && d().reversalReason.size() > 0
           && d().reversalReason.size() <= 500
-          && (isOwner() || (isSite() && orig.createdBy == request.auth.uid));
+          && (isOwner() || (isSite() && orig.createdBy == request.auth.uid))
+          && (('foremanId' in orig) ? (d().foremanId == orig.foremanId) : !('foremanId' in d()));
+      }
+      function foremanOk() {
+        return !('foremanId' in d())
+          || (idOk(d().foremanId)
+              && exists(foremanPath(d().foremanId))
+              && d().direction == 'expense'
+              && isOwner());
       }
 
-      allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk()) && linkOk();
+      allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk()) && linkOk() && foremanOk();
       allow delete: if isOwner() && projectGone(resource.data.projectId);
       // F11: assignment is required for every site read, including the author's own rows.
       // Rules are not a filter. The site client queries each assigned project.
@@ -283,6 +293,75 @@ service cloud.firestore {
       allow create: if isOwner() && amendmentShape();
       allow update: if false;
       allow delete: if isOwner() && projectGone(resource.data.projectId);
+    }
+
+    // Owner-only foreman names. projectId is a default for the expense form, not a hard link.
+    match /foremen/{id} {
+      function f() { return request.resource.data; }
+      function optNote() {
+        return !('note' in f()) || (f().note is string && f().note.size() <= 200);
+      }
+      function foremanShape() {
+        return f().keys().hasOnly(['id', 'name', 'note', 'projectId', 'createdAtServer', 'createdBy'])
+          && f().id == id
+          && idOk(id)
+          && f().name is string && f().name.size() > 0 && f().name.size() <= 100
+          && optNote()
+          && (!('projectId' in f()) || idOk(f().projectId))
+          && f().createdAtServer == request.time
+          && f().createdBy == request.auth.uid;
+      }
+      allow read: if isOwner();
+      allow create: if isOwner() && foremanShape();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Owner-only cash movements against a foreman. A correction is a new rev_ row.
+    match /cashMoves/{id} {
+      function m() { return request.resource.data; }
+      function moveShape() {
+        return m().keys().hasOnly(['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'deviceId'])
+          && m().id == id
+          && idOk(id)
+          && idOk(m().foremanId)
+          && exists(foremanPath(m().foremanId))
+          && m().kind in ['advance', 'settle', 'return']
+          && m().amount is int
+          && m().amount > 0
+          && m().amount <= MAX_AMOUNT_IQD()
+          && entryDateOk(m().date)
+          && m().note is string && m().note.size() <= 200
+          && m().isReversal is bool
+          && m().createdAtDevice is int
+          && m().deviceId is string && m().deviceId.size() > 0 && m().deviceId.size() <= 128
+          && m().createdAtServer == request.time
+          && m().createdBy == request.auth.uid;
+      }
+      function moveNormalOk() {
+        return m().isReversal == false
+          && !id.matches('^rev_.*')
+          && !('reversesMoveId' in m())
+          && !('reversalReason' in m());
+      }
+      function moveReversalOk() {
+        let orig = get(cashMovePath(m().reversesMoveId)).data;
+        return m().isReversal == true
+          && idOk(m().reversesMoveId)
+          && id == 'rev_' + m().reversesMoveId
+          && exists(cashMovePath(m().reversesMoveId))
+          && orig.isReversal == false
+          && orig.foremanId == m().foremanId
+          && orig.kind == m().kind
+          && orig.amount == m().amount
+          && m().reversalReason is string
+          && m().reversalReason.size() > 0
+          && m().reversalReason.size() <= 500;
+      }
+      allow read: if isOwner();
+      allow create: if isOwner() && moveShape() && (moveNormalOk() || moveReversalOk());
+      allow update: if false;
+      allow delete: if false;
     }
   }
 }
