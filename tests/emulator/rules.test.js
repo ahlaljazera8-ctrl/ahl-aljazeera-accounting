@@ -666,7 +666,7 @@ testSeq('owner creates and reads a foreman; site, inactive, and a stranger are d
   await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm-note'), foremanFields('fm-note', { note: 'ملاحظة', projectId: 'p1' })));
 }));
 
-testSeq('owner records cash moves; site cannot read or write them, and bad shapes are denied', () => seeded(async () => {
+testSeq('owner records foreman moves; site cannot read or write them, and bad shapes are denied', () => seeded(async () => {
   await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
   await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1')));
   await assertSucceeds(getDoc(doc(db(OWNER), 'foremanMoves', 'mv1')));

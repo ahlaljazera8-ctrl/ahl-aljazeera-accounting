@@ -44,6 +44,11 @@
   function sameReversal(local, remote) {
     if (!local || !remote || local.isReversal !== true || remote.isReversal !== true) return false;
     if (local.id && remote.id && local.id !== remote.id) return false;
+    if (local.docType === 'foremanMove') {
+      const moveId = norm(local.reversesMoveId);
+      return moveId !== '' && moveId === norm(remote.reversesMoveId) && norm(remote.reversesEntryId) === '';
+    }
+    if (norm(remote.reversesMoveId) !== '' && norm(remote.reversesEntryId) === '') return false;
     const orig = norm(local.reversesEntryId);
     return orig !== '' && orig === norm(remote.reversesEntryId);
   }
@@ -55,6 +60,18 @@
    */
   function sameContent(local, remote) {
     if (!local || !remote) return false;
+    if (local.docType === 'foreman') {
+      /** @type {readonly (keyof SyncRow)[]} */
+      const foremanKeys = ['id', 'name', 'note', 'projectId', 'createdBy'];
+      for (const k of foremanKeys) if (norm(local[k]) !== norm(remote[k])) return false;
+      return true;
+    }
+    if (local.docType === 'foremanMove') {
+      /** @type {readonly (keyof SyncRow)[]} */
+      const moveKeys = ['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'createdBy'];
+      for (const k of moveKeys) if (norm(local[k]) !== norm(remote[k])) return false;
+      return true;
+    }
     if (!local.entryType && !(local.currency && local.name)) return false;
     /** @type {readonly (keyof SyncRow)[]} */
     const keys = ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdBy'];
@@ -63,6 +80,7 @@
     if (norm(local.partyName) !== norm(remote.partyName)) return false;
     if (norm(local.createdByName) !== norm(remote.createdByName)) return false;
     if (norm(local.subcontractId) !== norm(remote.subcontractId)) return false;
+    if (norm(local.foremanId) !== norm(remote.foremanId)) return false;
     if (local.isReversal || remote.isReversal) {
       if (norm(local.reversesEntryId) !== norm(remote.reversesEntryId)) return false;
     }

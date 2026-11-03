@@ -585,7 +585,7 @@
 
   /**
    * @param {string} foremanId
-   * @param {{ outbox?: readonly string[] | null, moves?: readonly ForemanMove[] | null, entries?: readonly LedgerEntry[] | null, lastSyncMs?: number | null, nowMs: number }} opts
+   * @param {{ outbox?: readonly string[] | null, moves?: readonly ForemanMove[] | null, entries?: readonly LedgerEntry[] | null, lastSyncMs?: number | null, nowMs: number, watermark?: unknown }} opts
    * @returns {SettleGuard}
    */
   function settleGuard(foremanId, opts) {

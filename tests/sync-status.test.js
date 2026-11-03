@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const Sync = require('../public/sync.js');
 const Status = require('../public/sync-status.js');
 
@@ -161,6 +163,165 @@ test('recorder name and payee are part of the synced entry', () => {
   assert.equal(Status.sameContent(named, Object.assign({}, named, { createdByName: 'سامي' })), false);
   assert.equal(Status.sameContent(named, Object.assign({}, named, { partyName: 'جهة أخرى' })), false);
 });
+function move(over) {
+  return Object.assign({
+    id: 'mv1', docType: 'foremanMove', foremanId: 'fm1', kind: 'advance', amount: 1000,
+    date: '2026-11-03', note: '', isReversal: false, createdBy: 'u-ameer', deviceId: 'd',
+  }, over);
+}
+function foreman(over) {
+  return Object.assign({ id: 'fm1', docType: 'foreman', name: 'حسن', note: '', createdBy: 'u-ameer' }, over);
+}
+
+test('SS1 sameContent matches a move and rejects a different amount, kind, or foreman', () => {
+  const row = move();
+  const server = Object.assign({}, row);
+  delete server.docType;
+  assert.equal(Status.sameContent(row, server), true);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { amount: 2 })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { kind: 'settle' })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { foremanId: 'fm2' })), false);
+});
+
+test('SS2 sameContent matches a foreman document', () => {
+  const row = foreman({ projectId: 'p1' });
+  const server = Object.assign({}, row);
+  delete server.docType;
+  assert.equal(Status.sameContent(row, server), true);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { name: 'علي' })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { projectId: 'p2' })), false);
+});
+
+test('SS3 entries that differ only in foremanId are not the same', () => {
+  const row = local({ foremanId: 'fm1' });
+  assert.equal(Status.sameContent(row, Object.assign({}, row)), true);
+  assert.equal(Status.sameContent(row, Object.assign({}, row, { foremanId: 'fm2' })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, row, { foremanId: '' })), false);
+});
+
+test('SS4 a move reversal uses reversesMoveId and never matches an entry reversal', () => {
+  const localMove = move({ isReversal: true, reversesMoveId: 'mv1', id: 'rev_mv1' });
+  const remoteMove = Object.assign({}, localMove);
+  delete remoteMove.docType;
+  assert.equal(Status.sameReversal(localMove, remoteMove), true);
+  assert.equal(Status.sameReversal(localMove, Object.assign({}, remoteMove, { reversesMoveId: 'other' })), false);
+  const entryRev = local({ isReversal: true, reversesEntryId: 'mv1', id: 'rev_mv1' });
+  assert.equal(Status.sameReversal(localMove, entryRev), false);
+  assert.equal(Status.sameReversal(entryRev, remoteMove), false);
+});
+
+test('SS6 an untagged server copy still matches, and an untagged entry stays on the entry path', () => {
+  const row = move();
+  const server = Object.assign({}, row);
+  delete server.docType;
+  assert.equal(server.docType, undefined);
+  assert.equal(Status.sameContent(row, server), true);
+  const entry = local({ amount: 1000 });
+  const mixed = Object.assign({}, entry, { kind: 'advance', date: '2026-11-03', reversesMoveId: 'mv1' });
+  assert.equal(entry.docType, undefined);
+  assert.equal(Status.sameContent(entry, mixed), true);
+});
+
+test('an empty note survives toRemote and collectionFor uses the shared move constant', () => {
+  const row = move({ note: '' });
+  const remote = Sync.toRemote(row);
+  assert.equal(remote.note, '');
+  assert.equal(Object.prototype.hasOwnProperty.call(remote, 'docType'), false);
+  assert.equal(Sync.collectionFor(row), Sync.FOREMAN_MOVES);
+  assert.equal(Sync.collectionFor(foreman()), Sync.FOREMEN);
+  assert.equal(Sync.collectionFor(Object.assign({}, foreman(), { name: 'حسن', currency: 'IQD' })), Sync.FOREMEN);
+  const site = { uid: 's', role: 'site', active: true, assignedProjectIds: ['p1'] };
+  assert.deepEqual(Sync.foremanReads(site, null), []);
+  const owner = { uid: 'o', role: 'owner', active: true };
+  assert.deepEqual(Sync.foremanReads(owner, null).map(spec => spec.collection), [Sync.FOREMEN, Sync.FOREMAN_MOVES]);
+});
+
+test('an undefined note is an empty string before upload', () => {
+  const row = move();
+  delete row.note;
+  const remote = Sync.toRemote(row);
+  assert.equal(remote.note, '');
+  assert.equal(Sync.withServerTime(row, 1).note, '');
+  const person = foreman();
+  delete person.note;
+  assert.equal(Sync.toRemote(person).note, '');
+  const blank = foreman({ note: null });
+  assert.equal(Sync.toRemote(blank).note, '');
+});
+
+test('S3 a numeric since adds createdAtServer to both foreman reads', () => {
+  const owner = { uid: 'o', role: 'owner', active: true };
+  const since = 1700000000000;
+  const specs = Sync.foremanReads(owner, since);
+  assert.deepEqual(specs.map(spec => spec.collection), [Sync.FOREMEN, Sync.FOREMAN_MOVES]);
+  specs.forEach(spec => {
+    assert.deepEqual(spec.where, [['createdAtServer', '>=', since]]);
+  });
+  assert.equal(Sync.foremanReads(owner, null)[0].where.length, 0);
+});
+
+test('S4 pullForemen tags rows, keeps a pending id, and advances the watermark', async () => {
+  const owner = { uid: 'o', role: 'owner', active: true };
+  const result = await Sync.pullForemen({
+    user: owner,
+    since: 1000,
+    read: async spec => {
+      if (spec.collection === Sync.FOREMEN) {
+        return [
+          { id: 'fm1', name: 'حسن', createdAtServer: 2000 },
+          { id: 'fm-pending', name: 'من الخادم', createdAtServer: 1500 },
+        ];
+      }
+      return [{ id: 'mv1', foremanId: 'fm1', kind: 'advance', amount: 10, createdAtServer: 1800 }];
+    },
+  });
+  assert.equal(result.foremen.length, 2);
+  assert.equal(result.foremen.every(row => row.docType === 'foreman'), true);
+  assert.equal(result.moves.length, 1);
+  assert.equal(result.moves[0].docType, 'foremanMove');
+  assert.equal(result.watermark, 2000);
+  const merged = Sync.mergeById([{ id: 'fm-pending', name: 'محلي' }], result.foremen, ['fm-pending']);
+  const pending = merged.find(row => row.id === 'fm-pending');
+  assert.equal(pending && pending.name, 'محلي');
+  assert.equal(merged.some(row => row.id === 'fm1' && row.docType === 'foreman'), true);
+});
+
+test('T-FC1 writeLocal uses putIfMissing for foremen and moves', () => {
+  assert.equal(Sync.usesPutIfMissing(Sync.FOREMEN), true);
+  assert.equal(Sync.usesPutIfMissing(Sync.FOREMAN_MOVES), true);
+  assert.equal(Sync.usesPutIfMissing('subcontracts'), true);
+  assert.equal(Sync.usesPutIfMissing('subcontractAmendments'), true);
+  assert.equal(Sync.usesPutIfMissing('ledgerEntries'), false);
+  assert.equal(Sync.usesPutIfMissing('projects'), false);
+  const src = fs.readFileSync(path.join(__dirname, '../public/firebase-client.js'), 'utf8');
+  const start = src.indexOf('async writeLocal');
+  const body = src.slice(start, src.indexOf('async updateProjectStatus', start));
+  assert.match(body, /usesPutIfMissing\(col\)/);
+  assert.match(body, /this\.putIfMissing\(col,/);
+});
+
+test('staleness follows lastSyncAt, not a pull watermark', () => {
+  const Ledger = require('../public/ledger.js');
+  const now = 1700000000000;
+  const minute = 60 * 1000;
+  const fresh = Ledger.settleGuard('fm1', {
+    outbox: [], moves: [], entries: [],
+    lastSyncMs: now - 5 * minute,
+    nowMs: now,
+    watermark: now - 24 * 60 * minute,
+  });
+  assert.equal(fresh.stale, false);
+  assert.equal(fresh.lastSync, now - 5 * minute);
+  const stale = Ledger.settleGuard('fm1', {
+    outbox: [], moves: [], entries: [],
+    lastSyncMs: now - 11 * minute,
+    nowMs: now,
+    watermark: now,
+  });
+  assert.equal(stale.stale, true);
+  assert.equal(stale.lastSync, now - 11 * minute);
+});
+
 test('readRemote loads the 13.1.0 gstatic Firestore build', async () => {
   let seen = '';
   const remote = { amount: 5, projectId: 'p1', description: '' };

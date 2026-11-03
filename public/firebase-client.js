@@ -155,7 +155,7 @@ async function loadFirebase() {
         }
         return;
       }
-      if (col === 'subcontractAmendments') {
+      if (S.usesPutIfMissing(col)) {
         await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
         return;
       }
@@ -239,6 +239,15 @@ async function loadFirebase() {
       set(K.subcontracts, names);
       set(K.amendments, S.mergeById(get(K.amendments, []), owned.amendments, pendingNow));
       set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { subcontracts: owned.watermark }));
+      const fm = await S.pullForemen({
+        user,
+        since: previousMark.foremen,
+        read: readSpec,
+      });
+      const pendingForemen = get(K.outbox, []);
+      set(K.foremen, S.mergeById(get(K.foremen, []), fm.foremen, pendingForemen));
+      set(K.foremanMoves, S.mergeById(get(K.foremanMoves, []), fm.moves, pendingForemen));
+      set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { foremen: fm.watermark }));
       if (Ledger.can(user, 'owner')) {
       for (const sub of names) {
         if (!sub || pendingNow.includes(sub.id)) continue;
@@ -303,6 +312,8 @@ function cacheSnapshot() {
     projects: get(K.projects, []),
     subcontracts: get(K.subcontracts, []),
     amendments: get(K.amendments, []),
+    foremen: get(K.foremen, []),
+    foremanMoves: get(K.foremanMoves, []),
     finance: get(K.finance, {}) || {},
     terms: get(K.terms, {}) || {},
     outbox: get(K.outbox, []),
@@ -315,6 +326,8 @@ function writeCache(next) {
   set(K.projects, next.projects);
   set(K.subcontracts, next.subcontracts);
   set(K.amendments, next.amendments);
+  set(K.foremen, next.foremen || []);
+  set(K.foremanMoves, next.foremanMoves || []);
   set(K.finance, next.finance);
   set(K.terms, next.terms);
   set(K.outbox, next.outbox);
@@ -377,9 +390,9 @@ function flushRemote() {
 function adoptEntry(local, remote) {
   const src = window.Sync.fromRemote(remote || {});
   const next = Object.assign({}, local);
-  ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdBy', 'createdByName', 'description', 'partyName', 'subcontractId', 'deviceId', 'createdAtDevice', 'createdAtServer'].forEach(k => {
+  ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'reversesEntryId', 'reversalReason', 'createdBy', 'createdByName', 'description', 'partyName', 'subcontractId', 'foremanId', 'deviceId', 'createdAtDevice', 'createdAtServer'].forEach(k => {
         if (src[k] === undefined || src[k] === null || src[k] === '') {
-      if (k === 'createdByName' || k === 'description' || k === 'partyName' || k === 'reversalReason' || k === 'subcontractId') delete next[k];
+      if (k === 'createdByName' || k === 'description' || k === 'partyName' || k === 'reversalReason' || k === 'subcontractId' || k === 'foremanId') delete next[k];
       return;
     }
     next[k] = src[k];
@@ -484,7 +497,7 @@ async function performFlush(token, run) {
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
         ids,
-        load: id => get(K.entries, []).find(e => e.id === id) || get(K.projects, []).find(p => p.id === id) || get(K.subcontracts, []).find(s => s.id === id) || get(K.amendments, []).find(a => a.id === id) || null,
+        load: id => get(K.entries, []).find(e => e.id === id) || get(K.projects, []).find(p => p.id === id) || get(K.subcontracts, []).find(s => s.id === id) || get(K.amendments, []).find(a => a.id === id) || get(K.foremen, []).find(f => f.id === id) || get(K.foremanMoves, []).find(m => m.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
         readServer: async local => {
