@@ -313,7 +313,7 @@
 
   function statusApi() {
     if (typeof require === 'function') {
-      try { return require('./sync-status.js'); } catch (e) {}
+      try { return require('./sync-status.js'); } catch (e) { /* a missing module falls through to the global */ }
     }
     const g = typeof globalThis !== 'undefined' ? globalThis : {};
     return g.SyncStatus || null;
