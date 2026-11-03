@@ -531,18 +531,18 @@
   }
 
   /**
- * @param {{ id?: string, foremanId?: string, kind?: string, amount?: number, date?: string, note?: string, isReversal?: boolean, reversesMoveId?: string, reversalReason?: unknown, createdBy?: string }} move
- * @param {{ user?: LedgerUser | null, moves?: readonly ForemanMove[] | null, foremen?: readonly Foreman[] | null }} ctx
- * @returns {string[]}
- */
-function validateForemanMove(move, ctx) {
+   * @param {{ id?: string, foremanId?: string, kind?: string, amount?: number, date?: string, note?: string, isReversal?: boolean, reversesMoveId?: string, reversalReason?: unknown, createdBy?: string }} move
+   * @param {{ user?: LedgerUser | null, moves?: readonly ForemanMove[] | null, foremen?: readonly Foreman[] | null }} ctx
+   * @returns {string[]}
+   */
+  function validateForemanMove(move, ctx) {
     const user = ctx && ctx.user;
     const moves = (ctx && ctx.moves) || [];
     const people = (ctx && ctx.foremen) || [];
     const errs = [];
     if (!user || user.role !== 'owner' || user.active !== true) errs.push('مستخدم غير مسموح');
     if (!move.id || !ID_RE.test(move.id)) errs.push('id غير صالح');
-    if (moves.some(m => m && m.id === move.id)) errs.push('DUPLICATE');
+    if (moves.some(m => m && m.id === move.id)) errs.push('الحركة مكررة');
     if (!people.some(f => f && f.id === move.foremanId)) errs.push('الخلفة غير موجود');
     if (move.kind !== 'advance' && move.kind !== 'settle' && move.kind !== 'return') errs.push('نوع الحركة غير صالح');
     if (typeof move.amount === 'number' && move.amount > MAX_AMOUNT_IQD) errs.push(AMOUNT_LIMIT_MSG);
@@ -585,7 +585,7 @@ function validateForemanMove(move, ctx) {
 
   /**
    * @param {string} foremanId
-   * @param {{ outbox?: readonly string[] | null, moves?: readonly ForemanMove[] | null, entries?: readonly LedgerEntry[] | null, lastSyncMs?: number | null, nowMs?: number | null }} opts
+   * @param {{ outbox?: readonly string[] | null, moves?: readonly ForemanMove[] | null, entries?: readonly LedgerEntry[] | null, lastSyncMs?: number | null, nowMs: number }} opts
    * @returns {SettleGuard}
    */
   function settleGuard(foremanId, opts) {
@@ -593,7 +593,7 @@ function validateForemanMove(move, ctx) {
     const moves = (opts && opts.moves) || [];
     const entries = (opts && opts.entries) || [];
     const lastSyncMs = opts && typeof opts.lastSyncMs === 'number' ? opts.lastSyncMs : 0;
-    const nowMs = opts && typeof opts.nowMs === 'number' ? opts.nowMs : 0;
+    const nowMs = opts.nowMs;
     /** @type {string[]} */
     const pendingIds = [];
     for (const id of outbox) {

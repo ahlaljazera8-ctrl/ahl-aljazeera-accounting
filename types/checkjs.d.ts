@@ -422,7 +422,7 @@ interface LedgerApi {
       moves?: readonly ForemanMove[] | null;
       entries?: readonly LedgerEntry[] | null;
       lastSyncMs?: number | null;
-      nowMs?: number | null;
+      nowMs: number;
     },
   ): SettleGuard;
 }
