@@ -2,9 +2,10 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Ledger = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : /** @type {Window} */ (/** @type {unknown} */ (this)), /** @returns {LedgerApi} */ function () {
   'use strict';
   // data-model.md §2: expense, materials, labour, subcontractor, clientPayment.
+  /** @type {Record<string, EntryTypeInfo>} */
   const ENTRY_TYPES = {
     expense:       { label: 'مصروف',       direction: 'expense' },
     materials:     { label: 'مواد',        direction: 'expense' },
@@ -19,37 +20,71 @@
     siteSeesOnlyAssigned: true,
   };
 
+  /** @param {LedgerEntry} e */
   function sign(e) { return e.isReversal ? -1 : 1; }
 
+  /** @param {readonly LedgerEntry[]} entries @returns {LedgerTotals} */
   function totals(entries) {
-    let income = 0, expense = 0; const byType = {};
+    let income = 0, expense = 0;
+    /** @type {Record<string, number>} */
+    const byType = {};
     for (const e of entries) {
-      const v = e.amount * sign(e);
+      const v = /** @type {number} */ (e.amount) * sign(e);
       if (e.direction === 'income') income += v; else expense += v;
-      if (e.direction === 'expense') byType[e.entryType] = (byType[e.entryType] || 0) + v;
+      if (e.direction === 'expense') {
+        const typeKey = /** @type {string} */ (e.entryType);
+        byType[typeKey] = (byType[typeKey] || 0) + v;
+      }
     }
     return { received: income, spent: expense, profit: income - expense, byType };
   }
 
+  /** @param {LedgerProject | null | undefined} project */
   function isArchived(project) { return !!(project && project.status === 'archived'); }
+  /**
+   * @param {LedgerUser} user
+   * @param {LedgerProject} project
+   * @param {LedgerPolicy} [policy]
+   */
   function canSeeProject(user, project, policy = DEFAULT_POLICY) {
     if (user.role === 'owner') return true;
     if (isArchived(project)) return false;
     if (user.role !== 'site' || !user.active) return false;
-    return !policy.siteSeesOnlyAssigned || (user.assignedProjectIds || []).includes(project.id);
+    return !policy.siteSeesOnlyAssigned || (user.assignedProjectIds || []).includes(/** @type {string} */ (project.id));
   }
+  /**
+   * @param {LedgerUser} user
+   * @param {readonly LedgerProject[]} projects
+   * @param {LedgerPolicy} [policy]
+   */
   function visibleProjects(user, projects, policy) { return projects.filter(p => canSeeProject(user, p, policy)); }
+  /**
+   * @param {LedgerUser} user
+   * @param {readonly LedgerProject[]} projects
+   * @param {LedgerPolicy | undefined} policy
+   * @param {string} list
+   */
   function projectList(user, projects, policy, list) {
     const visible = visibleProjects(user, projects, policy);
     const wantArchived = list === 'archived' && !!(user && user.role === 'owner');
     return visible.filter(p => isArchived(p) === wantArchived);
   }
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @param {string} action
+   */
   function can(user, action) {
     const owner = !!(user && user.role === 'owner');
     if (action === 'owner') return owner;
     if (action === 'manageProject') return owner && user.active === true;
     return false;
   }
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @param {LedgerProject | null | undefined} project
+   * @param {string} action
+   * @returns {string | null}
+   */
   function nextProjectStatus(user, project, action) {
     if (!can(user, 'manageProject') || !project) return null;
     if (action === 'archive') return isArchived(project) ? null : 'archived';
@@ -57,11 +92,22 @@
     return null;
   }
   // Site sees its own entries and expenses on visible projects. Never received/profit totals.
+  /**
+   * @param {LedgerUser} user
+   * @param {readonly LedgerEntry[]} entries
+   * @param {readonly LedgerProject[]} projects
+   * @param {LedgerPolicy} [policy]
+   */
   function visibleEntries(user, entries, projects, policy) {
     const ok = new Set(visibleProjects(user, projects, policy).map(p => p.id));
     return entries.filter(e => ok.has(e.projectId) && (user.role === 'owner' || e.direction === 'expense' || e.createdBy === user.uid));
   }
   // What a user's project card may show. Site: spending only.
+  /**
+   * @param {LedgerUser} user
+   * @param {readonly LedgerEntry[]} entries
+   * @returns {LedgerTotals}
+   */
   function projectSummary(user, entries) {
     const t = totals(entries);
     if (user.role === 'owner') return t;
@@ -73,11 +119,17 @@
   const AMOUNT_MSG = 'المبلغ يجب أن يكون رقماً صحيحاً موجباً';
   const AMOUNT_LIMIT_MSG = 'الحد الأعلى للمبلغ هو 10,000,000,000 د.ع';
 
-  function isPosInt(n) { return Number.isSafeInteger(n) && n > 0 && n <= MAX_AMOUNT_IQD; }
+  /** @param {unknown} n */
+  function isPosInt(n) { return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 && n <= MAX_AMOUNT_IQD; }
 
   // What the amount field accepts. Arabic-Indic digits count as digits.
   // Thousands commas (1,000) stay. A sign, a decimal, or a short group such as
   // 2,5 is invalid — it is not turned into another number.
+  /**
+   * @param {unknown} raw
+   * @param {{ allowZero?: boolean }} [opts]
+   * @returns {AmountResult}
+   */
   function parseAmount(raw, opts) {
     const allowZero = !!(opts && opts.allowZero);
     let text = String(raw == null ? '' : raw).trim();
@@ -98,33 +150,42 @@
 
   // Copy of users/{uid}.displayName. Rules require an exact match and at most 80
   // characters, so a missing or longer name is left off the entry.
+  /** @param {LedgerUser | null | undefined} user */
   function recorderName(user) {
     const name = user && user.displayName;
     if (typeof name !== 'string' || name.length < 1 || name.length > 80) return '';
     return name;
   }
+  /** @param {LedgerEntry | null | undefined} entry */
   function displayRecorder(entry) {
     const name = entry && entry.createdByName;
     return typeof name === 'string' && name.length > 0 ? name : '—';
   }
 
+  /**
+   * @param {LedgerEntry} entry
+   * @param {ValidateCtx} ctx
+   * @returns {string[]}
+   */
   function validateEntry(entry, ctx) {
-    const { user, ledger, projects, policy = DEFAULT_POLICY } = ctx;
+    const { user, ledger: rawLedger, projects: rawProjects, policy = DEFAULT_POLICY } = ctx;
+    const ledger = /** @type {readonly LedgerEntry[]} */ (rawLedger);
+    const projects = /** @type {readonly LedgerProject[]} */ (rawProjects);
     const errs = [];
-    if (!user || !user.active || !['owner', 'site'].includes(user.role)) errs.push('مستخدم غير مسموح');
+    if (!user || !user.active || !['owner', 'site'].includes(/** @type {string} */ (user.role))) errs.push('مستخدم غير مسموح');
     if (!entry.id) errs.push('id مطلوب');
     if (ledger.some(e => e.id === entry.id)) errs.push('DUPLICATE');
     const project = projects.find(p => p.id === entry.projectId);
     if (!project) errs.push('المشروع غير موجود');
     else if (user && !canSeeProject(user, project, policy)) errs.push('مشروع غير مسند');
-    const t = ENTRY_TYPES[entry.entryType];
+    const t = ENTRY_TYPES[/** @type {string} */ (entry.entryType)];
     if (!t) errs.push('نوع غير معروف');
     else if (t.direction !== entry.direction) errs.push('الاتجاه لا يطابق النوع');
-    if (!['income', 'expense'].includes(entry.direction)) errs.push('direction غير صالح');
+    if (!['income', 'expense'].includes(/** @type {string} */ (entry.direction))) errs.push('direction غير صالح');
     if (typeof entry.amount === 'number' && entry.amount > MAX_AMOUNT_IQD) errs.push(AMOUNT_LIMIT_MSG);
     else if (!isPosInt(entry.amount)) errs.push(AMOUNT_MSG);
     if (entry.currency !== 'IQD') errs.push('العملة IQD فقط');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.entryDate || '')) errs.push('entryDate بصيغة YYYY-MM-DD');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.entryDate == null ? '' : String(entry.entryDate))) errs.push('entryDate بصيغة YYYY-MM-DD');
     if ('partyName' in entry && entry.partyName !== undefined) {
       const p = entry.partyName;
       if (typeof p !== 'string' || p.length > 100 || p !== p.trim()) errs.push('الجهة المستلمة غير صالحة');
@@ -152,7 +213,7 @@
       else {
         if (orig.isReversal) errs.push('لا يُعكس قيد عكس');
         if (ledger.some(e => e.isReversal && e.reversesEntryId === orig.id)) errs.push('القيد معكوس مسبقاً');
-        for (const k of ['projectId', 'direction', 'entryType', 'amount']) if (orig[k] !== entry[k]) errs.push('قيد العكس يجب أن ينسخ ' + k);
+        for (const k of /** @type {readonly (keyof LedgerEntry)[]} */ (['projectId', 'direction', 'entryType', 'amount'])) if (orig[k] !== entry[k]) errs.push('قيد العكس يجب أن ينسخ ' + k);
         if (user && user.role === 'site' && !(policy.siteCanReverseOwn && orig.createdBy === user.uid)) errs.push('العكس غير مسموح');
       }
       if (!entry.reversalReason) errs.push('سبب التصحيح مطلوب');
@@ -162,10 +223,19 @@
   }
 
   // Append-only ledger: frozen entries, no update/delete API at all.
+  /**
+   * @param {readonly LedgerEntry[]} [initial]
+   * @returns {LedgerBook}
+   */
   function createLedger(initial = []) {
+    /** @type {LedgerEntry[]} */
     const rows = initial.map(e => Object.freeze({ ...e }));
     return Object.freeze({
       all: () => rows.slice(),
+      /**
+       * @param {LedgerEntry} entry
+       * @param {ValidateCtx} ctx
+       */
       append(entry, ctx) {
         const errs = validateEntry(entry, { ...ctx, ledger: rows });
         if (errs.length) { const err = new Error(errs.join('؛ ')); err.errors = errs; throw err; }
@@ -176,12 +246,15 @@
   }
 
   // Deterministic id => one reversal per original (a 2nd create hits the same doc and is refused).
-  function reversalId(originalId) { return 'rev_' + originalId; }
+  /** @param {string | undefined} originalId */
+  function reversalId(originalId) { return 'rev_' + /** @type {string} */ (originalId); }
   /**
-   * @param {any} orig
-   * @param {{ user: any, reason: any, now: any, deviceId: any, entryDate: any, id?: any }} ctx
+   * @param {LedgerEntry} orig
+   * @param {ReversalCtx} ctx
+   * @returns {LedgerEntry}
    */
   function makeReversal(orig, { user, reason, now, deviceId, entryDate }) {
+    /** @type {LedgerEntry} */
     const row = { id: reversalId(orig.id), projectId: orig.projectId, direction: orig.direction, entryType: orig.entryType,
       amount: orig.amount, currency: 'IQD', entryDate, description: 'تصحيح: ' + (orig.description || ''),
       partyName: orig.partyName || '', isReversal: true, reversesEntryId: orig.id, reversalReason: reason,
@@ -193,42 +266,61 @@
   }
 
   const CSV_COLS = ['id','projectId','projectName','entryDate','direction','entryType','amount','signedAmount','currency','description','partyName','isReversal','reversesEntryId','reversalReason','createdBy','createdByName','createdAtDevice','deviceId'];
+  /** @param {unknown} v */
   function csvCell(v) {
     let s = v == null ? '' : String(v);
     if (/^[=+\-@\t\r]/.test(s) && isNaN(Number(s))) s = "'" + s; // formula-injection guard
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
+  /**
+   * @param {readonly LedgerEntry[]} entries
+   * @param {readonly LedgerProject[]} projects
+   */
   function toCSV(entries, projects) {
     const name = Object.fromEntries(projects.map(p => [p.id, p.name]));
     const lines = [CSV_COLS.join(',')];
     for (const e of entries) {
-      const r = { ...e, projectName: name[e.projectId] || '', signedAmount: e.amount * sign(e) };
-      lines.push(CSV_COLS.map(c => csvCell(r[c])).join(','));
+      const r = { ...e, projectName: name[/** @type {string} */ (e.projectId)] || '', signedAmount: /** @type {number} */ (e.amount) * sign(e) };
+      lines.push(CSV_COLS.map(c => csvCell(/** @type {LedgerEntry} */ (r)[c])).join(','));
     }
     return '\uFEFF' + lines.join('\r\n') + '\r\n'; // BOM so Excel reads Arabic UTF-8
   }
+  /** @param {LedgerUser} user */
   function canExportCSV(user) { return user.role === 'owner' && user.active; }
 
   // Screen totals, the ledger file, and «عرض جميع القيود» share this list.
   // A server rejection is recorded in syncErrors and is left out. An entry
   // still waiting to send has no error, so it stays.
+  /**
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {Record<string, unknown> | null | undefined} errors
+   */
   function countedEntries(entries, errors) {
     const err = errors || {};
-    return (entries || []).filter(e => e && e.id && !err[e.id]);
+    return (entries || []).filter(e => e && e.id && !err[/** @type {string} */ (e.id)]);
   }
+  /** @param {LedgerUser} user */
   function canCreateProject(user) { return user.role === 'owner' && user.active; }
 
+  /** @param {number} n */
   function fmt(n) { return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US'); }
 
   // Agreed, paid, and «مسدّد بالكامل» are derived. Nothing here is stored.
+  /**
+   * @param {number} originalAmount
+   * @param {readonly LedgerEntry[] | null | undefined} amendments
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {string} subcontractId
+   * @returns {SubcontractFigures}
+   */
   function subcontractBalance(originalAmount, amendments, entries, subcontractId) {
     const agreed = originalAmount + (amendments || []).reduce((sum, row) => {
       if (!row || row.subcontractId !== subcontractId || !Number.isInteger(row.amount)) return sum;
-      return sum + row.amount;
+      return sum + /** @type {number} */ (row.amount);
     }, 0);
     const paid = (entries || []).reduce((sum, row) => {
       if (!row || row.entryType !== 'subcontractor' || row.subcontractId !== subcontractId) return sum;
-      return sum + row.amount * sign(row);
+      return sum + /** @type {number} */ (row.amount) * sign(row);
     }, 0);
     const remaining = agreed - paid;
     const ratio = agreed > 0 ? paid / agreed : 0;
@@ -238,6 +330,7 @@
 
   // Baghdad is UTC+3 all year. The ledger date is a separate calendar day, so the
   // recorded value is only the clock. formatToParts keeps the digits stable.
+  /** @param {unknown} ms @returns {string} */
   function baghdadTime(ms) {
     const n = typeof ms === 'number' ? ms : Number(ms);
     if (!Number.isFinite(n)) return '—';
@@ -248,6 +341,7 @@
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hourCycle: 'h23',
     }).formatToParts(d);
+    /** @param {string} type */
     const g = type => {
       const part = parts.find(p => p.type === type);
       return part ? part.value : '';
@@ -258,25 +352,37 @@
   // Fields of one entry the user is already allowed to open.
   // Built from an allowlist: project name, the entry's own columns, and a reversal
   // only when that reversal row is itself visible. Never contract, profit, or totals.
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @param {LedgerEntry | null | undefined} entry
+   * @param {LedgerViewCtx} [ctx]
+   * @returns {ExportField[] | null}
+   */
   function entryExportFields(user, entry, ctx = {}) {
     if (!user || user.active !== true || (user.role !== 'owner' && user.role !== 'site')) return null;
     if (!entry || !entry.id) return null;
-    if (ctx.syncErrors && ctx.syncErrors[entry.id]) return null;
+    if (ctx.syncErrors && ctx.syncErrors[/** @type {string} */ (entry.id)]) return null;
     const projects = ctx.projects || [];
     const entries = ctx.entries || [];
     const visible = visibleEntries(user, entries, projects, ctx.policy || DEFAULT_POLICY);
     const row = visible.find(e => e.id === entry.id);
     if (!row) return null;
     const project = projects.find(p => p.id === row.projectId);
-    const type = ENTRY_TYPES[row.entryType];
+    const type = ENTRY_TYPES[/** @type {string} */ (row.entryType)];
+    /** @type {ExportField[]} */
     const fields = [];
+    /**
+     * @param {string} key
+     * @param {string} label
+     * @param {unknown} value
+     */
     const put = (key, label, value) => {
       fields.push({ key, label, value: value == null || value === '' ? '—' : String(value) });
     };
     put('company', 'الشركة', 'أهل الجزيرة');
     put('projectName', 'المشروع', project && project.name ? project.name : '—');
     put('entryType', 'النوع', type ? type.label : '—');
-    put('amount', 'المبلغ', fmt(row.amount * sign(row)) + ' د.ع');
+    put('amount', 'المبلغ', fmt(/** @type {number} */ (row.amount) * sign(row)) + ' د.ع');
     put('entryDate', 'تاريخ القيد', row.entryDate || '—');
     put('recordedAt', 'وقت التسجيل', baghdadTime(row.createdAtDevice));
     put('recorder', 'سجّله', displayRecorder(row));
@@ -296,6 +402,12 @@
     return fields;
   }
 
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @param {LedgerEntry | null | undefined} entry
+   * @param {LedgerViewCtx} [ctx]
+   * @returns {string | null}
+   */
   function entryToCSV(user, entry, ctx) {
     const fields = entryExportFields(user, entry, ctx);
     if (!fields) return null;
@@ -310,7 +422,12 @@
   // by this many. The rows are already in memory, so a page is not a server read.
   const PROJECT_ENTRY_PAGE = 50;
 
+  /**
+   * @param {LedgerEntry} a
+   * @param {LedgerEntry} b
+   */
   function byNewest(a, b) {
+    /** @param {LedgerEntry} row */
     const stamp = row => (typeof row.createdAtDevice === 'number' && Number.isFinite(row.createdAtDevice) ? row.createdAtDevice : -Infinity);
     const ta = stamp(a), tb = stamp(b);
     if (ta !== tb) return tb - ta;
@@ -321,6 +438,7 @@
     return ia < ib ? 1 : -1;
   }
 
+  /** @param {PageOpts | null | undefined} opts */
   function pageLimit(opts) {
     if (!opts || opts.limit == null) return PROJECT_ENTRY_PAGE;
     const n = opts.limit;
@@ -334,6 +452,13 @@
   // and reversal status. No contractAmount, profit, totals, or another person's
   // client-payment amount. reads is always 0. Pass the IndexedDB/memory cache.
   // This does not query Firestore.
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @param {string} projectId
+   * @param {LedgerViewCtx} [ctx]
+   * @param {PageOpts | null | undefined} [opts]
+   * @returns {{ rows: ProjectListRow[], total: number, reads: number } | null}
+   */
   function projectEntryList(user, projectId, ctx = {}, opts) {
     if (!user || user.active !== true || (user.role !== 'owner' && user.role !== 'site')) return null;
     const projects = ctx.projects || [];
@@ -346,14 +471,14 @@
     const reversed = new Set();
     for (const e of visible) if (e.isReversal && e.reversesEntryId) reversed.add(e.reversesEntryId);
     const rows = visible.slice(0, pageLimit(opts)).map(entry => {
-      const type = ENTRY_TYPES[entry.entryType];
+      const type = ENTRY_TYPES[/** @type {string} */ (entry.entryType)];
       const label = type ? type.label : '—';
       const reversalStatus = entry.isReversal ? 'قيد عكسي' : (reversed.has(entry.id) ? 'معكوس' : '');
       return {
         id: entry.id,
         type: entry.isReversal ? ('تصحيح (قيد عكسي) · ' + label) : label,
-        amount: fmt(entry.amount * sign(entry)) + ' د.ع',
-        entryDate: entry.entryDate || '—',
+        amount: fmt(/** @type {number} */ (entry.amount) * sign(entry)) + ' د.ع',
+        entryDate: /** @type {string} */ (entry.entryDate || '—'),
         recorder: displayRecorder(entry),
         party: entry.partyName ? entry.partyName : '—',
         reversalStatus,
