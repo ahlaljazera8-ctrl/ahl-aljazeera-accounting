@@ -182,7 +182,7 @@ Without these changes, a move that landed and was then resent is first refused (
   set(K.foremanMoves, S.mergeById(get(K.foremanMoves, []), fm.moves, pendingNow));
   set(K.pullWatermark, { ...get(K.pullWatermark, {}), foremen: fm.watermark });
   ```
-  The watermark is a separate key, the same as `subcontracts`.
+  The watermark is a separate key, the same as `subcontracts`. It is one number, `pullWatermark.foremen`, the later `createdAtServer` of `foremen` and `foremanMoves`. The next incremental pull uses that number for both collections. A row in the other collection with an older server time waits for a full pull (`since` null).
 - **The flush `load`** (`:487`) also searches `K.foremen` and `K.foremanMoves`.
 - **`cacheSnapshot` / `writeCache`** (`:300-323`): **include** `foremen` and `foremanMoves`.
   - `dropProjectLocal` then receives them, and has to implement the §5.1 decision explicitly instead of silently losing or keeping rows.

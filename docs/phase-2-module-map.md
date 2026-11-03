@@ -27,6 +27,7 @@ Verified from the file's own header and the names it publishes.
 - `public/dom-safe.js` owns escaping and id checks before a value is placed in an HTML attribute. It publishes `DomSafe`, including `escapeHtml`, `isSafeId`, `projectAttr`, `projectHref`, `entryHref`, and `projectButton`.
 - `public/firebase-client.js` owns the Firebase web client and the outbox flush that calls `Sync`. It publishes `ensureFirebase`, `flushRemote`, `disposeFirebase`, `rebuildFirebase`, `isDeadAuth`, and `isImportFailure`.
 - `public/firebase-config.js` owns the public web client config. It sets `window.FIREBASE_CONFIG`, including `appCheckSiteKey`.
+- `public/foremen.js` owns the foreman list, the detail, and the settle sheet. It publishes `ForemenUI`, including `install` and `onClick`. `render.js` passes it a `RenderApi`.
 - `public/ledger.js` owns the ledger rules and does not touch the DOM. It publishes `Ledger`, including `ENTRY_TYPES`, `can`, `totals`, and `MAX_AMOUNT_IQD` (`10000000000`).
 - `public/render.js` owns the screens and the click handlers. It declares `L` and `POLICY`, and `render` is the screen function.
 - `public/session.js` owns IndexedDB (`aj-p0` and `aj-u-<uid>`), login, and logout. It publishes `get`, `set`, `demoRole`, `enterSession`, and `closeSession`.
