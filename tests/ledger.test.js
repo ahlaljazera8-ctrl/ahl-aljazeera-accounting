@@ -577,3 +577,19 @@ test('a site user records a linked مقاول payment, and a reversal keeps its 
   assert.throws(() => lg.append(E({ entryType: 'materials', subcontractId: 'sc-kahraba' }), { user: owner, projects, subcontracts: subs }), /لعقد المقاول فقط/);
   assert.throws(() => lg.append(E({ entryType: 'subcontractor', subcontractId: 'sc-other', projectId: 'a' }), { user: owner, projects, subcontracts: subs }), /مشروع آخر/);
 });
+
+test('can(user, action) is owner for the owner role and manageProject only when that owner is active', () => {
+  const activeOwner = { uid: 'o', role: 'owner', active: true };
+  const siteUser = { uid: 's', role: 'site', active: true };
+  const inactiveOwner = { uid: 'i', role: 'owner', active: false };
+  assert.equal(L.can(activeOwner, 'owner'), true);
+  assert.equal(L.can(activeOwner, 'manageProject'), true);
+  assert.equal(L.can(siteUser, 'owner'), false);
+  assert.equal(L.can(siteUser, 'manageProject'), false);
+  assert.equal(L.can(inactiveOwner, 'owner'), true);
+  assert.equal(L.can(inactiveOwner, 'manageProject'), false);
+  assert.equal(L.can(null, 'owner'), false);
+  assert.equal(L.can(null, 'manageProject'), false);
+  assert.equal(L.can({ role: 'owner' }, 'manageProject'), false);
+  assert.equal(L.can(activeOwner, 'unknown'), false);
+});
