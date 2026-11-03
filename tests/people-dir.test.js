@@ -70,8 +70,15 @@ test('loadPlan allows one start, then cooldown, and bypasses it for online and r
   assert.equal(PeopleDir.loadPlan({ inflight: false, failedAt: 1000, online: false }, 1001, 'online'), 'offline');
   assert.equal(PeopleDir.loadPlan(base, 1001, 'online'), 'start');
   assert.equal(PeopleDir.loadPlan({ inflight: false, failedAt: 1000, online: false }, 1001, 'retry'), 'start');
+  const fresh = { inflight: false, failedAt: 0, online: true, syncedAt: 1000 };
+  assert.equal(PeopleDir.loadPlan(fresh, 1000 + PeopleDir.SUCCESS_TTL_MS - 1, 'render'), 'fresh');
+  assert.equal(PeopleDir.loadPlan(fresh, 1000 + PeopleDir.SUCCESS_TTL_MS, 'render'), 'start');
+  assert.equal(PeopleDir.loadPlan(fresh, 1001, 'retry'), 'start');
+  assert.equal(PeopleDir.loadPlan(fresh, 1001, 'online'), 'start');
+  assert.equal(PeopleDir.loadPlan({ inflight: false, failedAt: 1000, online: true, syncedAt: 1000 }, 1001, 'render'), 'cooldown');
   assert.equal(PeopleDir.COOLDOWN_MS, 8000);
   assert.equal(PeopleDir.TIMEOUT_MS, 8000);
+  assert.equal(PeopleDir.SUCCESS_TTL_MS, 30000);
 });
 
 test('a stale generation does not replace the previous directory', () => {
@@ -186,10 +193,16 @@ test('a changed directory writes once', async () => {
   assert.equal(PeopleDir.shouldRedraw(result, false), true);
 });
 
-test('offline skips the load and a failure never writes', async () => {
-  const h = harness({ online: false, stored: [row('a')], rows: [row('b')] });
+test('offline does not call ensureFirebase and a failure never writes', async () => {
+  let ensureFirebaseCalls = 0;
+  const h = harness({
+    online: false,
+    stored: [row('a')],
+    load: () => { ensureFirebaseCalls += 1; return Promise.resolve([row('b')]); },
+  });
   const skipped = await h.loader.run('render');
   assert.equal(skipped.skipped, 'offline');
+  assert.equal(ensureFirebaseCalls, 0);
   assert.equal(h.calls.length, 0);
   assert.equal(h.writes.length, 0);
   const failing = harness({
@@ -199,4 +212,85 @@ test('offline skips the load and a failure never writes', async () => {
   await assert.rejects(() => failing.loader.run('render'), /down/);
   assert.equal(failing.writes.length, 0);
   assert.equal(failing.stored()[0].uid, 'a');
+});
+
+test('a retry does not keep an in-flight list from before the save', async () => {
+  /** @type {((rows: any[]) => void) | undefined} */
+  let first;
+  /** @type {((rows: any[]) => void) | undefined} */
+  let second;
+  let n = 0;
+  const h = harness({
+    stored: [row('old')],
+    load: () => new Promise(resolve => {
+      n += 1;
+      if (n === 1) first = resolve;
+      else second = resolve;
+    }),
+  });
+  const background = h.loader.run('render');
+  const save = h.loader.run('retry');
+  assert.notEqual(background, save);
+  assert.equal(h.calls.length, 2);
+  if (!first || !second) throw new Error('both loads should be waiting');
+  first([row('stale')]);
+  second([row('saved', { displayName: 'جديد' })]);
+  const oldResult = await background;
+  const saveResult = await save;
+  assert.equal(oldResult.stale, true);
+  assert.equal(oldResult.changed, false);
+  assert.equal(saveResult.changed, true);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.stored()[0].uid, 'saved');
+  assert.equal(h.stored()[0].displayName, 'جديد');
+});
+
+test('a fresh directory skips render and still loads for retry and online', async () => {
+  const h = harness({ stored: [row('a')], rows: [row('a')] });
+  const first = await h.loader.run('render');
+  assert.equal(first.changed, false);
+  assert.equal(h.calls.length, 1);
+  const again = await h.loader.run('render');
+  assert.equal(again.skipped, 'fresh');
+  assert.equal(h.calls.length, 1);
+  await h.loader.run('retry');
+  assert.equal(h.calls.length, 2);
+  await h.loader.run('online');
+  assert.equal(h.calls.length, 3);
+  h.setNow(10000 + PeopleDir.SUCCESS_TTL_MS);
+  await h.loader.run('render');
+  assert.equal(h.calls.length, 4);
+});
+
+test('a stamped empty directory still offers a retry', () => {
+  assert.equal(PeopleDir.directoryView(0, 5000, true, false), 'retry');
+  assert.equal(PeopleDir.directoryView(0, 5000, false, true), 'retry');
+  assert.equal(PeopleDir.directoryView(0, 0, true, false), 'error');
+  assert.equal(PeopleDir.directoryView(2, 5000, true, false), 'note');
+  assert.equal(PeopleDir.directoryView(0, 5000, false, false), 'ready');
+});
+
+test('the timeout path rejects and a late list does not write', async () => {
+  /** @type {((rows: any[]) => void) | undefined} */
+  let release;
+  const h = harness({
+    timeoutMs: 30,
+    timeout: (p, ms) => {
+      let timer;
+      return Promise.race([
+        p,
+        new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error('timeout'), { timeout: true })), ms); }),
+      ]).finally(() => clearTimeout(timer));
+    },
+    load: () => new Promise(resolve => { release = resolve; }),
+  });
+  await assert.rejects(() => h.loader.run('render'), /timeout/);
+  if (!release) throw new Error('the load should be waiting');
+  release([row('late')]);
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.stamps.length, 0);
+  assert.deepEqual(h.stored(), []);
+  assert.equal(h.loader.failed(), true);
 });

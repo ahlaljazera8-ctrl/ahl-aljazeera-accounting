@@ -9,6 +9,7 @@
 
   const TIMEOUT_MS = 8000;
   const COOLDOWN_MS = 8000;
+  const SUCCESS_TTL_MS = 30000;
 
   /**
    * @param {PeopleRow | null | undefined} row
@@ -53,7 +54,7 @@
    * @param {PeopleLoadState | null | undefined} state
    * @param {number} now
    * @param {string} reason
-   * @returns {'inflight' | 'offline' | 'cooldown' | 'start'}
+   * @returns {'inflight' | 'offline' | 'cooldown' | 'fresh' | 'start'}
    */
   function loadPlan(state, now, reason) {
     const s = state || {};
@@ -62,7 +63,24 @@
     if (!s.online) return 'offline';
     if (reason === 'online') return 'start';
     if (s.failedAt && now - s.failedAt < COOLDOWN_MS) return 'cooldown';
+    if (!s.failedAt && s.syncedAt && now - s.syncedAt < SUCCESS_TTL_MS) return 'fresh';
     return 'start';
+  }
+
+  /**
+   * An empty list keeps a retry even when a stamp is stored.
+   * A non-empty list keeps the note. A live load shows the rows.
+   * @param {number} count
+   * @param {number} stamp
+   * @param {boolean} offline
+   * @param {boolean} failed
+   * @returns {'ready' | 'note' | 'retry' | 'error'}
+   */
+  function directoryView(count, stamp, offline, failed) {
+    if (!offline && !failed) return 'ready';
+    if (count > 0) return 'note';
+    if (stamp > 0) return 'retry';
+    return 'error';
   }
 
   /**
@@ -110,18 +128,27 @@
     /** @type {Promise<PeopleLoadResult> | null} */
     let inflight = null;
     let failedAt = 0;
+    let syncedAt = 0;
     const timeoutMs = deps.timeoutMs || TIMEOUT_MS;
+
+    function retireInflight() {
+      generation += 1;
+      inflight = null;
+    }
 
     /**
      * @param {string} [reason]
      * @returns {Promise<PeopleLoadResult>}
      */
     function run(reason) {
+      const why = reason || 'render';
+      if (why === 'retry' && inflight) retireInflight();
       const plan = loadPlan({
         inflight: inflight !== null,
         failedAt: failedAt,
+        syncedAt: syncedAt,
         online: deps.online() === true,
-      }, deps.now(), reason || 'render');
+      }, deps.now(), why);
       if (plan === 'inflight' && inflight) return inflight;
       if (plan !== 'start') return Promise.resolve({ skipped: plan, changed: false });
       const token = ++generation;
@@ -131,7 +158,8 @@
         const applied = applyPeople(token, generation, deps.read(), /** @type {PeopleRow[] | null | undefined} */ (rows));
         if (applied.stale) return { stale: true, changed: false };
         if (applied.changed) deps.write(applied.next);
-        deps.stamp(deps.now());
+        syncedAt = deps.now();
+        deps.stamp(syncedAt);
         failedAt = 0;
         return { stale: false, changed: applied.changed };
       }).catch(err => {
@@ -147,18 +175,17 @@
 
     function failed() { return failedAt > 0; }
 
-    function bump() { generation += 1; }
-
     function reset() {
       generation += 1;
       failedAt = 0;
+      syncedAt = 0;
       inflight = null;
     }
 
-    return { run, failed, bump, reset };
+    return { run, failed, reset };
   }
 
   return {
-    TIMEOUT_MS, COOLDOWN_MS, samePeople, loadPlan, acceptGeneration, applyPeople, shouldRedraw, createLoader,
+    TIMEOUT_MS, COOLDOWN_MS, SUCCESS_TTL_MS, samePeople, loadPlan, directoryView, acceptGeneration, applyPeople, shouldRedraw, createLoader,
   };
 });

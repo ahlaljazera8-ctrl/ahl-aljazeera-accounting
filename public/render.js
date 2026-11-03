@@ -232,13 +232,13 @@ function peopleNote() {
 }
 function peopleFrame(inner) {
   const list = userRows();
-  const offline = navigator.onLine === false;
-  const failed = peopleLoader.failed();
-  if (!offline && !failed) return inner;
   const stamp = Number(get(K.peopleSynced, 0));
-  const cached = list.length > 0 || (Number.isFinite(stamp) && stamp > 0);
-  if (!cached) return '<div class="card" id="people-error"><p>تعذّر تحميل الأشخاص. تحقّق من الاتصال.</p><button type="button" class="btn" id="people-retry">إعادة المحاولة</button></div>';
-  return peopleNote() + inner;
+  const view = PeopleDir.directoryView(list.length, Number.isFinite(stamp) && stamp > 0 ? stamp : 0, navigator.onLine === false, peopleLoader.failed());
+  const retry = '<button type="button" class="btn" id="people-retry">إعادة المحاولة</button>';
+  if (view === 'error') return '<div class="card" id="people-error"><p>تعذّر تحميل الأشخاص. تحقّق من الاتصال.</p>' + retry + '</div>';
+  if (view === 'retry') return peopleNote() + retry + inner;
+  if (view === 'note') return peopleNote() + inner;
+  return inner;
 }
 function refreshDirectory(reason) {
   if (demoRole()) return;

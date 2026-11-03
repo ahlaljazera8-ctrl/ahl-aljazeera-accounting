@@ -705,6 +705,7 @@ interface PeopleRow {
 interface PeopleLoadState {
   inflight?: boolean;
   failedAt?: number;
+  syncedAt?: number;
   online?: boolean;
 }
 
@@ -734,19 +735,20 @@ interface PeopleLoaderDeps {
 interface PeopleLoader {
   run(reason?: string): Promise<PeopleLoadResult>;
   failed(): boolean;
-  bump(): void;
   reset(): void;
 }
 
 interface PeopleDirApi {
   TIMEOUT_MS: number;
   COOLDOWN_MS: number;
+  SUCCESS_TTL_MS: number;
   samePeople(a: readonly PeopleRow[] | null | undefined, b: readonly PeopleRow[] | null | undefined): boolean;
   loadPlan(
     state: PeopleLoadState | null | undefined,
     now: number,
     reason: string,
-  ): 'inflight' | 'offline' | 'cooldown' | 'start';
+  ): 'inflight' | 'offline' | 'cooldown' | 'fresh' | 'start';
+  directoryView(count: number, stamp: number, offline: boolean, failed: boolean): 'ready' | 'note' | 'retry' | 'error';
   acceptGeneration(token: number, current: number): boolean;
   applyPeople(
     token: number,
@@ -790,7 +792,6 @@ declare var db: IDBDatabase | null;
 declare var writing: Promise<unknown>;
 declare var sessionEpoch: number;
 declare var deviceId: string | undefined;
-declare var directoryPromise: Promise<unknown> | null;
 declare var syncNotice: string;
 declare var REPAIR_MSG: string;
 declare var SUSPENDED_MSG: string;
