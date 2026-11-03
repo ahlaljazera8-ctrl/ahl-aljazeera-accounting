@@ -134,7 +134,15 @@ const me = () => {
   return get(K.users, []).find(u => u.uid === (role === 'site' ? 'u-ahmed' : 'u-ameer'));
 };
 function markReady() { if (document.body) document.body.dataset.ready = '1'; }
-const showLogin = () => { const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = false; $('#shell').hidden = true; markReady(); };
+function clearLoginForm() {
+  const form = $('#login-form');
+  if (form instanceof HTMLFormElement) form.reset();
+  const email = $('#login-email');
+  const password = $('#login-password');
+  if (email instanceof HTMLInputElement) email.value = '';
+  if (password instanceof HTMLInputElement) password.value = '';
+}
+const showLogin = () => { clearLoginForm(); const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = false; $('#shell').hidden = true; markReady(); };
 const showApp = () => { const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = true; $('#shell').hidden = false; };
 function profileFrom(uid, data) {
   return { uid, displayName: data.displayName || '', email: data.email || '', role: data.role, active: data.active === true,
