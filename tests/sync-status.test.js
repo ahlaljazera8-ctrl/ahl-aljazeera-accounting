@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const Sync = require('../public/sync.js');
 const Status = require('../public/sync-status.js');
 
@@ -234,17 +236,90 @@ test('an empty note survives toRemote and collectionFor uses the shared move con
   assert.deepEqual(Sync.foremanReads(owner, null).map(spec => spec.collection), [Sync.FOREMEN, Sync.FOREMAN_MOVES]);
 });
 
+test('an undefined note is an empty string before upload', () => {
+  const row = move();
+  delete row.note;
+  const remote = Sync.toRemote(row);
+  assert.equal(remote.note, '');
+  assert.equal(Sync.withServerTime(row, 1).note, '');
+  const person = foreman();
+  delete person.note;
+  assert.equal(Sync.toRemote(person).note, '');
+  const blank = foreman({ note: null });
+  assert.equal(Sync.toRemote(blank).note, '');
+});
+
+test('S3 a numeric since adds createdAtServer to both foreman reads', () => {
+  const owner = { uid: 'o', role: 'owner', active: true };
+  const since = 1700000000000;
+  const specs = Sync.foremanReads(owner, since);
+  assert.deepEqual(specs.map(spec => spec.collection), [Sync.FOREMEN, Sync.FOREMAN_MOVES]);
+  specs.forEach(spec => {
+    assert.deepEqual(spec.where, [['createdAtServer', '>=', since]]);
+  });
+  assert.equal(Sync.foremanReads(owner, null)[0].where.length, 0);
+});
+
+test('S4 pullForemen tags rows, keeps a pending id, and advances the watermark', async () => {
+  const owner = { uid: 'o', role: 'owner', active: true };
+  const result = await Sync.pullForemen({
+    user: owner,
+    since: 1000,
+    read: async spec => {
+      if (spec.collection === Sync.FOREMEN) {
+        return [
+          { id: 'fm1', name: 'حسن', createdAtServer: 2000 },
+          { id: 'fm-pending', name: 'من الخادم', createdAtServer: 1500 },
+        ];
+      }
+      return [{ id: 'mv1', foremanId: 'fm1', kind: 'advance', amount: 10, createdAtServer: 1800 }];
+    },
+  });
+  assert.equal(result.foremen.length, 2);
+  assert.equal(result.foremen.every(row => row.docType === 'foreman'), true);
+  assert.equal(result.moves.length, 1);
+  assert.equal(result.moves[0].docType, 'foremanMove');
+  assert.equal(result.watermark, 2000);
+  const merged = Sync.mergeById([{ id: 'fm-pending', name: 'محلي' }], result.foremen, ['fm-pending']);
+  const pending = merged.find(row => row.id === 'fm-pending');
+  assert.equal(pending && pending.name, 'محلي');
+  assert.equal(merged.some(row => row.id === 'fm1' && row.docType === 'foreman'), true);
+});
+
+test('T-FC1 writeLocal uses putIfMissing for foremen and moves', () => {
+  assert.equal(Sync.usesPutIfMissing(Sync.FOREMEN), true);
+  assert.equal(Sync.usesPutIfMissing(Sync.FOREMAN_MOVES), true);
+  assert.equal(Sync.usesPutIfMissing('subcontracts'), true);
+  assert.equal(Sync.usesPutIfMissing('subcontractAmendments'), true);
+  assert.equal(Sync.usesPutIfMissing('ledgerEntries'), false);
+  assert.equal(Sync.usesPutIfMissing('projects'), false);
+  const src = fs.readFileSync(path.join(__dirname, '../public/firebase-client.js'), 'utf8');
+  const start = src.indexOf('async writeLocal');
+  const body = src.slice(start, src.indexOf('async updateProjectStatus', start));
+  assert.match(body, /usesPutIfMissing\(col\)/);
+  assert.match(body, /this\.putIfMissing\(col,/);
+});
+
 test('staleness follows lastSyncAt, not a pull watermark', () => {
   const Ledger = require('../public/ledger.js');
   const now = 1700000000000;
-  const dayAgo = now - 24 * 60 * 60 * 1000;
-  const fresh = Ledger.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: now, nowMs: now });
+  const minute = 60 * 1000;
+  const fresh = Ledger.settleGuard('fm1', {
+    outbox: [], moves: [], entries: [],
+    lastSyncMs: now - 5 * minute,
+    nowMs: now,
+    watermark: now - 24 * 60 * minute,
+  });
   assert.equal(fresh.stale, false);
-  assert.equal(fresh.lastSync, now);
-  const sinceOpen = Ledger.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: 0, nowMs: now });
-  assert.equal(sinceOpen.stale, true);
-  assert.equal(sinceOpen.lastSync, null);
-  assert.notEqual(dayAgo, fresh.lastSync);
+  assert.equal(fresh.lastSync, now - 5 * minute);
+  const stale = Ledger.settleGuard('fm1', {
+    outbox: [], moves: [], entries: [],
+    lastSyncMs: now - 11 * minute,
+    nowMs: now,
+    watermark: now,
+  });
+  assert.equal(stale.stale, true);
+  assert.equal(stale.lastSync, now - 11 * minute);
 });
 
 test('readRemote loads the 13.1.0 gstatic Firestore build', async () => {

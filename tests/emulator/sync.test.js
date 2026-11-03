@@ -30,6 +30,7 @@ function localHost(name) {
 let testEnv;
 let clientDb;
 let siteUid;
+let ownerUid;
 let online = true;
 
 async function ensureUser(auth, email) {
@@ -98,7 +99,7 @@ test.before(async () => {
   connectFirestoreEmulator(clientDb, fsHost.host, fsHost.port);
 
   const owner = await ensureUser(auth, 'owner.sync@example.invalid');
-  const ownerUid = owner.user.uid;
+  ownerUid = owner.user.uid;
   await signOut(auth);
   const site = await ensureUser(auth, 'site.sync@example.invalid');
   siteUid = site.user.uid;
@@ -204,6 +205,58 @@ test('an existing server document is synced only when its content matches', { ti
   const rows = (await serverRows()).filter(r => r.id === id);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].amount, 1000);
+});
+
+test('a foreman move, its reversal, and an entry with foremanId reach the server', { timeout: 40000 }, async () => {
+  const fsHost = localHost('FIRESTORE_EMULATOR_HOST');
+  const authHost = localHost('FIREBASE_AUTH_EMULATOR_HOST');
+  const app = initializeApp({ apiKey: 'demo', projectId: PROJECT, authDomain: 'localhost' }, 'foreman-sync');
+  const auth = getAuth(app);
+  connectAuthEmulator(auth, 'http://' + authHost.host + ':' + authHost.port, { disableWarnings: true });
+  const db = getFirestore(app);
+  connectFirestoreEmulator(db, fsHost.host, fsHost.port);
+  await signInWithEmailAndPassword(auth, 'owner.sync@example.invalid', PASS);
+
+  const foremanId = 'fm-' + crypto.randomUUID();
+  const moveId = 'mv-' + crypto.randomUUID();
+  const entryId = 'fe-' + crypto.randomUUID();
+  const person = { id: foremanId, docType: 'foreman', name: 'حسن', createdBy: ownerUid };
+  const move = {
+    id: moveId, docType: 'foremanMove', foremanId, kind: 'advance', amount: 1000,
+    date: '2026-11-03', isReversal: false, createdAtDevice: Date.now(), createdBy: ownerUid, deviceId: 'phone-1',
+  };
+  const reversal = {
+    id: 'rev_' + moveId, docType: 'foremanMove', foremanId, kind: 'advance', amount: 1000,
+    date: '2026-11-03', note: '', isReversal: true, reversesMoveId: moveId, reversalReason: 'تصحيح',
+    createdAtDevice: Date.now(), createdBy: ownerUid, deviceId: 'phone-1',
+  };
+  const spent = entry(ownerUid, entryId, { foremanId, amount: 400, description: 'مواد عهدة' });
+  const local = new Map([[person.id, person], [move.id, move], [reversal.id, reversal], [spent.id, spent]]);
+  online = true;
+  const delivered = await flush(db, [person.id, move.id, reversal.id, spent.id], id => local.get(id) || null);
+  assert.deepEqual(delivered.failed, []);
+  assert.deepEqual(delivered.synced, [person.id, move.id, reversal.id, spent.id]);
+
+  const storedPerson = await getDocFromServer(doc(db, 'foremen', foremanId));
+  const storedMove = await getDocFromServer(doc(db, 'foremanMoves', moveId));
+  const storedReversal = await getDocFromServer(doc(db, 'foremanMoves', reversal.id));
+  const storedEntry = await getDocFromServer(doc(db, 'ledgerEntries', entryId));
+  assert.equal(storedPerson.exists(), true);
+  assert.equal(storedMove.exists(), true);
+  assert.equal(storedReversal.exists(), true);
+  assert.equal(storedEntry.exists(), true);
+  assert.equal(storedPerson.data().note, '');
+  assert.equal(storedPerson.data().docType, undefined);
+  assert.equal(storedMove.data().note, '');
+  assert.equal(storedMove.data().kind, 'advance');
+  assert.equal(storedMove.data().amount, 1000);
+  assert.equal(storedMove.data().docType, undefined);
+  assert.equal(storedReversal.data().isReversal, true);
+  assert.equal(storedReversal.data().reversesMoveId, moveId);
+  assert.equal(storedReversal.data().foremanId, foremanId);
+  assert.equal(storedEntry.data().foremanId, foremanId);
+  assert.equal(storedEntry.data().amount, 400);
+  assert.equal(storedEntry.data().createdBy, ownerUid);
 });
 
 test('seed and example rows in the outbox are not uploaded', { timeout: 30000 }, async () => {

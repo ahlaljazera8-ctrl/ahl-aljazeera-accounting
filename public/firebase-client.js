@@ -155,11 +155,7 @@ async function loadFirebase() {
         }
         return;
       }
-      if (col === 'subcontractAmendments') {
-        await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
-        return;
-      }
-      if (col === S.FOREMEN || col === S.FOREMAN_MOVES) {
+      if (S.usesPutIfMissing(col)) {
         await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
         return;
       }

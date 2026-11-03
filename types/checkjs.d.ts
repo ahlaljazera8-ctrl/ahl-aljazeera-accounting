@@ -429,6 +429,7 @@ interface LedgerApi {
       entries?: readonly LedgerEntry[] | null;
       lastSyncMs?: number | null;
       nowMs: number;
+      watermark?: unknown;
     },
   ): SettleGuard;
 }
@@ -629,6 +630,7 @@ interface SyncApi {
   }>;
   FOREMEN: string;
   FOREMAN_MOVES: string;
+  usesPutIfMissing(col: string | null | undefined): boolean;
   foremanReads(user: SyncUser | null | undefined, since: unknown): readonly ReadSpec[];
   pullForemen(opts: SubPull): Promise<{
     foremen: SyncDoc[];

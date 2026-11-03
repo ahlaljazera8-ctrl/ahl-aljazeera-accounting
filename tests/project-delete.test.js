@@ -116,6 +116,34 @@ test('the deleting phone also drops its own unsent rows for that project', () =>
   assert.equal(store().entries.some(e => e.id === 'del-pay'), true);
 });
 
+test('permanent delete leaves the foreman, every move, and the balance', () => {
+  const src = store();
+  /** @type {ForemanMove[]} */
+  const moves = [
+    { id: 'mv1', foremanId: 'fm1', kind: 'advance', amount: 100000, isReversal: false, docType: 'foremanMove' },
+    { id: 'mv2', foremanId: 'fm1', kind: 'return', amount: 25000, isReversal: false, docType: 'foremanMove' },
+  ];
+  /** @type {SyncDoc[]} */
+  const foremen = [{ id: 'fm1', name: 'حسن', projectId: 'p-del', docType: 'foreman' }];
+  const spent = {
+    id: 'keep-fm', projectId: 'p-keep', direction: 'expense', entryType: 'materials',
+    amount: 15000, isReversal: false, foremanId: 'fm1',
+  };
+  /** @type {LedgerEntry[]} */
+  const entries = src.entries.concat([spent]);
+  const before = Ledger.foremanBalance('fm1', moves, entries);
+  const packed = /** @type {LocalStore} */ (/** @type {unknown} */ (Object.assign({}, src, { entries, foremen, foremanMoves: moves })));
+  const next = Sync.dropProjectLocal(packed, 'p-del', { dropPending: true });
+  assert.deepEqual(next.foremen, foremen);
+  assert.deepEqual(next.foremanMoves, moves);
+  assert.equal(next.projects.some(p => p.id === 'p-del'), false);
+  assert.equal(next.entries.some(row => row.id === 'keep-fm'), true);
+  const after = Ledger.foremanBalance('fm1', moves, next.entries);
+  assert.deepEqual(after, before);
+  assert.equal(after.held, 60000);
+  assert.equal(after.state, 'holding');
+});
+
 test('dropping a project keeps foremen and foreman moves, and the server delete list omits them', () => {
   const src = store();
   src.foremen = [{ id: 'fm1', name: 'حسن', projectId: 'p-del' }];

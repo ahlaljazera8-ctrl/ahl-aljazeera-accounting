@@ -51,12 +51,16 @@ jobs:
           node-version: 26.13.0
       - name: secret-guard
         run: bash scripts/secret-guard.sh
+      - name: install
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
       - name: node --test tests/ledger.test.js
         shell: bash
         run: |
           set +e
           set -o pipefail
-          node --test tests/ledger.test.js tests/dom-safe.test.js tests/sync-status.test.js tests/appcheck.test.js tests/rules-constant.test.js tests/secret-guard.test.js tests/owner-access.test.js tests/chrome-debug.test.js tests/sw-version-guard.test.js | tee "$RUNNER_TEMP/unit.txt"
+          node --test tests/ledger.test.js tests/dom-safe.test.js tests/sync-status.test.js tests/appcheck.test.js tests/rules-constant.test.js tests/secret-guard.test.js tests/owner-access.test.js tests/chrome-debug.test.js tests/sw-version-guard.test.js tests/strict-sync-status.test.js | tee "$RUNNER_TEMP/unit.txt"
           status=${PIPESTATUS[0]}
           set -e
           pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/unit.txt" | tail -1 | grep -oE '[0-9]+$' || true)

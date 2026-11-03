@@ -14,6 +14,11 @@
   const FOREMEN = 'foremen';
   const FOREMAN_MOVES = 'foremanMoves';
 
+  /** @param {string | null | undefined} col */
+  function usesPutIfMissing(col) {
+    return col === 'subcontracts' || col === 'subcontractAmendments' || col === FOREMEN || col === FOREMAN_MOVES;
+  }
+
   /** @param {SyncDoc | null | undefined} doc @returns {string | null} */
   function collectionFor(doc) {
     if (!doc) return null;
@@ -40,10 +45,16 @@
     return out;
   }
 
+  /** @param {SyncDoc} out @returns {SyncDoc} */
+  function blankNote(out) {
+    if (out.note == null) out.note = '';
+    return out;
+  }
+
   /** @param {SyncDoc} doc @returns {SyncDoc} */
   function toRemote(doc) {
-    if (doc.docType === 'foreman') return copyFields(doc, ['id', 'name', 'note', 'projectId', 'createdBy']);
-    if (doc.docType === 'foremanMove') return copyFields(doc, ['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdBy', 'deviceId']);
+    if (doc.docType === 'foreman') return blankNote(copyFields(doc, ['id', 'name', 'note', 'projectId', 'createdBy']));
+    if (doc.docType === 'foremanMove') return blankNote(copyFields(doc, ['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdBy', 'deviceId']));
     if (doc.entryType) {
       const out = copyFields(doc, ['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdAtDevice', 'createdBy', 'deviceId']);
       if (doc.description) out.description = doc.description;
@@ -630,7 +641,7 @@
 
   return {
     isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
-    FOREMEN, FOREMAN_MOVES, foremanReads, pullForemen,
+    FOREMEN, FOREMAN_MOVES, usesPutIfMissing, foremanReads, pullForemen,
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
     readSetKey, readSetChanged, stripMoney, termsPayload, subcontractReads, pullSubcontracts,
     exactProjectName, projectDeleteDocs, projectDeleteBatches, missingRequestedIds, dropProjectLocal,
