@@ -49,8 +49,8 @@ Each line is a trigger from that skill's own file. The wording is the source wor
 - "Use when you run a benchmark or report a speedup or regression you measured.": use `benchmark-checklist`
 - "Use this when you produce a performance number: a PR's before and after, a regression claim, a hillclimb harness, or a library or config choice.": use `benchmark-checklist`
 - "For a quick ballpark the user asked for": use `benchmark-checklist`
-- "Vet the Perf issue playbook's baseline before the playbook plans from it, and every number after that.": use `benchmark-checklist`
-- "Vet the Hillclimb playbook's harness before it is frozen.": use `benchmark-checklist`
+- "Vet the **Perf issue** playbook's baseline before the playbook plans from it, and every number after that.": use `benchmark-checklist`
+- "Vet the **Hillclimb** playbook's harness before it is frozen. The frozen harness then prints error and work counts, so each keep-or-revert checks questions 4 and 7 for free.": use `benchmark-checklist`
 - "Running a benchmark, measuring perf yourself, or reporting a speedup or regression you measured": use `benchmark-checklist`
 - "A reported defect to reproduce, root-cause, and fix with runtime evidence.": use `bug-fix`
 - "Read-only question: how does X work, why was Y built this way, are we sure about Z, should we do X or Y.": use `investigation`
