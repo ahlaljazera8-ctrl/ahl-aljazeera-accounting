@@ -24,14 +24,15 @@ const CSP_VIOLATION = /content security policy|refused to .* because it violates
 
 // Production allowlist: gstatic modules, Auth/Firestore under *.googleapis.com,
 // and the Auth iframe (gapi + the project's authDomain). connect-src includes
-// https://apis.google.com so the gapi gen_204 beacon is not blocked.
+// https://apis.google.com and https://www.google.com because a followed gen_204
+// GET redirects there.
 // style-src allows 'unsafe-inline' because the ledger renders style attributes.
 // Loopback emulator origins are not part of this policy. The emulator job
 // serves a copy that adds them; see scripts/emulator-csp-config.js.
 const PRODUCTION_CSP = [
   "default-src 'self'",
   "script-src 'self' https://www.gstatic.com https://apis.google.com",
-  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://apis.google.com",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://apis.google.com https://www.google.com",
   "img-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "frame-src https://ahl-aljazeera-accounting.firebaseapp.com",
@@ -43,7 +44,7 @@ const PRODUCTION_CSP = [
 const EMULATOR_CSP = [
   "default-src 'self'",
   "script-src 'self' https://www.gstatic.com https://apis.google.com",
-  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://apis.google.com http://127.0.0.1:9099 http://127.0.0.1:8080",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://apis.google.com https://www.google.com http://127.0.0.1:9099 http://127.0.0.1:8080",
   "img-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "frame-src https://ahl-aljazeera-accounting.firebaseapp.com http://127.0.0.1:9099",
@@ -308,9 +309,7 @@ test('security headers still let the app boot, log in, sync an entry, and regist
 
     const beaconBefore = (await session.ev(`window.__cspViolations.slice()`)).length;
     const logBefore = session.violations.length;
-    // redirect:manual stays on apis.google.com. A followed GET 302s to
-    // www.google.com, which this policy does not allow.
-    await session.ev(`fetch('https://apis.google.com/js/gen_204', { mode: 'no-cors', cache: 'no-store', redirect: 'manual' }).then(() => 1, () => 1)`);
+    await session.ev(`fetch('https://apis.google.com/js/gen_204', { mode: 'no-cors', cache: 'no-store' }).then(() => 1, () => 1)`);
     await sleep(500);
     const beaconAdded = (await session.ev(`window.__cspViolations.slice()`)).slice(beaconBefore)
       .concat(session.violations.slice(logBefore));
