@@ -186,8 +186,7 @@ async function savePerson(u) {
     else {
       const fb = await ensureFirebase();
       await fb.saveUser(built.value.uid, built.value, existing);
-      directoryPromise = null;
-      await ensureDirectory();
+      await ensureDirectory('retry');
       const fresh = get(K.users, []).find(x => x.uid === built.value.uid) || storePerson(built.value, existing, u);
       if (get(K.sessionUser, null) && get(K.sessionUser).uid === built.value.uid) set(K.sessionUser, Object.assign({}, get(K.sessionUser), fresh));
     }
@@ -197,12 +196,60 @@ async function savePerson(u) {
     if (msg) msg.textContent = 'تعذر حفظ الشخص';
   }
 }
-function ensureDirectory() {
-  if (demoRole()) return Promise.resolve();
-  if (!directoryPromise) {
-    directoryPromise = ensureFirebase().then(fb => fb.listUsers()).then(rows => { set(K.users, rows || []); }).catch(err => { directoryPromise = null; throw err; });
+function userRows() {
+  const raw = get(K.users, []);
+  return Array.isArray(raw) ? raw : [];
+}
+const peopleLoader = PeopleDir.createLoader({
+  now: () => Date.now(),
+  online: () => navigator.onLine !== false,
+  timeoutMs: PeopleDir.TIMEOUT_MS,
+  timeout: (p, ms) => withTimeout(p, ms, 'الأشخاص'),
+  load: () => ensureFirebase().then(fb => fb.listUsers()),
+  read: () => userRows(),
+  write: rows => { set(K.users, rows || []); },
+  stamp: ms => { set(K.peopleSynced, ms); },
+});
+let peopleUid = '';
+function ensureDirectory(reason) {
+  if (demoRole()) return Promise.resolve({ skipped: 'demo', changed: false });
+  const session = /** @type {{ uid?: string } | null} */ (get(K.sessionUser, null));
+  const uid = session && session.uid ? session.uid : '';
+  if (uid !== peopleUid) {
+    peopleLoader.reset();
+    peopleUid = uid;
   }
-  return directoryPromise;
+  return peopleLoader.run(reason || 'render');
+}
+function peopleViewOpen() {
+  const view = (location.hash.slice(1) || 'home').split('/')[0];
+  return view === 'people' || view === 'person';
+}
+function peopleNote() {
+  const stamp = Number(get(K.peopleSynced, 0));
+  const when = Number.isFinite(stamp) && stamp > 0 ? formatSyncTime(stamp) : '—';
+  return '<p class="note" id="people-sync">غير متصل · آخر تحديث: <bdi class="num">' + esc(when) + '</bdi></p>';
+}
+function peopleFrame(inner) {
+  const list = userRows();
+  const offline = navigator.onLine === false;
+  const failed = peopleLoader.failed();
+  if (!offline && !failed) return inner;
+  const stamp = Number(get(K.peopleSynced, 0));
+  const cached = list.length > 0 || (Number.isFinite(stamp) && stamp > 0);
+  if (!cached) return '<div class="card" id="people-error"><p>تعذّر تحميل الأشخاص. تحقّق من الاتصال.</p><button type="button" class="btn" id="people-retry">إعادة المحاولة</button></div>';
+  return peopleNote() + inner;
+}
+function refreshDirectory(reason) {
+  if (demoRole()) return;
+  const u = me();
+  if (!u || !L.can(u, 'owner')) return;
+  const banner = !!(document.querySelector('#people-sync') || document.querySelector('#people-error'));
+  ensureDirectory(reason).then(r => {
+    if (PeopleDir.shouldRedraw(r, banner) && peopleViewOpen()) render();
+  }).catch(() => {
+    if (peopleViewOpen()) render();
+  });
 }
 
 function commit(entry) {
@@ -473,19 +520,19 @@ const views = {
   people() {
     const u = me();
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
-    const rows = get(K.users, []).map(personLink).join('');
-    return `<div class="card"><p class="note">${esc(UID_HELP)}</p></div>${rows}<a class="btn" href="#person">إضافة شخص</a>`;
+    const rows = userRows().map(personLink).join('');
+    return peopleFrame(`<div class="card"><p class="note">${esc(UID_HELP)}</p></div>${rows}<a class="btn" href="#person">إضافة شخص</a>`);
   },
   person(uid) {
     const u = me();
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     if (uid && !(window.DomSafe && DomSafe.isSafeId(uid))) return '<div class="card">معرّف غير صالح</div>';
-    const existing = uid ? get(K.users, []).find(x => x.uid === uid) : null;
+    const existing = uid ? userRows().find(x => x.uid === uid) : null;
     const person = existing || { uid: uid || '', displayName: '', email: '', role: 'site', active: true, assignedProjectIds: [] };
     const projects = get(K.projects, []);
     const boxes = projects.map(p => assignBox(p, (person.assignedProjectIds || []).includes(p.id))).join('');
     const locked = uid ? ' readonly' : '';
-    return `<div class="card"><p class="note">${esc(UID_HELP)}</p>
+    return peopleFrame(`<div class="card"><p class="note">${esc(UID_HELP)}</p>
       <label class="field">معرّف المستخدم (User UID)<input id="person-uid" class="full" maxlength="64" autocomplete="off" value="${esc(person.uid)}"${locked}></label>
       <label class="field">الاسم<input id="person-name" class="full" maxlength="80" value="${esc(person.displayName)}"></label>
       <label class="field">البريد<input id="person-email" class="full" maxlength="200" value="${esc(person.email)}"></label>
@@ -495,7 +542,7 @@ const views = {
       <p class="note">اختر كل مشروع بالاسم. التعيين يقتصر على المشاريع المحددة.</p>
       ${boxes || '<div class="note">لا توجد مشاريع بعد.</div>'}
       <button type="button" class="btn" id="save-person">حفظ</button>
-      <div id="person-msg" class="msg">${esc(state.personMsg || '')}</div></div>`;
+      <div id="person-msg" class="msg">${esc(state.personMsg || '')}</div></div>`);
   },
   detail(id) {
     const { projects, entries } = data();
@@ -864,7 +911,7 @@ function setFormMsg(text, kind) {
   if (state.formMsgKind === 'saved') box.innerHTML = '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>';
   else box.textContent = state.formMsg;
 }
-function render() {
+function renderScreen() {
   captureForm();
   if (state.dropForeman) {
     state.foremanId = '';
@@ -903,14 +950,6 @@ function render() {
   const foremanTab = v === 'foremen' || v === 'foreman' || v === 'foremannew' || v === 'foremanmove';
   const tab = foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
-  if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person') && !directoryPromise) {
-    $('#title').textContent = titles[v] || 'الأشخاص';
-    $('#main').innerHTML = '<div class="card">' + esc('جارٍ تحميل الأشخاص') + '</div>';
-    ensureDirectory().then(() => { if (me() && L.can(me(), 'owner')) render(); }).catch(() => {
-      const main = $('#main'); if (main) main.innerHTML = '<div class="card">' + esc('تعذر تحميل الأشخاص') + '</div>';
-    });
-    return;
-  }
   const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
   let heading = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
   if (v === 'sub' || v === 'amend') {
@@ -924,6 +963,20 @@ function render() {
   else if (v === 'foremannew') heading = 'خلفة جديد';
   $('#title').textContent = heading;
   $('#main').innerHTML = views[v](arg) + confirmDialog();
+  if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person')) refreshDirectory('render');
+}
+function render() {
+  try { renderScreen(); }
+  catch {
+    const main = $('#main');
+    if (!main) return;
+    main.textContent = '';
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.id = 'render-error';
+    card.textContent = 'حدث خطأ في العرض. أعد فتح الصفحة.';
+    main.appendChild(card);
+  }
 }
 
 document.addEventListener('click', ev => {
@@ -964,7 +1017,11 @@ document.addEventListener('click', ev => {
   }
   else if (b.id === 'outbox') { bellOpen = !bellOpen; paintBell(); }
   else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote(); }
-  else if (b.id === 'logout') closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
+  else if (b.id === 'logout') {
+    peopleLoader.reset();
+    peopleUid = '';
+    closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
+  }
   else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
   else if (b.id === 'back-sub') {
     const parts = location.hash.slice(1).split('/');
@@ -1086,6 +1143,7 @@ document.addEventListener('click', ev => {
     if (!demoRole()) flushRemote();
   } else if (b.id === 'save-contract') saveContract(u);
   else if (b.id === 'save-person') savePerson(u);
+  else if (b.id === 'people-retry') ensureDirectory('retry').then(() => render()).catch(() => render());
   else if (b.id === 'save-sub') saveSubcontract(u, b);
   else if (b.id === 'save-amend') saveAmendment(u, b);
 });
@@ -1162,5 +1220,8 @@ if (window.ForemenUI) {
   ForemenUI.install(renderApi);
 }
 addEventListener('hashchange', render);
-addEventListener('online', () => { if (!demoRole() && get(K.sessionUser)) flushRemote(); else if (!$('#shell').hidden) render(); });
+addEventListener('online', () => {
+  if (!demoRole() && get(K.sessionUser)) { flushRemote(); refreshDirectory('online'); }
+  else if (!$('#shell').hidden) render();
+});
 addEventListener('offline', () => { if (!$('#shell').hidden) render(); });

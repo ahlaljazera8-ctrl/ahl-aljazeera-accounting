@@ -29,9 +29,10 @@ Verified from the file's own header and the names it publishes.
 - `public/firebase-config.js` owns the public web client config. It sets `window.FIREBASE_CONFIG`, including `appCheckSiteKey`.
 - `public/foremen.js` owns the foreman list, the detail, and the settle sheet. It publishes `ForemenUI`, including `install` and `onClick`. `render.js` passes it a `RenderApi`.
 - `public/ledger.js` owns the ledger rules and does not touch the DOM. It publishes `Ledger`, including `ENTRY_TYPES`, `can`, `totals`, and `MAX_AMOUNT_IQD` (`10000000000`).
+- `public/people-dir.js` owns the people-directory load policy. It publishes `PeopleDir`, including `samePeople`, `loadPlan`, `applyPeople`, and `createLoader`. `render.js` calls it. The file does not import Firebase.
 - `public/render.js` owns the screens and the click handlers. It declares `L` and `POLICY`, and `render` is the screen function.
 - `public/session.js` owns IndexedDB (`aj-p0` and `aj-u-<uid>`), login, and logout. It publishes `get`, `set`, `demoRole`, `enterSession`, and `closeSession`.
-- `public/sw.js` owns the shell cache. `VERSION` is `aj-p0-v41`. `isShell` decides which GETs are cached, and a failed network read falls back to that cache.
+- `public/sw.js` owns the shell cache. `VERSION` is `aj-p0-v50`. `isShell` decides which GETs are cached, and a failed network read falls back to that cache.
 - `public/sync-status.js` owns the outbox result classes and the per-entry sync state. It publishes `SyncStatus`, including `isDeadAuth`, `applyFlush`, and `badgeHtml`.
 - `public/sync.js` owns the outbox flush and does not import Firebase. It publishes `Sync`, including `flushOutbox`, `pullChanges`, and `projectDeleteBatches`. The caller performs the write.
 

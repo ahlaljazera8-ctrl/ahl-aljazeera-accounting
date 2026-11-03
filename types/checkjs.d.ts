@@ -692,6 +692,72 @@ interface ForemenUiApi {
   syncLine(lastSyncMs: number, format?: (ms: number) => string): string;
 }
 
+interface PeopleRow {
+  uid?: string;
+  displayName?: string;
+  email?: string;
+  role?: string;
+  active?: boolean;
+  assignedProjectIds?: readonly string[];
+  [key: string]: unknown;
+}
+
+interface PeopleLoadState {
+  inflight?: boolean;
+  failedAt?: number;
+  online?: boolean;
+}
+
+interface PeopleApply {
+  stale: boolean;
+  next: PeopleRow[];
+  changed: boolean;
+}
+
+interface PeopleLoadResult {
+  skipped?: string;
+  changed: boolean;
+  stale?: boolean;
+}
+
+interface PeopleLoaderDeps {
+  now(): number;
+  online(): boolean;
+  timeoutMs?: number;
+  timeout(p: Promise<unknown>, ms: number): Promise<unknown>;
+  load(): Promise<unknown>;
+  read(): PeopleRow[];
+  write(rows: PeopleRow[]): void;
+  stamp(ms: number): void;
+}
+
+interface PeopleLoader {
+  run(reason?: string): Promise<PeopleLoadResult>;
+  failed(): boolean;
+  bump(): void;
+  reset(): void;
+}
+
+interface PeopleDirApi {
+  TIMEOUT_MS: number;
+  COOLDOWN_MS: number;
+  samePeople(a: readonly PeopleRow[] | null | undefined, b: readonly PeopleRow[] | null | undefined): boolean;
+  loadPlan(
+    state: PeopleLoadState | null | undefined,
+    now: number,
+    reason: string,
+  ): 'inflight' | 'offline' | 'cooldown' | 'start';
+  acceptGeneration(token: number, current: number): boolean;
+  applyPeople(
+    token: number,
+    current: number,
+    prev: readonly PeopleRow[] | null | undefined,
+    rows: readonly PeopleRow[] | null | undefined,
+  ): PeopleApply;
+  shouldRedraw(result: PeopleLoadResult | null | undefined, bannerShowing?: boolean): boolean;
+  createLoader(deps: PeopleLoaderDeps): PeopleLoader;
+}
+
 interface Window {
   Ledger: LedgerApi;
   AJ: any;
@@ -701,6 +767,7 @@ interface Window {
   DomSafe: DomSafeApi;
   AppCheck: AppCheckApi;
   ForemenUI: ForemenUiApi;
+  PeopleDir: PeopleDirApi;
   __loginSeen?: boolean;
   __forceOffline?: boolean;
   __unhandled?: string[];
@@ -713,6 +780,7 @@ declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
 declare const AppCheck: AppCheckApi;
 declare const ForemenUI: ForemenUiApi;
+declare const PeopleDir: PeopleDirApi;
 
 // session.js and app.js are classic scripts. checkJs treats each file as a module,
 // so the names they share are declared here. Nothing here is loaded by the app.

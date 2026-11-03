@@ -1174,6 +1174,77 @@ let chrome;
     return { emptyBefore, first: first && first.foremanId, empty: again && again.value==='', second: second && second.foremanId };
   })()`);
   check('a saved foreman tag does not carry onto the next expense', cleared && cleared.emptyBefore===true && cleared.first==='fm-hassan' && cleared.empty===true && (cleared.second===undefined || cleared.second===''));
+  await send('Network.enable');
+  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  const cachedOffline = await ev(`(()=>{
+    history.replaceState(null, '', location.pathname + '#people');
+    const owner = (get(K.users)||[]).find(u => u.uid==='u-ameer');
+    set(K.sessionUser, owner);
+    set(K.peopleSynced, Date.parse('2026-11-03T12:00:00Z'));
+    window.ensureFirebase = () => Promise.reject(new Error('offline'));
+    location.hash = '#people';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    const main = document.querySelector('#main');
+    return { onLine: navigator.onLine, text: main ? main.innerText : '', err: !!document.querySelector('#people-error'), note: (document.querySelector('#people-sync')||{}).innerText || '' };
+  })()`);
+  check('owner with cached people offline lists them and shows the last update', cachedOffline && cachedOffline.onLine===false && cachedOffline.text.includes('أمير') && cachedOffline.text.includes('أحمد') && cachedOffline.note.includes('غير متصل') && cachedOffline.note.includes('آخر تحديث') && cachedOffline.err===false);
+  const cachedPerson = await ev(`(()=>{
+    location.hash = '#person/u-ahmed';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    const name = document.querySelector('#person-name');
+    const uid = document.querySelector('#person-uid');
+    return { name: name ? name.value : '', uid: uid ? uid.value : '', err: !!document.querySelector('#people-error'), note: !!document.querySelector('#people-sync') };
+  })()`);
+  check('owner with cached people offline still opens the person', cachedPerson && cachedPerson.uid==='u-ahmed' && cachedPerson.name.indexOf('أحمد')===0 && cachedPerson.err===false && cachedPerson.note===true);
+  await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await go(BASE + 'index.html?role=owner#home');
+  const hanging = await ev(`(async()=>{
+    history.replaceState(null, '', location.pathname + '#people');
+    const owner = (get(K.users)||[]).find(u => u.uid==='u-ameer');
+    set(K.sessionUser, owner);
+    window.__userCalls = 0;
+    window.ensureFirebase = () => Promise.resolve({ listUsers() { window.__userCalls++; return new Promise(()=>{}); } });
+    location.hash = '#people';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await Promise.resolve();
+    const main = document.querySelector('#main');
+    return { calls: window.__userCalls, text: main ? main.innerText : '', err: !!document.querySelector('#people-error') };
+  })()`);
+  check('a people load that never resolves still shows the cached list', hanging && hanging.calls===1 && hanging.text.includes('أمير') && hanging.text.includes('أحمد') && hanging.err===false);
+  await go(BASE + 'index.html?role=owner#home');
+  const failedEmpty = await ev(`(async()=>{
+    history.replaceState(null, '', location.pathname);
+    const owner = { uid:'u-ameer', displayName:'أمير', role:'owner', active:true, assignedProjectIds:[] };
+    set(K.sessionUser, owner);
+    set(K.users, []);
+    set(K.peopleSynced, 0);
+    window.__userCalls = 0;
+    window.ensureFirebase = () => Promise.resolve({ listUsers() { window.__userCalls++; return Promise.reject(new Error('down')); } });
+    location.hash = '#people';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 50));
+    const card = document.querySelector('#people-error');
+    const mid = window.__userCalls;
+    location.hash = '#home';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    location.hash = '#people';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 50));
+    return { mid, calls: window.__userCalls, text: card ? card.innerText : '', retry: !!document.querySelector('#people-retry'), names: document.querySelector('#main').innerText.includes('أحمد') };
+  })()`);
+  check('an empty cache and a failed load shows the error card and retry', failedEmpty && failedEmpty.text.includes('تعذّر تحميل الأشخاص') && failedEmpty.text.includes('تحقّق من الاتصال') && failedEmpty.retry===true && failedEmpty.names===false);
+  check('a failed people load calls listUsers once until the cooldown', failedEmpty && failedEmpty.mid===1 && failedEmpty.calls===1);
+  const renderError = await ev(`(()=>{
+    const orig = window.get;
+    window.get = function(k, d) { if (k==='users') throw new Error('boom'); return orig(k, d); };
+    try {
+      location.hash = '#people';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const card = document.querySelector('#render-error');
+      return { text: card ? card.textContent : '', blank: (document.querySelector('#main').textContent||'')==='' };
+    } finally { window.get = orig; }
+  })()`);
+  check('a render error shows the generic card', renderError && renderError.text==='حدث خطأ في العرض. أعد فتح الصفحة.' && renderError.blank===false);
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

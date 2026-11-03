@@ -95,6 +95,7 @@ module.exports = [
         disposeFirebase: 'readonly',
         flushRemote: 'readonly',
         ForemenUI: 'readonly',
+        PeopleDir: 'readonly',
         isDeadAuth: 'readonly',
         cacheSnapshot: 'readonly',
         writeCache: 'readonly',
@@ -209,7 +210,14 @@ module.exports = [
     rules,
   },
   {
-    files: ['public/ledger.js', 'public/sync.js', 'public/sync-status.js', 'public/dom-safe.js', 'public/appcheck.js'],
+    files: [
+      'public/ledger.js',
+      'public/sync.js',
+      'public/sync-status.js',
+      'public/dom-safe.js',
+      'public/appcheck.js',
+      'public/people-dir.js',
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'script',
