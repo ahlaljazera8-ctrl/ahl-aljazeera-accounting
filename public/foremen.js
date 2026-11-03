@@ -1,9 +1,10 @@
 // Foreman list, detail, and the settle sheet. Loaded before render.js.
 // install receives the screen api. This file does not read render's locals.
-(function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.ForemenUI = factory();
-})(typeof self !== 'undefined' ? self : /** @type {Window} */ (/** @type {unknown} */ (this)), /** @returns {ForemenUiApi} */ function () {
+(function (factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else Object.assign(globalThis, { ForemenUI: api });
+})(/** @returns {ForemenUiApi} */ function () {
   'use strict';
 
   /** @type {RenderApi | null} */
@@ -77,31 +78,13 @@
   }
 
   /**
-   * @param {string} projectId
-   * @param {readonly LedgerEntry[] | null | undefined} entryRows
-   * @param {readonly Foreman[] | null | undefined} foremen
-   * @param {Record<string, unknown> | null | undefined} errors
+   * @param {number} lastSyncMs
+   * @param {(ms: number) => string} [format]
    */
-  function blockedDeleteMessage(projectId, entryRows, foremen, errors) {
-    const names = [];
-    const counted = Ledger.countedEntries(entryRows || [], errors || {});
-    for (const row of counted) {
-      if (!row || row.projectId !== projectId || !row.foremanId) continue;
-      const person = (foremen || []).find(item => item && item.id === row.foremanId);
-      const name = person && person.name ? person.name : String(row.foremanId);
-      if (names.indexOf(name) < 0) names.push(name);
-    }
-    if (!names.length) return '';
-    return 'لا يمكن الحذف: فيه مصاريف عهدة لـ ' + names.join('، ') + '. سوِّ العهدة أو أرشف المشروع';
-  }
-
-  /** @param {number} lastSyncMs */
-  function syncLine(lastSyncMs) {
+  function syncLine(lastSyncMs, format) {
     if (!lastSyncMs) return 'لم يُحدَّث منذ فتح التطبيق';
-    const when = new Date(lastSyncMs);
-    const date = new Intl.DateTimeFormat('ar', { day: 'numeric', month: 'short', numberingSystem: 'latn' }).format(when);
-    const time = new Intl.DateTimeFormat('ar', { hour: '2-digit', minute: '2-digit', numberingSystem: 'latn' }).format(when);
-    return 'آخر تحديث من الخادم: ' + date + ' · ' + time;
+    const text = typeof format === 'function' ? format(lastSyncMs) : '';
+    return 'آخر تحديث من الخادم: ' + text;
   }
 
   /**
@@ -114,10 +97,10 @@
     const n = Ledger.fmt(amount);
     if (kind === 'return') return { lead: 'سيُسجّل استلام ', amount: n, tail: ' د.ع.', after: '' };
     if (kind !== 'settle') return { lead: 'سيُسجّل سلفة بمبلغ ', amount: n, tail: ' د.ع.', after: '' };
-    let after = 'لا تُحدّث القيد: الخطأ يُصحَّح بقيد عكسي.';
+    let after = 'لا يُحذف القيد: الخطأ يُصحَّح بقيد عكسي.';
     if (amount === owed && owed > 0) after = 'بعده يصبح الرصيد صفراً. ' + after;
     else if (amount > 0 && amount < owed) after = 'بعده يبقى مستحق ' + Ledger.fmt(owed - amount) + ' د.ع. ' + after;
-    return { lead: 'سيُسجّل قيد تسوية بمبلغ ', amount: n, tail: ' د.ع ليوم اليوم. ', after };
+    return { lead: 'سيُسجّل قيد تسوية بمبلغ ', amount: n, tail: ' د.ع بتاريخ اليوم. ', after };
   }
 
   /**
@@ -165,15 +148,15 @@
       const badge = state === 'holding' ? '<span class="pill ok">لديه رصيد</span>' : state === 'owed' ? '<span class="pill warn">مستحق له</span>' : '<span class="pill">مسوّى</span>';
       const line = state === 'owed' ? 'مستحق للخلفة' : state === 'holding' ? 'المتبقي معه' : 'الرصيد';
       const shown = state === 'owed' ? sum.fig.owedToForeman : state === 'holding' ? sum.fig.remaining : 0;
-      const rule = state === 'owed' ? ' owe' : state === 'holding' ? ' hold' : '';
+      const rule = state === 'owed' ? ' fm-rule owe' : state === 'holding' ? ' fm-rule hold' : '';
       const latest = entryRows.filter(row => row && row.foremanId === person.id && row.entryDate).map(row => String(row.entryDate)).sort().pop();
-      const when = latest ? '<div class="note">آخر مصروف ' + screen.esc(latest) + '</div>' : '';
+      const when = latest ? '<div class="note">آخر مصروف <bdi class="num">' + screen.esc(latest) + '</bdi></div>' : '';
       return '<a class="card proj" href="' + href('foreman', person.id) + '"><div class="subhead"><h2>' + screen.esc(person.name || '') + '</h2>' + badge + '</div>'
         + (person.note ? '<div class="note">' + screen.esc(person.note) + '</div>' : '')
         + when
         + '<div class="kv"><span>السلف</span>' + screen.money(sum.advances) + '</div>'
         + '<div class="kv"><span>مجموع المصروف</span>' + screen.money(sum.spent) + '</div>'
-        + '<div class="kv fm-rule' + rule + '"><span>' + line + '</span>' + screen.money(shown, state === 'owed' ? 'fm-owe' : state === 'holding' ? 'fm-hold' : '') + '</div></a>';
+        + '<div class="kv' + rule + '"><span>' + line + '</span>' + screen.money(shown, state === 'owed' ? 'fm-owe' : state === 'holding' ? 'fm-hold' : '') + '</div></a>';
     }).join('');
     return (cards || '<div class="card"><div class="note">لا توجد خلفات.</div></div>') + '<a class="btn" href="#foremannew">+ خلفة جديد</a>';
   }
@@ -190,6 +173,11 @@
     const state = sum.fig.state;
     const badge = state === 'holding' ? '<span class="pill ok">لديه رصيد</span>' : state === 'owed' ? '<span class="pill warn">مستحق له</span>' : '<span class="pill">مسوّى</span>';
     const gone = projectMissing(person) ? '<div class="warnbox">المشروع الافتراضي محذوف</div>' : '';
+    const payer = me();
+    const payerName = payer && payer.displayName ? ' على ' + screen.esc(payer.displayName) : '';
+    const explain = state === 'owed'
+      ? '<div class="warnbox" id="fm-owed">صرف ' + screen.esc(person.name || '') + ' من جيبه ' + Ledger.fmt(sum.fig.owedToForeman) + ' د.ع فوق السلفة. هذا المبلغ دين' + payerName + ' حتى التسوية.</div>'
+      : '';
     const balance = state === 'owed'
       ? '<div class="kv fm-rule owe"><span>مستحق للخلفة</span>' + screen.money(sum.fig.owedToForeman, 'fm-owe') + '</div>'
       : state === 'holding'
@@ -205,6 +193,7 @@
     const spend = '<button type="button" class="btn" data-fm="expense" data-id="' + DomSafe.projectAttr(id) + '">+ مصروف من العهدة</button>';
     return '<button type="button" class="mini" data-fm="back">رجوع</button><div class="card"><div class="subhead"><h2>' + screen.esc(person.name || '') + '</h2>' + badge + '</div>'
       + (person.note ? '<div class="note">' + screen.esc(person.note) + '</div>' : '')
+      + explain
       + gone
       + '<div class="kv"><span>السلف</span>' + screen.money(sum.advances) + '</div>'
       + '<div class="kv"><span>مجموع المصروف</span>' + screen.money(sum.spent) + '</div>'
@@ -228,11 +217,13 @@
       const rev = !move.isReversal && !advanceRows.some(other => other && other.isReversal && other.reversesMoveId === move.id)
         ? '<button type="button" class="mini" data-fm="reverse" data-id="' + DomSafe.projectAttr(move.id || '') + '">عكس</button>'
         : '';
-      return '<div class="entry"><div class="meta"><span>' + label + '</span><small>' + screen.esc(move.note || '') + ' · ' + screen.esc(move.date || '') + '</small></div><span class="num ' + cls + '">' + Ledger.fmt((move.amount || 0) * sign) + '</span>' + rev + '</div>';
+      const note = move.note ? screen.esc(move.note) + ' · ' : '';
+      return '<div class="entry"><div class="meta"><span>' + label + '</span><small>' + note + '<bdi class="num">' + screen.esc(move.date || '') + '</bdi></small></div><span class="num ' + cls + '">' + Ledger.fmt((move.amount || 0) * sign) + '</span>' + rev + '</div>';
     }).join('');
     const spentHtml = spent.map(row => {
       const sign = row.isReversal ? -1 : 1;
-      return '<div class="entry"><div class="meta"><span>' + screen.esc(row.description || 'مصروف') + '</span><small>' + screen.esc(row.entryDate == null ? '' : String(row.entryDate)) + '</small></div><span class="num">' + Ledger.fmt((row.amount || 0) * sign * -1) + '</span></div>';
+      const when = row.entryDate == null ? '' : String(row.entryDate);
+      return '<div class="entry"><div class="meta"><span>' + screen.esc(row.description || 'مصروف') + '</span><small><bdi class="num">' + screen.esc(when) + '</bdi></small></div><span class="num">' + Ledger.fmt((row.amount || 0) * sign * -1) + '</span></div>';
     }).join('');
     return '<div class="card"><h2>السلف</h2>' + (moveHtml || '<div class="note">لا توجد سلف.</div>') + '</div>'
       + '<div class="card"><h2>المصاريف</h2>' + (spentHtml || '<div class="note">لا توجد مصاريف.</div>') + '</div>';
@@ -289,24 +280,24 @@
     const parts = settleParts(kind, amount, owed);
     const over = kind === 'settle' && parsed.ok && amount > owed;
     const title = kind === 'settle' ? 'تسديد المستحق ل' + (person.name || '') : kind === 'return' ? 'استلام المتبقي' : 'سلفة جديدة';
-    let stale = '<p class="note" id="fm-sync">' + screen.esc(syncLine(screen.lastSyncAt())) + '</p>';
+    let stale = '<p class="note" id="fm-sync">' + screen.esc(syncLine(screen.lastSyncAt(), screen.formatSyncTime)) + '</p>';
     if (guard.stale) {
       const pending = guard.pendingIds.length
         ? ' على هذا الهاتف ' + (guard.pendingIds.length === 1 ? 'قيد واحد' : String(guard.pendingIds.length) + ' قيود') + ' لهذا الخلفة لم يُرسل بعد — حدّث قبل التسديد.'
         : '';
-      stale = '<div class="warnbox" id="fm-sync">' + screen.esc(syncLine(screen.lastSyncAt()) + (pending ? '،' + pending : '')) + '</div>'
+      stale = '<div class="warnbox" id="fm-sync">' + screen.esc(syncLine(screen.lastSyncAt(), screen.formatSyncTime) + (pending ? '،' + pending : '')) + '</div>'
         + '<button type="button" class="btn ghost" data-fm="refresh">تحديث الآن</button>';
     }
-    const sheet = '<p>' + screen.esc(title) + '</p>'
-      + '<p class="copy" id="fm-copy">' + screen.esc(parts.lead) + '<b class="num" id="fm-amt-text">' + screen.esc(parts.amount) + '</b>' + screen.esc(parts.tail) + '<span id="fm-after">' + screen.esc(parts.after) + '</span></p>'
-      + '<div id="fm-over" class="warnbox"' + (over ? '' : ' hidden') + '>المبلغ أكبر من المستحق. الفرق يظهر كمتبقي معه.</div>'
+    const sheet = '<p id="fm-sheet-title">' + screen.esc(title) + '</p>'
+      + '<p class="copy" id="fm-copy" aria-live="polite">' + screen.esc(parts.lead) + '<b class="num" id="fm-amt-text">' + screen.esc(parts.amount) + '</b>' + screen.esc(parts.tail) + '<span id="fm-after">' + screen.esc(parts.after) + '</span></p>'
+      + '<div id="fm-over" class="warnbox" aria-live="polite"' + (over ? '' : ' hidden') + '>المبلغ أكبر من المستحق. الفرق يظهر كمتبقي معه.</div>'
       + '<label class="field">المبلغ<input id="fm-amount" class="full num" inputmode="numeric" value="' + screen.esc(amountText) + '"></label>'
       + '<label class="field">ملاحظة<input id="fm-note" class="full" maxlength="200" placeholder="اختياري" value="' + screen.esc(draft.note) + '"></label>'
       + stale
       + '<button type="button" class="btn" data-fm="save-move" data-id="' + DomSafe.projectAttr(id) + '">' + (kind === 'settle' ? 'تأكيد التسديد' : 'حفظ') + '</button>'
       + '<button type="button" class="btn ghost" data-fm="cancel" data-id="' + DomSafe.projectAttr(id) + '">إلغاء</button>'
       + '<div class="msg">' + screen.esc(draft.msg) + '</div>';
-    return detail + screen.confirmShell(sheet);
+    return detail + screen.confirmShell(sheet, 'fm-sheet-title');
   }
 
   /**
@@ -353,6 +344,7 @@
     const person = people().find(item => item && item.id === id);
     const screen = ui();
     screen.state.foremanId = id;
+    screen.state.fmCarry = true;
     screen.state.type = 'materials';
     if (person && !projectMissing(person) && person.projectId) screen.state.projectId = person.projectId;
     screen.state.fmGone = person && projectMissing(person) ? 'المشروع الافتراضي محذوف' : '';
@@ -364,12 +356,12 @@
     const screen = ui();
     const user = me();
     if (!owner() || !user) { button.disabled = false; return; }
-    const nameEl = /** @type {HTMLInputElement | null} */ (document.getElementById('fm-name'));
-    const noteEl = /** @type {HTMLInputElement | null} */ (document.getElementById('fm-person-note'));
-    const projectEl = /** @type {HTMLSelectElement | null} */ (document.getElementById('fm-project'));
-    const name = (nameEl ? nameEl.value : draft.name).trim();
-    const note = (noteEl ? noteEl.value : draft.note).trim();
-    const projectId = projectEl ? projectEl.value : draft.project;
+    const nameEl = document.getElementById('fm-name');
+    const noteEl = document.getElementById('fm-person-note');
+    const projectEl = document.getElementById('fm-project');
+    const name = (nameEl instanceof HTMLInputElement ? nameEl.value : draft.name).trim();
+    const note = (noteEl instanceof HTMLInputElement ? noteEl.value : draft.note).trim();
+    const projectId = projectEl instanceof HTMLSelectElement ? projectEl.value : draft.project;
     if (!name || name.length > 100) { draft.msg = 'أدخل اسم الخلفة'; draft.name = name; button.disabled = false; screen.render(); return; }
     if (note.length > 200) { draft.msg = 'الملاحظة بحد أقصى 200 حرفاً'; button.disabled = false; screen.render(); return; }
     const id = draft.formId || uuid();
@@ -450,33 +442,33 @@
 
   function capture() {
     if (typeof document === 'undefined') return;
-    const amount = /** @type {HTMLInputElement | null} */ (document.getElementById('fm-amount'));
-    const note = /** @type {HTMLInputElement | null} */ (document.getElementById('fm-note'));
-    const name = /** @type {HTMLInputElement | null} */ (document.getElementById('fm-name'));
-    const personNote = /** @type {HTMLInputElement | null} */ (document.getElementById('fm-person-note'));
-    const project = /** @type {HTMLSelectElement | null} */ (document.getElementById('fm-project'));
-    if (amount) {
+    const amount = document.getElementById('fm-amount');
+    const note = document.getElementById('fm-note');
+    const name = document.getElementById('fm-name');
+    const personNote = document.getElementById('fm-person-note');
+    const project = document.getElementById('fm-project');
+    if (amount instanceof HTMLInputElement) {
       draft.amount = amount.value;
       if (api) api.state.fmAmount = amount.value;
     }
-    if (note) draft.note = note.value;
-    if (name) draft.name = name.value;
-    if (personNote) draft.note = personNote.value;
-    if (project) draft.project = project.value;
+    if (note instanceof HTMLInputElement) draft.note = note.value;
+    if (name instanceof HTMLInputElement) draft.name = name.value;
+    if (personNote instanceof HTMLInputElement) draft.note = personNote.value;
+    if (project instanceof HTMLSelectElement) draft.project = project.value;
   }
 
   /** @param {HTMLElement} el */
   function onInput(el) {
     if (!el) return false;
     if (el.id !== 'fm-amount' && el.id !== 'fm-note' && el.id !== 'fm-name' && el.id !== 'fm-person-note' && el.id !== 'fm-project') return false;
-    const input = /** @type {HTMLInputElement} */ (el);
+    const value = el instanceof HTMLInputElement || el instanceof HTMLSelectElement ? el.value : '';
     if (el.id === 'fm-amount') {
-      draft.amount = input.value;
-      if (api) api.state.fmAmount = input.value;
+      draft.amount = value;
+      if (api) api.state.fmAmount = value;
     }
-    else if (el.id === 'fm-note' || el.id === 'fm-person-note') draft.note = input.value;
-    else if (el.id === 'fm-name') draft.name = input.value;
-    else draft.project = input.value;
+    else if (el.id === 'fm-note' || el.id === 'fm-person-note') draft.note = value;
+    else if (el.id === 'fm-name') draft.name = value;
+    else draft.project = value;
     if (el.id !== 'fm-amount' || typeof document === 'undefined' || !api) return true;
     const screen = api;
     const foremanId = (location.hash.split('/')[1]) || '';
@@ -494,5 +486,5 @@
     return true;
   }
 
-  return { install, onClick, onInput, blockedDeleteMessage, settleParts, syncLine };
+  return { install, onClick, onInput, settleParts, syncLine };
 });

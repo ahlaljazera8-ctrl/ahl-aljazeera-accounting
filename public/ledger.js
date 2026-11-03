@@ -606,7 +606,45 @@
     return { stale, pendingIds, lastSync: lastSyncMs > 0 ? lastSyncMs : null };
   }
 
+  const DELETE_UNCHECKED = 'لا يمكن الحذف: تعذر التحقق من مصاريف العهدة.';
+
+  /**
+   * @param {string} projectId
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {readonly Foreman[] | null | undefined} foremen
+   * @param {Record<string, unknown> | null | undefined} errors
+   */
+  function foremanDeleteBlock(projectId, entries, foremen, errors) {
+    const names = [];
+    const counted = countedEntries(entries || [], errors || {});
+    for (const row of counted) {
+      if (!row || row.projectId !== projectId || !row.foremanId) continue;
+      const person = (foremen || []).find(item => item && item.id === row.foremanId);
+      const name = person && person.name ? person.name : String(row.foremanId);
+      if (names.indexOf(name) < 0) names.push(name);
+    }
+    if (!names.length) return '';
+    return 'لا يمكن الحذف: فيه مصاريف عهدة لـ ' + names.join('، ') + '. سوِّ العهدة أو أرشف المشروع';
+  }
+
+  /**
+   * @param {unknown} check
+   * @param {string} projectId
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {readonly Foreman[] | null | undefined} foremen
+   * @param {Record<string, unknown> | null | undefined} errors
+   */
+  function guardedForemanDelete(check, projectId, entries, foremen, errors) {
+    if (typeof check !== 'function') return DELETE_UNCHECKED;
+    try {
+      const msg = check(projectId, entries, foremen, errors);
+      return typeof msg === 'string' ? msg : DELETE_UNCHECKED;
+    } catch {
+      return DELETE_UNCHECKED;
+    }
+  }
+
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
-    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard };
+    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete };
 });

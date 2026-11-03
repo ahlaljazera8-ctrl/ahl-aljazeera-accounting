@@ -1,7 +1,7 @@
 'use strict';
 // Screens and click handlers. Boot, seed, and the login timeout stay in app.js.
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', foremanId: '', fmGone: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', foremanId: '', fmGone: '', fmCarry: false, entrySeen: false, dropForeman: false, formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
 let bellOpen = false;
 const ledger = () => L.createLedger(get(K.entries, []));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -694,13 +694,17 @@ function captureForm() {
   const typed = $('#delete-name');
   if (typed && state.confirm && state.confirm.action === 'delete') state.confirm.typed = typed.value;
 }
-function confirmShell(inner) {
-  return `<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"><div class="confirm">${inner}</div></div>`;
+function confirmShell(inner, labelId) {
+  const labelled = labelId ? ' aria-labelledby="' + String(labelId).replace(/[^A-Za-z0-9_-]/g, '') + '"' : '';
+  return '<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"' + labelled + '><div class="confirm">' + inner + '</div></div>';
+}
+function foremanExpenseBlock(projectId) {
+  return L.guardedForemanDelete(L.foremanDeleteBlock, projectId, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {});
 }
 function deleteConfirm(c) {
   const project = get(K.projects, []).find(p => p.id === c.id);
   const name = project ? project.name : '';
-  const block = window.ForemenUI ? ForemenUI.blockedDeleteMessage(c.id, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {}) : '';
+  const block = foremanExpenseBlock(c.id);
   if (block) {
     return confirmShell('<p>لا يمكن حذف هذا المشروع</p><p class="copy">' + esc(block) + '</p><button type="button" class="btn danger" id="confirm-yes" disabled>نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>');
   }
@@ -755,7 +759,7 @@ async function deleteProjectNow(id) {
   const u = me();
   const project = get(K.projects, []).find(p => p.id === id);
   if (!L.can(u, 'manageProject') || !project) return;
-  const block = window.ForemenUI ? ForemenUI.blockedDeleteMessage(id, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {}) : '';
+  const block = foremanExpenseBlock(id);
   if (block) { state.deleteMsg = block; render(); return; }
   if (demoRole()) {
     writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
@@ -862,11 +866,24 @@ function setFormMsg(text, kind) {
 }
 function render() {
   captureForm();
+  if (state.dropForeman) {
+    state.foremanId = '';
+    state.fmGone = '';
+    state.dropForeman = false;
+  }
   const u = me(); if (!u) return;
   const printRoot = $('#print-root');
   if (printRoot) printRoot.innerHTML = '';
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   const v = views[view] ? view : 'home';
+  if (v === 'entry') {
+    if (!state.entrySeen && !state.fmCarry) {
+      state.foremanId = '';
+      state.fmGone = '';
+    }
+    state.fmCarry = false;
+    state.entrySeen = true;
+  } else state.entrySeen = false;
   if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; state.fmGone = ''; }
   if (v !== 'person') state.personMsg = '';
   if (!L.can(u, 'owner')) { state.confirm = null; state.projectList = 'open'; }
@@ -992,6 +1009,7 @@ document.addEventListener('click', ev => {
     try {
       commit(e);
       state.amount = 0; state.amountDraft = ''; state.desc = ''; state.party = ''; state.formId = uuid();
+      state.dropForeman = true;
       setFormMsg('حُفظ', 'saved');
       if ($('#desc')) $('#desc').value = '';
       if ($('#party')) $('#party').value = '';
@@ -1139,6 +1157,7 @@ if (window.ForemenUI) {
   const renderApi = {
     views, titles, state, render, esc, money, queueDoc, confirmShell,
     lastSyncAt: () => lastSyncAt,
+    formatSyncTime,
   };
   ForemenUI.install(renderApi);
 }

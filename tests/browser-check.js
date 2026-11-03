@@ -55,7 +55,10 @@ let chrome;
     const info = await ev(`({dir:document.documentElement.dir, text:document.querySelector('main').innerText, hz:document.documentElement.scrollWidth>innerWidth})`);
     check(`${name}: dir=rtl`, info.dir === 'rtl'); check(`${name}: no horizontal overflow`, !info.hz);
     if (role === 'site') check(`${name}: no profit/received/loss text`, !/ربح|المقبوض|خسارة/.test(info.text));
-    if (role === 'site' && hash === 'entry') check('s2: site entry offers مقاول and hides agreed amounts', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)) && !info.text.includes('المتفق عليه') && !info.text.includes('المتبقي'));
+    if (role === 'site' && hash === 'entry') {
+      check('s2: site entry offers مقاول and hides agreed amounts', ['مصروف','مواد','عمالة/سلفة','مقاول','دفعة عميل'].every(t => info.text.includes(t)) && !info.text.includes('المتفق عليه') && !info.text.includes('المتبقي'));
+      check('s2: site entry has no من عهدة select', await ev(`!document.querySelector('#foreman') && !document.querySelector('#main').innerText.includes('من عهدة')`));
+    }
     if (role === 'site') check(`${name}: reverse buttons only on own non-reversed entries`, await ev(`(()=>{const es=AJ.get('entries');const bs=[...document.querySelectorAll('[data-rev]')].map(b=>b.dataset.rev);return bs.every(id=>{const e=es.find(x=>x.id===id);return e.createdBy==='u-ahmed'&&!e.isReversal&&!es.some(x=>x.reversesEntryId===id)})&&(location.hash!=='#project/p-school'||bs.length>0)})()`));
     if (role === 'site' && hash === 'home') check('s1: own client payment listed', /دفعة عميل/.test(info.text));
     if (role === 'site' && hash === 'projects') {
@@ -1101,7 +1104,7 @@ let chrome;
   check('owner العُهد list shows the owed foreman and LTR amounts', list && list.tab.includes('العُهد') && list.text.includes('حسن') && list.text.includes('مستحق له') && list.text.includes('300,000') && list.text.includes('335,000') && list.text.includes('35,000') && list.dir==='ltr');
   await ev(`location.hash='#foreman/fm-hassan'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
-  check('a deleted default project shows the warning', await ev(`document.querySelector('#main').innerText.includes('المشروع الافتراضي محذوف') && document.querySelector('#main').innerText.includes('تسديد المستحق (35,000)')`));
+  check('a deleted default project shows the warning', await ev(`document.querySelector('#main').innerText.includes('المشروع الافتراضي محذوف') && document.querySelector('#main').innerText.includes('تسديد المستحق (35,000)') && document.querySelector('#main').innerText.includes('صرف حسن من جيبه')`));
   await ev(`document.querySelector('[data-fm="settle"]').click(); 1`);
   await sleep(150);
   const stale = await ev(`(()=>{
@@ -1142,6 +1145,31 @@ let chrome;
   await sleep(100);
   check('archive stays available when delete is blocked', await ev(`!!document.querySelector('#choose-archive')`));
   await ev(`document.querySelector('#confirm-no').click(); 1`);
+  await ev(`location.hash='#foreman/fm-hassan'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  await ev(`document.querySelector('[data-fm="expense"]').click(); 1`);
+  await sleep(150);
+  const carried = await ev(`(()=>{ const sel=document.querySelector('#foreman'); return sel && sel.value==='fm-hassan'; })()`);
+  check('مصروف من العهدة opens the entry with that foreman', carried === true);
+  await ev(`location.hash='#home'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(100);
+  await ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  const cleared = await ev(`(()=>{
+    const sel=document.querySelector('#foreman');
+    document.querySelector('#amt').value='1500';
+    document.querySelector('#desc').value='عهدة أولى';
+    sel.value='fm-hassan';
+    document.querySelector('#save').click();
+    const first=(get(K.entries)||[]).find(e=>e.description==='عهدة أولى');
+    const again=document.querySelector('#foreman');
+    document.querySelector('#amt').value='2500';
+    document.querySelector('#desc').value='عهدة ثانية';
+    document.querySelector('#save').click();
+    const second=(get(K.entries)||[]).find(e=>e.description==='عهدة ثانية');
+    return { first: first && first.foremanId, empty: again && again.value==='', second: second && second.foremanId };
+  })()`);
+  check('a saved foreman tag does not carry onto the next expense', cleared && cleared.first==='fm-hassan' && cleared.empty===true && (cleared.second===undefined || cleared.second===''));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

@@ -432,6 +432,19 @@ interface LedgerApi {
       watermark?: unknown;
     },
   ): SettleGuard;
+  foremanDeleteBlock(
+    projectId: string,
+    entries: readonly LedgerEntry[] | null | undefined,
+    foremen: readonly Foreman[] | null | undefined,
+    errors: Record<string, unknown> | null | undefined,
+  ): string;
+  guardedForemanDelete(
+    check: unknown,
+    projectId: string,
+    entries: readonly LedgerEntry[] | null | undefined,
+    foremen: readonly Foreman[] | null | undefined,
+    errors: Record<string, unknown> | null | undefined,
+  ): string;
 }
 
 interface ServerStamp {
@@ -659,8 +672,9 @@ interface RenderApi {
   esc(s: unknown): string;
   money(n: number, cls?: string): string;
   queueDoc(id: string): void;
-  confirmShell(inner: string): string;
+  confirmShell(inner: string, labelId?: string): string;
   lastSyncAt(): number;
+  formatSyncTime(ms: number): string;
 }
 
 interface SettleParts {
@@ -674,14 +688,8 @@ interface ForemenUiApi {
   install(api: RenderApi): void;
   onClick(b: HTMLButtonElement): boolean;
   onInput(el: HTMLElement): boolean;
-  blockedDeleteMessage(
-    projectId: string,
-    entries: readonly LedgerEntry[] | null | undefined,
-    foremen: readonly Foreman[] | null | undefined,
-    errors: Record<string, unknown> | null | undefined,
-  ): string;
   settleParts(kind: string, amount: number, owed: number): SettleParts;
-  syncLine(lastSyncMs: number): string;
+  syncLine(lastSyncMs: number, format?: (ms: number) => string): string;
 }
 
 interface Window {

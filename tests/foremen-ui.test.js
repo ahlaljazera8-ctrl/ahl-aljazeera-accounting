@@ -43,20 +43,20 @@ test('settleGuard rejects a nowMs that is not a finite number', () => {
 
 test('a missing pull says the app has not been updated since it opened', () => {
   assert.equal(UI.syncLine(0), 'لم يُحدَّث منذ فتح التطبيق');
-  assert.match(UI.syncLine(1700000000000), /^آخر تحديث من الخادم: /);
+  assert.equal(UI.syncLine(1700000000000, () => '3 نوفمبر · 14:05'), 'آخر تحديث من الخادم: 3 نوفمبر · 14:05');
 });
 
 test('settle text follows the amount and an over-settle warns', () => {
   const exact = UI.settleParts('settle', 35000, 35000);
   assert.equal(exact.amount, '35,000');
-  assert.match(exact.after, /يصبح الرصيد صفراً/);
+  assert.equal(exact.tail, ' د.ع بتاريخ اليوم. ');
+  assert.equal(exact.after, 'بعده يصبح الرصيد صفراً. لا يُحذف القيد: الخطأ يُصحَّح بقيد عكسي.');
   const partial = UI.settleParts('settle', 10000, 35000);
   assert.equal(partial.amount, '10,000');
-  assert.match(partial.after, /10,000|25,000/);
-  assert.match(partial.after, /يبقى مستحق/);
+  assert.equal(partial.after, 'بعده يبقى مستحق 25,000 د.ع. لا يُحذف القيد: الخطأ يُصحَّح بقيد عكسي.');
   const over = UI.settleParts('settle', 50000, 35000);
   assert.equal(over.amount, '50,000');
-  assert.equal(over.after.includes('صفراً'), false);
+  assert.equal(over.after, 'لا يُحذف القيد: الخطأ يُصحَّح بقيد عكسي.');
 });
 
 test('the settle sheet passes a finite nowMs and shows the not-updated line', () => {
@@ -73,8 +73,9 @@ test('the settle sheet passes a finite nowMs and shows the not-updated line', ()
     esc: s => String(s ?? ''),
     money: n => String(n),
     queueDoc() {},
-    confirmShell: inner => inner,
+    confirmShell: (inner, labelId) => '<div role="dialog" aria-labelledby="' + labelId + '">' + inner + '</div>',
     lastSyncAt: () => 0,
+    formatSyncTime: () => 'unused',
   });
   const html = views.foremanmove('fm-hassan');
   Ledger.settleGuard = orig;
@@ -86,13 +87,44 @@ test('the settle sheet passes a finite nowMs and shows the not-updated line', ()
   assert.match(html, /المشروع الافتراضي محذوف/);
   assert.match(html, /تحديث الآن/);
   assert.match(html, /قيد واحد/);
+  assert.match(html, /aria-labelledby="fm-sheet-title"/);
+  assert.match(html, /id="fm-copy" aria-live="polite"/);
+  assert.match(html, /id="fm-over" class="warnbox" aria-live="polite"/);
+  assert.match(html, /صرف حسن من جيبه 35,000/);
+  assert.equal(html.includes('>·<bdi'), false);
 });
 
-test('deleting a project is blocked while a counted foreman expense remains', () => {
-  const people = /** @type {any} */ (store.foremen);
-  const msg = UI.blockedDeleteMessage('p-school', store.entries, people, {});
-  assert.match(msg, /لا يمكن الحذف: فيه مصاريف عهدة لـ حسن/);
-  assert.match(msg, /سوِّ العهدة أو أرشف المشروع/);
-  assert.equal(UI.blockedDeleteMessage('p-school', store.entries, people, { 'e-hassan': 'رُفض' }), '');
-  assert.equal(UI.blockedDeleteMessage('p-other', store.entries, people, {}), '');
+test('a fresh pull has no refresh button and a stale pull does', () => {
+  const saved = store.outbox;
+  store.outbox = [];
+  const views = {};
+  const base = {
+    views, titles: {}, state: { fmKind: 'settle', fmAmount: '35000' }, render() {},
+    esc: s => String(s ?? ''), money: n => String(n), queueDoc() {},
+    confirmShell: inner => inner, formatSyncTime: () => '3 نوفمبر · 14:05',
+  };
+  UI.install(Object.assign({}, base, { lastSyncAt: () => Date.now() - 5 * 60 * 1000 }));
+  const fresh = views.foremanmove('fm-hassan');
+  UI.install(Object.assign({}, base, { lastSyncAt: () => Date.now() - 11 * 60 * 1000 }));
+  const stale = views.foremanmove('fm-hassan');
+  store.outbox = saved;
+  assert.match(fresh, /آخر تحديث من الخادم: 3 نوفمبر · 14:05/);
+  assert.equal(fresh.includes('تحديث الآن'), false);
+  assert.equal(fresh.includes('warnbox" id="fm-sync"'), false);
+  assert.match(stale, /warnbox" id="fm-sync"/);
+  assert.match(stale, /تحديث الآن/);
+  assert.equal(stale.includes('لم يُحدَّث منذ فتح التطبيق'), false);
+});
+
+test('a move without a note does not keep a stray separator', () => {
+  const views = {};
+  UI.install({
+    views, titles: {}, state: {}, render() {},
+    esc: s => String(s ?? ''), money: n => String(n), queueDoc() {},
+    confirmShell: inner => inner, lastSyncAt: () => 0, formatSyncTime: () => '',
+  });
+  const html = views.foreman('fm-hassan');
+  assert.equal(html.includes('>·<bdi'), false);
+  assert.match(html, /<bdi class="num">/);
+  assert.match(html, /class="kv fm-rule owe"/);
 });
