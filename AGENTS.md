@@ -8,6 +8,7 @@ Ameer's gates override every skill.
 - Ameer approves every behaviour or rules change.
 - All 4 CI checks green.
 - No spending.
+- Plan before code (architect skill): for every addition or update, sketch the files, types and functions first, send the plan to AgentLab Architect and EA for review, and write code only after the review.
 
 ### Yes
 
