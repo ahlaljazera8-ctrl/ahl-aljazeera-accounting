@@ -53,7 +53,11 @@
     return out;
   }
 
-  const MAX_CONTRACT = 10000000000;
+  const MAX_CONTRACT = (function () {
+    if (typeof module === 'object' && module.exports) return require('./ledger.js').MAX_AMOUNT_IQD;
+    const win = /** @type {Window} */ (/** @type {unknown} */ (globalThis));
+    return win.Ledger.MAX_AMOUNT_IQD;
+  })();
   const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
   function contractAmountOf(doc) {
