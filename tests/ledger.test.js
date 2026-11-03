@@ -771,8 +771,8 @@ test('reversing an advance and reversing a return go through foremanBalance', ()
 
 test('validateForemanMove rejects a site user, an inactive owner, an unknown foreman, and a mismatched reversal', () => {
   const inactive = { uid: 'i', role: 'owner', active: false };
-  assert.ok(L.validateForemanMove(MV({ createdBy: 's' }), { user: site, moves: [], foremen }).length > 0);
-  assert.ok(L.validateForemanMove(MV({ createdBy: 'i' }), { user: inactive, moves: [], foremen }).length > 0);
+  assert.deepEqual(L.validateForemanMove(MV({ createdBy: 's' }), { user: site, moves: [], foremen }), ['مستخدم غير مسموح']);
+  assert.deepEqual(L.validateForemanMove(MV({ createdBy: 'i' }), { user: inactive, moves: [], foremen }), ['مستخدم غير مسموح']);
   assert.ok(L.validateForemanMove(MV({ foremanId: 'missing' }), moveCtx()).some(e => e === 'الخلفة غير موجود'));
   const orig = MV({ id: 'm-mis', kind: 'advance', amount: 1000 });
   const ctx = { user: owner, moves: [orig], foremen };

@@ -635,3 +635,121 @@ testSeq('owner deletes one archived project and everything in it; a site user is
   const again = await getDocs(query(collection(db(OWNER), 'ledgerEntries'), where('projectId', '==', 'p-del')));
   assert.equal(again.size, 0);
 });
+
+function foremanFields(id, over) {
+  const row = Object.assign({ id, name: 'حسن', createdBy: OWNER }, over || {});
+  row.createdAtServer = serverTimestamp();
+  return row;
+}
+function foremanMoveFields(id, over) {
+  const row = Object.assign({
+    id, foremanId: 'fm1', kind: 'advance', amount: 1000, date: '2026-11-03', note: '',
+    isReversal: false, createdAtDevice: 1700000000000, createdBy: OWNER, deviceId: 'dev-owner',
+  }, over || {});
+  row.createdAtServer = serverTimestamp();
+  return row;
+}
+
+testSeq('owner creates and reads a foreman; site, inactive, and a stranger are denied', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
+  await assertSucceeds(getDoc(doc(db(OWNER), 'foremen', 'fm1')));
+  await assertFails(getDoc(doc(db(SITE), 'foremen', 'fm1')));
+  await assertFails(setDoc(doc(db(SITE), 'foremen', 'fm-site'), foremanFields('fm-site', { createdBy: SITE })));
+  await assertFails(setDoc(doc(db(INACTIVE), 'foremen', 'fm-off'), foremanFields('fm-off', { createdBy: INACTIVE })));
+  await assertFails(setDoc(doc(db('ghost'), 'foremen', 'fm-ghost'), foremanFields('fm-ghost', { createdBy: 'ghost' })));
+  await assertFails(getDoc(doc(db(null), 'foremen', 'fm1')));
+  await assertFails(updateDoc(doc(db(OWNER), 'foremen', 'fm1'), { name: 'علي' }));
+  await assertFails(deleteDoc(doc(db(OWNER), 'foremen', 'fm1')));
+  await assertFails(setDoc(doc(db(OWNER), 'foremen', 'fm-long'), foremanFields('fm-long', { name: 'ح'.repeat(101) })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremen', 'fm-empty'), foremanFields('fm-empty', { name: '' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremen', 'fm-tag'), foremanFields('fm-tag', { docType: 'foreman' })));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm-note'), foremanFields('fm-note', { note: 'ملاحظة', projectId: 'p1' })));
+}));
+
+testSeq('owner records cash moves; site cannot read or write them, and bad shapes are denied', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1')));
+  await assertSucceeds(getDoc(doc(db(OWNER), 'foremanMoves', 'mv1')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-set'), foremanMoveFields('mv-set', { kind: 'settle', amount: 35000 })));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-ret'), foremanMoveFields('mv-ret', { kind: 'return', amount: 500 })));
+  await assertFails(getDoc(doc(db(SITE), 'foremanMoves', 'mv1')));
+  await assertFails(setDoc(doc(db(SITE), 'foremanMoves', 'mv-site'), foremanMoveFields('mv-site', { createdBy: SITE })));
+  await assertFails(setDoc(doc(db(INACTIVE), 'foremanMoves', 'mv-off'), foremanMoveFields('mv-off', { createdBy: INACTIVE })));
+  await assertFails(updateDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), { amount: 2 }));
+  await assertFails(deleteDoc(doc(db(OWNER), 'foremanMoves', 'mv1')));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-miss'), foremanMoveFields('mv-miss', { foremanId: 'no-such' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-kind'), foremanMoveFields('mv-kind', { kind: 'adjust' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-frac'), foremanMoveFields('mv-frac', { amount: 1.5 })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-zero'), foremanMoveFields('mv-zero', { amount: 0 })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-cap'), foremanMoveFields('mv-cap', { amount: 10000000001 })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-tag'), foremanMoveFields('mv-tag', { docType: 'foremanMove' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_plain'), foremanMoveFields('rev_plain')));
+  await assertFails(setDoc(doc(db('ghost'), 'foremanMoves', 'mv-ghost'), foremanMoveFields('mv-ghost', { createdBy: 'ghost' })));
+}));
+
+testSeq('a foreman move with a bad date, a long note, an extra key, or a stray reversal id is denied', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1')));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-date'), foremanMoveFields('mv-date', { date: '2026-02-31' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-note'), foremanMoveFields('mv-note', { note: 'م'.repeat(201) })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-extra'), foremanMoveFields('mv-extra', { extra: true })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-link'), foremanMoveFields('mv-link', { reversesMoveId: 'mv1' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_missing-orig'), foremanMoveFields('rev_missing-orig', {
+    isReversal: true, reversesMoveId: 'missing-orig', reversalReason: 'تصحيح',
+  })));
+  await assertFails(getDoc(doc(db('ghost'), 'foremanMoves', 'mv1')));
+  await assertFails(getDoc(doc(db(null), 'foremanMoves', 'mv1')));
+}));
+
+testSeq('a foreman-move reversal must copy the foreman, kind, and amount, and a reversal cannot be reversed', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1', { amount: 4000, kind: 'advance' })));
+  const rev = foremanMoveFields('rev_mv1', {
+    amount: 4000, kind: 'advance', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
+  });
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_mv1'), rev));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_mv1'), rev));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_bad-kind'), foremanMoveFields('rev_bad-kind', {
+    amount: 4000, kind: 'return', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
+  })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_bad-amt'), foremanMoveFields('rev_bad-amt', {
+    amount: 5, kind: 'advance', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
+  })));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm-other'), foremanFields('fm-other', { name: 'علي' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_bad-fm'), foremanMoveFields('rev_bad-fm', {
+    foremanId: 'fm-other', amount: 4000, kind: 'advance', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
+  })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_rev_mv1'), foremanMoveFields('rev_rev_mv1', {
+    amount: 4000, kind: 'advance', isReversal: true, reversesMoveId: 'rev_mv1', reversalReason: 'لا',
+  })));
+}));
+
+testSeq('foremanId is an owner expense field, and a site user can still read that expense', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
+  await assertSucceeds(putEntry(OWNER, 'exp-fm', { foremanId: 'fm1', amount: 35000 }));
+  await assertFails(putEntry(SITE, 'exp-fm-site', { foremanId: 'fm1', amount: 10 }));
+  await assertFails(putEntry(OWNER, 'inc-fm', { foremanId: 'fm1', direction: 'income', entryType: 'clientPayment', amount: 10 }));
+  await assertFails(putEntry(OWNER, 'exp-fm-miss', { foremanId: 'missing', amount: 10 }));
+  await assertFails(putEntry(OWNER, 'exp-fm-bad', { foremanId: 'bad id', amount: 10 }));
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), 'ledgerEntries', 'exp-fm-read'), plain(OWNER, { id: 'exp-fm-read', foremanId: 'fm1', amount: 20 }));
+  });
+  await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'exp-fm-read')));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'archived' }));
+  await assertFails(putEntry(OWNER, 'exp-fm-arch', { foremanId: 'fm1', amount: 15 }));
+  const rev = entryFields(OWNER, {
+    id: 'rev_exp-fm', isReversal: true, reversesEntryId: 'exp-fm', reversalReason: 'تصحيح',
+    amount: 35000, entryType: 'materials', direction: 'expense', projectId: 'p1', foremanId: 'fm1',
+  });
+  await assertFails(setDoc(doc(db(OWNER), 'ledgerEntries', 'rev_exp-fm'), rev));
+  await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'active' }));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'ledgerEntries', 'rev_exp-fm'), rev));
+  await assertFails(setDoc(doc(db(OWNER), 'ledgerEntries', 'rev_exp-fm-x'), entryFields(OWNER, {
+    id: 'rev_exp-fm-x', isReversal: true, reversesEntryId: 'exp-fm', reversalReason: 'تصحيح',
+    amount: 35000, entryType: 'materials', direction: 'expense', projectId: 'p1', foremanId: 'fm-other',
+  })));
+  await assertFails(setDoc(doc(db(OWNER), 'ledgerEntries', 'rev_exp-fm-none'), entryFields(OWNER, {
+    id: 'rev_exp-fm-none', isReversal: true, reversesEntryId: 'exp-fm', reversalReason: 'تصحيح',
+    amount: 35000, entryType: 'materials', direction: 'expense', projectId: 'p1',
+  })));
+}));
