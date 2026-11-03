@@ -14,7 +14,7 @@ service cloud.firestore {
     function entryPath(id) { return /databases/$(database)/documents/ledgerEntries/$(id); }
     function projectPath(id) { return /databases/$(database)/documents/projects/$(id); }
     function foremanPath(id) { return /databases/$(database)/documents/foremen/$(id); }
-    function cashMovePath(id) { return /databases/$(database)/documents/cashMoves/$(id); }
+    function foremanMovePath(id) { return /databases/$(database)/documents/foremanMoves/$(id); }
     function MAX_AMOUNT_IQD() { return 10000000000; }
     function idOk(id) { return id is string && id.matches('^[A-Za-z0-9_-]{1,64}$'); }
     // Each item uses idOk. Rules have no loop, so the twenty slots are spelled out.
@@ -317,8 +317,8 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Owner-only cash movements against a foreman. A correction is a new rev_ row.
-    match /cashMoves/{id} {
+    // Owner-only foreman movements. A correction is a new rev_ row.
+    match /foremanMoves/{id} {
       function m() { return request.resource.data; }
       function moveShape() {
         return m().keys().hasOnly(['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdAtServer', 'createdBy', 'deviceId'])
@@ -345,11 +345,11 @@ service cloud.firestore {
           && !('reversalReason' in m());
       }
       function moveReversalOk() {
-        let orig = get(cashMovePath(m().reversesMoveId)).data;
+        let orig = get(foremanMovePath(m().reversesMoveId)).data;
         return m().isReversal == true
           && idOk(m().reversesMoveId)
           && id == 'rev_' + m().reversesMoveId
-          && exists(cashMovePath(m().reversesMoveId))
+          && exists(foremanMovePath(m().reversesMoveId))
           && orig.isReversal == false
           && orig.foremanId == m().foremanId
           && orig.kind == m().kind

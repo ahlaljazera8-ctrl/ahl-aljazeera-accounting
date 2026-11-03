@@ -641,7 +641,7 @@ function foremanFields(id, over) {
   row.createdAtServer = serverTimestamp();
   return row;
 }
-function cashMoveFields(id, over) {
+function foremanMoveFields(id, over) {
   const row = Object.assign({
     id, foremanId: 'fm1', kind: 'advance', amount: 1000, date: '2026-11-03', note: '',
     isReversal: false, createdAtDevice: 1700000000000, createdBy: OWNER, deviceId: 'dev-owner',
@@ -668,44 +668,58 @@ testSeq('owner creates and reads a foreman; site, inactive, and a stranger are d
 
 testSeq('owner records cash moves; site cannot read or write them, and bad shapes are denied', () => seeded(async () => {
   await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
-  await assertSucceeds(setDoc(doc(db(OWNER), 'cashMoves', 'mv1'), cashMoveFields('mv1')));
-  await assertSucceeds(getDoc(doc(db(OWNER), 'cashMoves', 'mv1')));
-  await assertSucceeds(setDoc(doc(db(OWNER), 'cashMoves', 'mv-set'), cashMoveFields('mv-set', { kind: 'settle', amount: 35000 })));
-  await assertSucceeds(setDoc(doc(db(OWNER), 'cashMoves', 'mv-ret'), cashMoveFields('mv-ret', { kind: 'return', amount: 500 })));
-  await assertFails(getDoc(doc(db(SITE), 'cashMoves', 'mv1')));
-  await assertFails(setDoc(doc(db(SITE), 'cashMoves', 'mv-site'), cashMoveFields('mv-site', { createdBy: SITE })));
-  await assertFails(setDoc(doc(db(INACTIVE), 'cashMoves', 'mv-off'), cashMoveFields('mv-off', { createdBy: INACTIVE })));
-  await assertFails(updateDoc(doc(db(OWNER), 'cashMoves', 'mv1'), { amount: 2 }));
-  await assertFails(deleteDoc(doc(db(OWNER), 'cashMoves', 'mv1')));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'mv-miss'), cashMoveFields('mv-miss', { foremanId: 'no-such' })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'mv-kind'), cashMoveFields('mv-kind', { kind: 'adjust' })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'mv-frac'), cashMoveFields('mv-frac', { amount: 1.5 })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'mv-zero'), cashMoveFields('mv-zero', { amount: 0 })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'mv-cap'), cashMoveFields('mv-cap', { amount: 10000000001 })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'mv-tag'), cashMoveFields('mv-tag', { docType: 'foremanMove' })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'rev_plain'), cashMoveFields('rev_plain')));
-  await assertFails(setDoc(doc(db('ghost'), 'cashMoves', 'mv-ghost'), cashMoveFields('mv-ghost', { createdBy: 'ghost' })));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1')));
+  await assertSucceeds(getDoc(doc(db(OWNER), 'foremanMoves', 'mv1')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-set'), foremanMoveFields('mv-set', { kind: 'settle', amount: 35000 })));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-ret'), foremanMoveFields('mv-ret', { kind: 'return', amount: 500 })));
+  await assertFails(getDoc(doc(db(SITE), 'foremanMoves', 'mv1')));
+  await assertFails(setDoc(doc(db(SITE), 'foremanMoves', 'mv-site'), foremanMoveFields('mv-site', { createdBy: SITE })));
+  await assertFails(setDoc(doc(db(INACTIVE), 'foremanMoves', 'mv-off'), foremanMoveFields('mv-off', { createdBy: INACTIVE })));
+  await assertFails(updateDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), { amount: 2 }));
+  await assertFails(deleteDoc(doc(db(OWNER), 'foremanMoves', 'mv1')));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-miss'), foremanMoveFields('mv-miss', { foremanId: 'no-such' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-kind'), foremanMoveFields('mv-kind', { kind: 'adjust' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-frac'), foremanMoveFields('mv-frac', { amount: 1.5 })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-zero'), foremanMoveFields('mv-zero', { amount: 0 })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-cap'), foremanMoveFields('mv-cap', { amount: 10000000001 })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-tag'), foremanMoveFields('mv-tag', { docType: 'foremanMove' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_plain'), foremanMoveFields('rev_plain')));
+  await assertFails(setDoc(doc(db('ghost'), 'foremanMoves', 'mv-ghost'), foremanMoveFields('mv-ghost', { createdBy: 'ghost' })));
 }));
 
-testSeq('a cash-move reversal must copy the foreman, kind, and amount, and a reversal cannot be reversed', () => seeded(async () => {
+testSeq('a foreman move with a bad date, a long note, an extra key, or a stray reversal id is denied', () => seeded(async () => {
   await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
-  await assertSucceeds(setDoc(doc(db(OWNER), 'cashMoves', 'mv1'), cashMoveFields('mv1', { amount: 4000, kind: 'advance' })));
-  const rev = cashMoveFields('rev_mv1', {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1')));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-date'), foremanMoveFields('mv-date', { date: '2026-02-31' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-note'), foremanMoveFields('mv-note', { note: 'م'.repeat(201) })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-extra'), foremanMoveFields('mv-extra', { extra: true })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'mv-link'), foremanMoveFields('mv-link', { reversesMoveId: 'mv1' })));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_missing-orig'), foremanMoveFields('rev_missing-orig', {
+    isReversal: true, reversesMoveId: 'missing-orig', reversalReason: 'تصحيح',
+  })));
+  await assertFails(getDoc(doc(db('ghost'), 'foremanMoves', 'mv1')));
+  await assertFails(getDoc(doc(db(null), 'foremanMoves', 'mv1')));
+}));
+
+testSeq('a foreman-move reversal must copy the foreman, kind, and amount, and a reversal cannot be reversed', () => seeded(async () => {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm1'), foremanFields('fm1')));
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'mv1'), foremanMoveFields('mv1', { amount: 4000, kind: 'advance' })));
+  const rev = foremanMoveFields('rev_mv1', {
     amount: 4000, kind: 'advance', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
   });
-  await assertSucceeds(setDoc(doc(db(OWNER), 'cashMoves', 'rev_mv1'), rev));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'rev_mv1'), rev));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'rev_bad-kind'), cashMoveFields('rev_bad-kind', {
+  await assertSucceeds(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_mv1'), rev));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_mv1'), rev));
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_bad-kind'), foremanMoveFields('rev_bad-kind', {
     amount: 4000, kind: 'return', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
   })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'rev_bad-amt'), cashMoveFields('rev_bad-amt', {
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_bad-amt'), foremanMoveFields('rev_bad-amt', {
     amount: 5, kind: 'advance', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
   })));
   await assertSucceeds(setDoc(doc(db(OWNER), 'foremen', 'fm-other'), foremanFields('fm-other', { name: 'علي' })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'rev_bad-fm'), cashMoveFields('rev_bad-fm', {
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_bad-fm'), foremanMoveFields('rev_bad-fm', {
     foremanId: 'fm-other', amount: 4000, kind: 'advance', isReversal: true, reversesMoveId: 'mv1', reversalReason: 'تصحيح',
   })));
-  await assertFails(setDoc(doc(db(OWNER), 'cashMoves', 'rev_rev_mv1'), cashMoveFields('rev_rev_mv1', {
+  await assertFails(setDoc(doc(db(OWNER), 'foremanMoves', 'rev_rev_mv1'), foremanMoveFields('rev_rev_mv1', {
     amount: 4000, kind: 'advance', isReversal: true, reversesMoveId: 'rev_mv1', reversalReason: 'لا',
   })));
 }));
