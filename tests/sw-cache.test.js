@@ -138,8 +138,10 @@ test('a shell file is refetched when the HTTP cache still holds the previous cop
     res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream', 'cache-control': cacheControl });
     fs.createReadStream(file).pipe(res);
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
+  /** @type {Promise<void>} */
+  const listening = new Promise(resolve => { server.listen(0, '127.0.0.1', () => resolve()); });
+  await listening;
+  const { port } = /** @type {import('net').AddressInfo} */ (server.address());
   const origin = 'http://127.0.0.1:' + port;
   const dir = '/tmp/aj-sw-fresh-' + port;
   const opened = await openChrome({ userDataDir: dir, detached: true });

@@ -92,7 +92,7 @@ let browsers;
 
 test.before(async () => {
   const fsHost = localHost('FIRESTORE_EMULATOR_HOST');
-  const authHost = localHost('FIREBASE_AUTH_EMULATOR_HOST');
+  localHost('FIREBASE_AUTH_EMULATOR_HOST');
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT,
     firestore: { rules: fs.readFileSync(path.join(__dirname, '../../firestore.rules'), 'utf8'), host: fsHost.host, port: fsHost.port },

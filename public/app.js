@@ -73,6 +73,7 @@ function seed() {
   const projects = [P('p-school','مشروع المدرسة','زبون مثال 1'), P('p-road','مشروع الطريق','زبون مثال 2'), P('p-market','بناية السوق','زبون مثال 3')];
   let n = 0;
   const E = (projectId, entryType, amount, description, by, extra = {}) => {
+    /** @type {Record<string, any>} */
     const row = { id:'seed-' + (++n), projectId, direction:L.ENTRY_TYPES[entryType].direction, entryType, amount, currency:'IQD', entryDate:'2026-10-' + String(n).padStart(2,'0'), description: description + ' (مثال)', partyName:'', isReversal:false, createdAtDevice:t + n*1000, createdAtServer:t + n*1000, createdBy:by, deviceId:'seed', ...extra };
     if (!Object.prototype.hasOwnProperty.call(extra, 'createdByName')) {
       const name = L.recorderName(users.find(u => u.uid === by));
@@ -608,7 +609,7 @@ async function flushProjectStatus(fb) {
   if (left.length) syncNotice = SEND_RETRY;
 }
 async function performFlush(token, run) {
-  let keptIds = null;
+  let keptIds;
   let statusAtStart = null;
   try {
     if (token !== sessionEpoch || navigator.onLine === false) return;
@@ -760,7 +761,7 @@ function usableProfile(profile, uid) {
 }
 async function localSession() {
   if (!indexedDB.databases) return null;
-  let listed = [];
+  let listed;
   try { listed = await indexedDB.databases(); } catch (e) { return null; }
   const names = (listed || []).map(d => d && d.name).filter(n => typeof n === 'string' && n.indexOf('aj-u-') === 0);
   for (const name of names) {
@@ -785,6 +786,7 @@ async function closeUserDb() {
   }
   for (const k of Object.keys(cache)) delete cache[k];
 }
+/** @returns {Promise<void>} */
 function deleteDb(name) {
   return new Promise(ok => {
     const done = () => { clearTimeout(timer); ok(); };
@@ -1174,7 +1176,7 @@ function downloadCsv(csv, filename) {
 function saveEntryFile(csv, filename) {
   const file = new File([csv], filename, { type: 'text/csv' });
   const payload = { files: [file], title: 'قيد أهل الجزيرة' };
-  let can = false;
+  let can;
   try {
     can = !!(navigator.share && typeof navigator.canShare === 'function' && navigator.canShare(payload));
   } catch (err) { can = false; }
@@ -1497,7 +1499,8 @@ function tabGlyph() {
 function syncPeopleTab(u) {
   const tabs = document.querySelector('.tabs');
   if (!tabs) return;
-  let a = tabs.querySelector('[data-tab="people"]');
+  /** @type {HTMLAnchorElement | null} */
+  let a = /** @type {HTMLAnchorElement | null} */ (tabs.querySelector('[data-tab="people"]'));
   if (!u || u.role !== 'owner') { if (a) a.remove(); return; }
   if (!a) {
     a = document.createElement('a');
@@ -1885,7 +1888,7 @@ document.addEventListener('click', ev => {
   else if (b.id === 'save-amend') saveAmendment(u, b);
 });
 document.addEventListener('input', ev => {
-  const el = ev.target;
+  const el = /** @type {HTMLInputElement | null} */ (ev.target);
   if (!el || el.id !== 'delete-name' || !state.confirm || state.confirm.action !== 'delete') return;
   state.confirm.typed = el.value;
   const project = get(K.projects, []).find(p => p.id === state.confirm.id);
@@ -1893,7 +1896,7 @@ document.addEventListener('input', ev => {
   if (btn) btn.disabled = !project || !window.Sync.exactProjectName(el.value, project.name);
 });
 document.addEventListener('beforeinput', ev => {
-  const el = ev.target;
+  const el = /** @type {HTMLInputElement | HTMLTextAreaElement | null} */ (ev.target);
   if (!el || el.maxLength == null || el.maxLength < 0) return;
   const data = ev.data || '';
   if (!data) return;
@@ -1909,7 +1912,7 @@ document.addEventListener('beforeinput', ev => {
     if (box) box.textContent = limitMsg;
   } else setFormMsg(limitMsg, 'error');
 });
-$('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, ev.target.value); render(); });
+$('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, /** @type {HTMLSelectElement} */ (ev.target).value); render(); });
 $('#login-form').addEventListener('submit', async ev => {
   ev.preventDefault();
   let token = sessionEpoch;

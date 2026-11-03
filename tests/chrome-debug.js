@@ -29,7 +29,7 @@ function logged(message, child) {
 
 function debugPort(dir, log) {
   const file = path.join(dir, 'DevToolsActivePort');
-  let text = '';
+  let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) { text = ''; }
   const fromFile = Number(String(text).split('\n')[0].trim());
   if (Number.isInteger(fromFile) && fromFile > 0 && fromFile <= 65535) return fromFile;
@@ -76,12 +76,12 @@ async function openChrome(opts) {
   for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort']) {
     fs.rmSync(path.join(dir, name), { force: true });
   }
-  const chrome = spawn('google-chrome', [
+  const chrome = /** @type {import('child_process').ChildProcess & { devtoolsLog?: () => string }} */ (spawn('google-chrome', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
     '--no-first-run', '--no-default-browser-check',
     '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
     '--remote-debugging-port=0', '--user-data-dir=' + dir, 'about:blank',
-  ], { detached, stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { detached, stdio: ['ignore', 'pipe', 'pipe'] }));
   let log = '';
   const keep = chunk => { log = (log + chunk).slice(-8000); };
   chrome.stdout.on('data', keep);

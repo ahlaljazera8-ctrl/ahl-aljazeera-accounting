@@ -12,12 +12,22 @@ function inject(csp) {
   if (/127\.0\.0\.1/.test(csp)) throw new Error('firebase.json CSP must not include emulator origins');
   let connect = false;
   let frame = false;
-  const out = csp.split(';').map(s => s.trim()).filter(Boolean).map(part => {
-    const bits = part.split(/\s+/);
-    if (bits[0] === 'connect-src') { connect = true; return bits.concat(CONNECT).join(' '); }
-    if (bits[0] === 'frame-src') { frame = true; return bits.concat(FRAME).join(' '); }
-    return part;
-  });
+  const out = csp
+    .split(';')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(part => {
+      const bits = part.split(/\s+/);
+      if (bits[0] === 'connect-src') {
+        connect = true;
+        return bits.concat(CONNECT).join(' ');
+      }
+      if (bits[0] === 'frame-src') {
+        frame = true;
+        return bits.concat(FRAME).join(' ');
+      }
+      return part;
+    });
   if (!connect || !frame) throw new Error('CSP is missing connect-src or frame-src');
   return out.join('; ');
 }
