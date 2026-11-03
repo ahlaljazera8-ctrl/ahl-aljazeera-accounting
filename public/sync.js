@@ -11,9 +11,14 @@
     return !!(doc && (doc.isExample === true || doc.deviceId === 'seed' || String(doc.id || '').indexOf('seed-') === 0));
   }
 
+  const FOREMEN = 'foremen';
+  const FOREMAN_MOVES = 'foremanMoves';
+
   /** @param {SyncDoc | null | undefined} doc @returns {string | null} */
   function collectionFor(doc) {
     if (!doc) return null;
+    if (doc.docType === 'foreman') return FOREMEN;
+    if (doc.docType === 'foremanMove') return FOREMAN_MOVES;
     if (doc.entryType) return 'ledgerEntries';
     if (typeof doc.name === 'string' && doc.currency) return 'projects';
     if (typeof doc.agreedOn === 'string' && doc.projectId && !doc.currency) return 'subcontracts';
@@ -37,6 +42,8 @@
 
   /** @param {SyncDoc} doc @returns {SyncDoc} */
   function toRemote(doc) {
+    if (doc.docType === 'foreman') return copyFields(doc, ['id', 'name', 'note', 'projectId', 'createdBy']);
+    if (doc.docType === 'foremanMove') return copyFields(doc, ['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdBy', 'deviceId']);
     if (doc.entryType) {
       const out = copyFields(doc, ['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdAtDevice', 'createdBy', 'deviceId']);
       if (doc.description) out.description = doc.description;
@@ -47,6 +54,7 @@
         out.reversalReason = doc.reversalReason;
       }
       if (doc.entryType === 'subcontractor' && doc.subcontractId) out.subcontractId = doc.subcontractId;
+      if (doc.foremanId) out.foremanId = doc.foremanId;
       return out;
     }
     if (typeof doc.agreedOn === 'string' && doc.projectId && !doc.currency) {
@@ -175,6 +183,39 @@
       amendments,
       watermark: nextWatermark(opts.since, subcontracts.concat(amendments)),
     };
+  }
+
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {unknown} since
+   * @returns {readonly ReadSpec[]}
+   */
+  function foremanReads(user, since) {
+    if (!user || user.role !== 'owner' || user.active !== true) return [];
+    return sinceClause([
+      { collection: FOREMEN, where: [] },
+      { collection: FOREMAN_MOVES, where: [] },
+    ], since);
+  }
+
+  /** @param {SubPull} opts */
+  async function pullForemen(opts) {
+    const specs = foremanReads(opts.user, opts.since);
+    if (!specs.length) return { foremen: [], moves: [], watermark: finiteMillis(opts.since) };
+    /** @type {SyncDoc[]} */
+    const foremen = [];
+    /** @type {SyncDoc[]} */
+    const moves = [];
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      const rows = await readSpecs([spec], opts.read);
+      rows.forEach(row => {
+        if (!row) return;
+        if (spec.collection === FOREMAN_MOVES) moves.push(Object.assign({}, row, { docType: 'foremanMove' }));
+        else foremen.push(Object.assign({}, row, { docType: 'foreman' }));
+      });
+    }
+    return { foremen, moves, watermark: nextWatermark(opts.since, foremen.concat(moves)) };
   }
 
   /** @param {SyncUser | null | undefined} input @returns {PersonResult} */
@@ -529,7 +570,9 @@
     removed.forEach(id => { delete syncErrors[id]; });
     const outbox = (src.outbox || []).filter(id => !removed.has(id));
     const statusPending = (src.statusPending || []).filter(id => id !== projectId);
-    return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending };
+    const foremen = (src.foremen || []).slice();
+    const foremanMoves = (src.foremanMoves || []).slice();
+    return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves };
   }
 
   /** @param {FlushCall} opts */
@@ -587,6 +630,7 @@
 
   return {
     isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
+    FOREMEN, FOREMAN_MOVES, foremanReads, pullForemen,
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
     readSetKey, readSetChanged, stripMoney, termsPayload, subcontractReads, pullSubcontracts,
     exactProjectName, projectDeleteDocs, projectDeleteBatches, missingRequestedIds, dropProjectLocal,

@@ -53,6 +53,12 @@ interface SyncRow {
   createdByName?: unknown;
   subcontractId?: unknown;
   reversesEntryId?: unknown;
+  docType?: 'foreman' | 'foremanMove';
+  foremanId?: string;
+  kind?: string;
+  reversesMoveId?: string;
+  date?: string;
+  note?: string;
 }
 
 interface SyncFailure {
@@ -456,6 +462,10 @@ interface SyncDoc {
   createdBy?: string;
   amount?: number;
   note?: string;
+  docType?: 'foreman' | 'foremanMove';
+  foremanId?: string;
+  kind?: string;
+  reversesMoveId?: string;
   work?: string;
   clientName?: string;
   status?: string;
@@ -504,6 +514,8 @@ interface LocalStore {
   outbox?: readonly string[] | null;
   syncErrors?: Record<string, unknown> | null;
   statusPending?: readonly string[] | null;
+  foremen?: readonly SyncDoc[] | null;
+  foremanMoves?: readonly SyncDoc[] | null;
   [key: string]: unknown;
 }
 
@@ -556,6 +568,8 @@ interface DroppedProject {
   outbox: string[];
   syncErrors: Record<string, unknown>;
   statusPending: string[];
+  foremen: SyncDoc[];
+  foremanMoves: SyncDoc[];
 }
 
 interface SyncApi {
@@ -611,6 +625,14 @@ interface SyncApi {
   pullSubcontracts(opts: SubPull): Promise<{
     subcontracts: SyncDoc[];
     amendments: SyncDoc[];
+    watermark: number | null;
+  }>;
+  FOREMEN: string;
+  FOREMAN_MOVES: string;
+  foremanReads(user: SyncUser | null | undefined, since: unknown): readonly ReadSpec[];
+  pullForemen(opts: SubPull): Promise<{
+    foremen: SyncDoc[];
+    moves: SyncDoc[];
     watermark: number | null;
   }>;
   exactProjectName(typed: unknown, name: unknown): boolean;

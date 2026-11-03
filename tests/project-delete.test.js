@@ -115,3 +115,16 @@ test('the deleting phone also drops its own unsent rows for that project', () =>
   assert.equal(csv.includes('keep-pay'), true);
   assert.equal(store().entries.some(e => e.id === 'del-pay'), true);
 });
+
+test('dropping a project keeps foremen and foreman moves, and the server delete list omits them', () => {
+  const src = store();
+  src.foremen = [{ id: 'fm1', name: 'حسن', projectId: 'p-del' }];
+  src.foremanMoves = [{ id: 'mv1', foremanId: 'fm1', kind: 'advance', amount: 1000 }];
+  const next = Sync.dropProjectLocal(src, 'p-del', { dropPending: true });
+  assert.deepEqual(next.foremen, src.foremen);
+  assert.deepEqual(next.foremanMoves, src.foremanMoves);
+  const docs = Sync.projectDeleteDocs('p-del', {
+    entryIds: ['e1'], subcontractIds: ['sc-del'], amendmentIds: ['am-del'], termIds: ['sc-del'], finance: true,
+  });
+  assert.equal(docs.some(row => row.collection === 'foremen' || row.collection === 'foremanMoves'), false);
+});

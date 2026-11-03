@@ -2,7 +2,7 @@
 // IndexedDB "aj-p0" / "aj-u-<uid>" (stores: projects, entries, outbox, meta).
 // Loaded into memory at boot; every write is persisted (write-through, serialized).
 // Outbox = ids not sent yet (no syncState). Login and logout live here too.
-var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
+var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
 /** @type {Record<string, 1>} */
 var LIST = { projects:1, entries:1, outbox:1 };
 /** @type {SessionCache} */

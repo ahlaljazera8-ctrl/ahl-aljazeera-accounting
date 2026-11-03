@@ -161,6 +161,92 @@ test('recorder name and payee are part of the synced entry', () => {
   assert.equal(Status.sameContent(named, Object.assign({}, named, { createdByName: 'سامي' })), false);
   assert.equal(Status.sameContent(named, Object.assign({}, named, { partyName: 'جهة أخرى' })), false);
 });
+function move(over) {
+  return Object.assign({
+    id: 'mv1', docType: 'foremanMove', foremanId: 'fm1', kind: 'advance', amount: 1000,
+    date: '2026-11-03', note: '', isReversal: false, createdBy: 'u-ameer', deviceId: 'd',
+  }, over);
+}
+function foreman(over) {
+  return Object.assign({ id: 'fm1', docType: 'foreman', name: 'حسن', note: '', createdBy: 'u-ameer' }, over);
+}
+
+test('SS1 sameContent matches a move and rejects a different amount, kind, or foreman', () => {
+  const row = move();
+  const server = Object.assign({}, row);
+  delete server.docType;
+  assert.equal(Status.sameContent(row, server), true);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { amount: 2 })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { kind: 'settle' })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { foremanId: 'fm2' })), false);
+});
+
+test('SS2 sameContent matches a foreman document', () => {
+  const row = foreman({ projectId: 'p1' });
+  const server = Object.assign({}, row);
+  delete server.docType;
+  assert.equal(Status.sameContent(row, server), true);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { name: 'علي' })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, server, { projectId: 'p2' })), false);
+});
+
+test('SS3 entries that differ only in foremanId are not the same', () => {
+  const row = local({ foremanId: 'fm1' });
+  assert.equal(Status.sameContent(row, Object.assign({}, row)), true);
+  assert.equal(Status.sameContent(row, Object.assign({}, row, { foremanId: 'fm2' })), false);
+  assert.equal(Status.sameContent(row, Object.assign({}, row, { foremanId: '' })), false);
+});
+
+test('SS4 a move reversal uses reversesMoveId and never matches an entry reversal', () => {
+  const localMove = move({ isReversal: true, reversesMoveId: 'mv1', id: 'rev_mv1' });
+  const remoteMove = Object.assign({}, localMove);
+  delete remoteMove.docType;
+  assert.equal(Status.sameReversal(localMove, remoteMove), true);
+  assert.equal(Status.sameReversal(localMove, Object.assign({}, remoteMove, { reversesMoveId: 'other' })), false);
+  const entryRev = local({ isReversal: true, reversesEntryId: 'mv1', id: 'rev_mv1' });
+  assert.equal(Status.sameReversal(localMove, entryRev), false);
+  assert.equal(Status.sameReversal(entryRev, remoteMove), false);
+});
+
+test('SS6 an untagged server copy still matches, and an untagged entry stays on the entry path', () => {
+  const row = move();
+  const server = Object.assign({}, row);
+  delete server.docType;
+  assert.equal(server.docType, undefined);
+  assert.equal(Status.sameContent(row, server), true);
+  const entry = local({ amount: 1000 });
+  const mixed = Object.assign({}, entry, { kind: 'advance', date: '2026-11-03', reversesMoveId: 'mv1' });
+  assert.equal(entry.docType, undefined);
+  assert.equal(Status.sameContent(entry, mixed), true);
+});
+
+test('an empty note survives toRemote and collectionFor uses the shared move constant', () => {
+  const row = move({ note: '' });
+  const remote = Sync.toRemote(row);
+  assert.equal(remote.note, '');
+  assert.equal(Object.prototype.hasOwnProperty.call(remote, 'docType'), false);
+  assert.equal(Sync.collectionFor(row), Sync.FOREMAN_MOVES);
+  assert.equal(Sync.collectionFor(foreman()), Sync.FOREMEN);
+  assert.equal(Sync.collectionFor(Object.assign({}, foreman(), { name: 'حسن', currency: 'IQD' })), Sync.FOREMEN);
+  const site = { uid: 's', role: 'site', active: true, assignedProjectIds: ['p1'] };
+  assert.deepEqual(Sync.foremanReads(site, null), []);
+  const owner = { uid: 'o', role: 'owner', active: true };
+  assert.deepEqual(Sync.foremanReads(owner, null).map(spec => spec.collection), [Sync.FOREMEN, Sync.FOREMAN_MOVES]);
+});
+
+test('staleness follows lastSyncAt, not a pull watermark', () => {
+  const Ledger = require('../public/ledger.js');
+  const now = 1700000000000;
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+  const fresh = Ledger.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: now, nowMs: now });
+  assert.equal(fresh.stale, false);
+  assert.equal(fresh.lastSync, now);
+  const sinceOpen = Ledger.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: 0, nowMs: now });
+  assert.equal(sinceOpen.stale, true);
+  assert.equal(sinceOpen.lastSync, null);
+  assert.notEqual(dayAgo, fresh.lastSync);
+});
+
 test('readRemote loads the 13.1.0 gstatic Firestore build', async () => {
   let seen = '';
   const remote = { amount: 5, projectId: 'p1', description: '' };
