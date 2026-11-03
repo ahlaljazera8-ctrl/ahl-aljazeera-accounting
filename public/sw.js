@@ -1,4 +1,4 @@
-const VERSION = 'aj-p0-v31';
+const VERSION = 'aj-p0-v32';
 const ASSETS = ['./index.html', './style.css', './print.css', './ledger.js', './sync.js', './sync-status.js', './dom-safe.js', './appcheck.js', './firebase-config.js', './app.js', './manifest.json', './icon.svg'];
 const SHELL = { '/': 1, '/index.html': 1, '/style.css': 1, '/print.css': 1, '/ledger.js': 1, '/sync.js': 1, '/sync-status.js': 1, '/dom-safe.js': 1, '/appcheck.js': 1, '/firebase-config.js': 1, '/app.js': 1, '/manifest.json': 1, '/icon.svg': 1 };
 
@@ -35,7 +35,7 @@ self.addEventListener('activate', e => {
     await Promise.all(keys.map(k => caches.delete(k)));
     try {
       await (await caches.open(VERSION)).addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })));
-    } catch (err) {}
+    } catch (err) { /* an offline install still claims clients and heals */ }
     await self.clients.claim();
     if (!heal) return;
     await healWindows();

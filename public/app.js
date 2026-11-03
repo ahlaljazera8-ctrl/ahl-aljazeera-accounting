@@ -179,7 +179,7 @@ async function recoverModuleOnce() {
       const keys = await caches.keys();
       await Promise.all(keys.map(k => caches.delete(k)));
     }
-  } catch (e) {}
+  } catch (e) { /* unregister or cache delete failed; the reload still runs */ }
   location.reload();
 }
 function ensureFirebase() {
@@ -585,11 +585,11 @@ function paintShell() {
 async function holdSession(message) {
   sessionEpoch += 1;
   syncNotice = '';
-  try { await closeUserDb(); } catch (e) {}
+  try { await closeUserDb(); } catch (e) { /* the login message is shown even if the local database will not close */ }
   // A suspended profile stays signed in, so the next open can read users/{uid}
   // and explain. A dead refresh token is cleared or the login form cannot start.
   if (message === SESSION_DEAD_MSG) {
-    try { await disposeFirebase(true); } catch (e) {}
+    try { await disposeFirebase(true); } catch (e) { /* signing out a dead token is best-effort; the message is already chosen */ }
   }
   showLoginMessage(message);
 }
@@ -761,7 +761,7 @@ async function performFlush(token, run) {
 }
 function releaseDb() {
   directoryPromise = null;
-  if (db) { try { db.close(); } catch (e) {} db = null; }
+  if (db) { try { db.close(); } catch (e) { /* the handle is dropped on the next line either way */ } db = null; }
   for (const k of Object.keys(cache)) delete cache[k];
 }
 function usableProfile(profile, uid) {
@@ -779,7 +779,7 @@ async function localSession() {
       await openUserDb(uid);
       const profile = get(K.sessionUser, null);
       if (usableProfile(profile, uid)) return profile;
-    } catch (e) {}
+    } catch (e) { /* one unreadable aj-u database is skipped so the next name can be tried */ }
     releaseDb();
   }
   return null;
@@ -789,7 +789,7 @@ async function closeUserDb() {
   if (db) {
     set(K.sessionUser, null);
     await writing.catch(() => {});
-    try { db.close(); } catch (e) {}
+    try { db.close(); } catch (e) { /* the cache is cleared after this whether close throws or not */ }
     db = null;
   }
   for (const k of Object.keys(cache)) delete cache[k];
@@ -869,12 +869,12 @@ async function closeSession() {
     if (!reason && name && name.indexOf('aj-u-') === 0) await deleteDb(name);
     await disposeFirebase(true);
     await clearExtraCaches();
-  } catch (e) {}
+  } catch (e) { /* logout still reaches the login message if a step throws */ }
   showLoginMessage(reason);
   return true;
 }
 async function openUserDb(uid) {
-  if (db) { try { db.close(); } catch (e) {} db = null; }
+  if (db) { try { db.close(); } catch (e) { /* the previous connection is abandoned before the new open */ } db = null; }
   for (const k of Object.keys(cache)) delete cache[k];
   db = await openDB('aj-u-' + uid);
   await loadAll();
@@ -1179,7 +1179,7 @@ function downloadCsv(csv, filename) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => { try { URL.revokeObjectURL(url); } catch (err) {} }, 2000);
+  setTimeout(() => { try { URL.revokeObjectURL(url); } catch (err) { /* the file was already handed to the browser */ } }, 2000);
 }
 function saveEntryFile(csv, filename) {
   const file = new File([csv], filename, { type: 'text/csv' });
@@ -1974,7 +1974,7 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
         stayed = true;
         if (navigator.onLine === false) return;
       }
-    } catch (e) {}
+    } catch (e) { /* a failed local reopen falls through to Firebase */ }
     if (token !== sessionEpoch) return;
     try {
       let fb = await withTimeout(ensureFirebase(), LOGIN_MS, 'تحميل');
@@ -1997,7 +1997,7 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
         if (token !== sessionEpoch) return;
         if (isDeadAuth(err)) {
           showLoginMessage(SESSION_DEAD_MSG);
-          try { await disposeFirebase(true); } catch (e2) {}
+          try { await disposeFirebase(true); } catch (e2) { /* the login message is already set */ }
           return;
         }
         if (isPoison(err)) {
@@ -2009,7 +2009,7 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
           } catch (e2) {
             if (isDeadAuth(e2)) {
               showLoginMessage(SESSION_DEAD_MSG);
-              try { await disposeFirebase(true); } catch (e3) {}
+              try { await disposeFirebase(true); } catch (e3) { /* the login message is already set */ }
               return;
             }
             if (!profile) { const m = $('#login-msg'); if (m) m.textContent = REPAIR_MSG; }
@@ -2033,7 +2033,7 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
       const m = $('#login-msg');
       if (m && isDeadAuth(e)) m.textContent = SESSION_DEAD_MSG;
       else if (m && e && (isPoison(e) || isImportFailure(e))) m.textContent = e.message || REPAIR_MSG;
-      if (isDeadAuth(e)) { try { await disposeFirebase(true); } catch (e2) {} }
+      if (isDeadAuth(e)) { try { await disposeFirebase(true); } catch (e2) { /* the login message is already set */ } }
     }
     return;
   }
