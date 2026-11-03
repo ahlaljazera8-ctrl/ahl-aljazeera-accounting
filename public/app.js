@@ -132,8 +132,9 @@ const me = () => {
   const role = get(K.role, demoRole() || 'owner');
   return get(K.users, []).find(u => u.uid === (role === 'site' ? 'u-ahmed' : 'u-ameer'));
 };
-const showLogin = () => { $('#login').hidden = false; $('#shell').hidden = true; };
-const showApp = () => { $('#login').hidden = true; $('#shell').hidden = false; };
+function markReady() { if (document.body) document.body.dataset.ready = '1'; }
+const showLogin = () => { const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = false; $('#shell').hidden = true; markReady(); };
+const showApp = () => { const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = true; $('#shell').hidden = false; };
 function profileFrom(uid, data) {
   return { uid, displayName: data.displayName || '', email: data.email || '', role: data.role, active: data.active === true,
     assignedProjectIds: Array.isArray(data.assignedProjectIds) ? data.assignedProjectIds : [], createdAtServer: data.createdAtServer || null, createdBy: data.createdBy || '' };
@@ -153,8 +154,10 @@ function isImportFailure(err) {
   const text = String((err && err.message) || err || '');
   return /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(text);
 }
-// One reload if the module scripts themselves failed. Does not touch aj-u-* or the outbox.
+// A failed Firebase import is the CDN, not a broken shell. Offline, or while a
+// session is already open, deleting the cache leaves the next load with nothing.
 async function recoverModuleOnce() {
+  if (navigator.onLine === false || get(K.sessionUser)) return;
   if (sessionStorage.getItem('aj-sw-heal') === '1') return;
   if (new URL(location.href).searchParams.has('sw')) return;
   sessionStorage.setItem('aj-sw-heal', '1');
@@ -668,6 +671,31 @@ async function performFlush(token, run) {
     const freshStatus = get(K.statusPending, []).some(id => !started.has(id));
     if (get(K.outbox, []).some(id => !kept.has(id)) || freshStatus) return flushRemote();
   }
+}
+function releaseDb() {
+  directoryPromise = null;
+  if (db) { try { db.close(); } catch (e) {} db = null; }
+  for (const k of Object.keys(cache)) delete cache[k];
+}
+function usableProfile(profile, uid) {
+  return !!(profile && profile.uid === uid && profile.active !== false && (profile.role === 'owner' || profile.role === 'site'));
+}
+async function localSession() {
+  if (!indexedDB.databases) return null;
+  let listed = [];
+  try { listed = await indexedDB.databases(); } catch (e) { return null; }
+  const names = (listed || []).map(d => d && d.name).filter(n => typeof n === 'string' && n.indexOf('aj-u-') === 0);
+  for (const name of names) {
+    const uid = name.slice('aj-u-'.length);
+    if (!uid) continue;
+    try {
+      await openUserDb(uid);
+      const profile = get(K.sessionUser, null);
+      if (usableProfile(profile, uid)) return profile;
+    } catch (e) {}
+    releaseDb();
+  }
+  return null;
 }
 async function closeUserDb() {
   directoryPromise = null;
@@ -1746,14 +1774,31 @@ addEventListener('online', () => { if (!demoRole() && get(K.sessionUser)) flushR
 addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
 (async () => {
   if (!demoRole()) {
-    showLogin();
-    document.body.dataset.ready = '1';
     const token = sessionEpoch;
+    let stayed = false;
+    try {
+      const local = await localSession();
+      if (token !== sessionEpoch) return;
+      if (local) {
+        showApp();
+        render();
+        markReady();
+        stayed = true;
+        if (navigator.onLine === false) return;
+      }
+    } catch (e) {}
+    if (token !== sessionEpoch) return;
     try {
       let fb = await withTimeout(ensureFirebase(), LOGIN_MS, 'تحميل');
       if (token !== sessionEpoch) return;
       let user = await withTimeout(fb.currentUser(), LOGIN_MS, 'الجلسة');
-      if (token !== sessionEpoch || !user) return;
+      if (token !== sessionEpoch) return;
+      if (!user) {
+        if (stayed && navigator.onLine === false) return;
+        if (stayed) { await holdSession(SESSION_DEAD_MSG); return; }
+        showLogin();
+        return;
+      }
       await openUserDb(user.uid);
       if (token !== sessionEpoch) return;
       let profile = get(K.sessionUser, null);
@@ -1792,9 +1837,10 @@ addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
         }
         return;
       }
-      showApp(); render(); flushRemote();
+      showApp(); render(); markReady(); flushRemote();
     } catch (e) {
       if (token !== sessionEpoch) return;
+      if (stayed) return;
       showLogin();
       const m = $('#login-msg');
       if (m && isDeadAuth(e)) m.textContent = SESSION_DEAD_MSG;
