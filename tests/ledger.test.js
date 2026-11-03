@@ -655,7 +655,7 @@ test('validateEntry accepts an owner foreman expense and rejects site, income, a
   const lg = L.createLedger();
   const base = { user: owner, projects, foremen };
   assert.equal(lg.append(E({ foremanId: 'fm1' }), base).foremanId, 'fm1');
-  assert.throws(() => lg.append(E({ foremanId: 'fm1', createdBy: 's' }), { user: site, projects, foremen }), /المالك/);
+  assert.throws(() => lg.append(E({ foremanId: 'fm1', createdBy: 's' }), { user: site, projects, foremen }), /للمالك/);
   assert.throws(() => lg.append(E({ foremanId: 'fm1', direction: 'income', entryType: 'clientPayment' }), base), /مصروف/);
   assert.throws(() => lg.append(E({ foremanId: 'bad id' }), base), /غير صالح/);
   assert.throws(() => lg.append(E({ foremanId: 'missing' }), base), /غير موجود/);
