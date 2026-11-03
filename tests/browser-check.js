@@ -1212,6 +1212,20 @@ let chrome;
   })()`);
   check('a people load that never resolves still shows the cached list', hanging && hanging.calls===1 && hanging.text.includes('أمير') && hanging.text.includes('أحمد') && hanging.err===false);
   await go(BASE + 'index.html?role=owner#home');
+  const onlineFail = await ev(`(async()=>{
+    history.replaceState(null, '', location.pathname + '#people');
+    const owner = (get(K.users)||[]).find(u => u.uid==='u-ameer');
+    set(K.sessionUser, owner);
+    set(K.peopleSynced, Date.parse('2026-11-03T12:00:00Z'));
+    window.ensureFirebase = () => Promise.resolve({ listUsers() { return Promise.reject(new Error('down')); } });
+    location.hash = '#people';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 50));
+    const note = (document.querySelector('#people-sync')||{}).innerText || '';
+    return { onLine: navigator.onLine, note, err: !!document.querySelector('#people-error'), ameer: document.querySelector('#main').innerText.includes('أمير') };
+  })()`);
+  check('an online refresh failure with a saved list says the update failed', onlineFail && onlineFail.onLine!==false && onlineFail.ameer && onlineFail.note.includes('تعذّر التحديث') && onlineFail.note.includes('آخر تحديث') && onlineFail.note.includes('غير متصل')===false && onlineFail.err===false);
+  await go(BASE + 'index.html?role=owner#home');
   const failedEmpty = await ev(`(async()=>{
     history.replaceState(null, '', location.pathname);
     const owner = { uid:'u-ameer', displayName:'أمير', role:'owner', active:true, assignedProjectIds:[] };

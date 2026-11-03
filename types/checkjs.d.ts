@@ -742,7 +742,14 @@ interface PeopleDirApi {
   TIMEOUT_MS: number;
   COOLDOWN_MS: number;
   SUCCESS_TTL_MS: number;
+  OFFLINE_LEAD: string;
+  UPDATE_LEAD: string;
+  LOAD_ERROR: string;
+  RETRY_LABEL: string;
+  RENDER_ERROR: string;
   samePeople(a: readonly PeopleRow[] | null | undefined, b: readonly PeopleRow[] | null | undefined): boolean;
+  syncNoteLead(offline: boolean, failed: boolean): string;
+  syncNote(lead: string, time: string): string;
   loadPlan(
     state: PeopleLoadState | null | undefined,
     now: number,

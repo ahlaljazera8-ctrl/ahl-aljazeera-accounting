@@ -262,6 +262,20 @@ test('a fresh directory skips render and still loads for retry and online', asyn
   assert.equal(h.calls.length, 4);
 });
 
+test('offline and an online failure use different last-update lines', () => {
+  assert.equal(PeopleDir.syncNoteLead(true, false), 'غير متصل');
+  assert.equal(PeopleDir.syncNoteLead(true, true), 'غير متصل');
+  assert.equal(PeopleDir.syncNoteLead(false, true), 'تعذّر التحديث');
+  assert.equal(PeopleDir.syncNoteLead(false, false), '');
+  assert.equal(PeopleDir.syncNote('غير متصل', '3 نوفمبر · 12:00 م'), 'غير متصل · آخر تحديث: 3 نوفمبر · 12:00 م');
+  assert.equal(PeopleDir.syncNote('تعذّر التحديث', '3 نوفمبر · 12:00 م'), 'تعذّر التحديث · آخر تحديث: 3 نوفمبر · 12:00 م');
+  assert.equal(PeopleDir.OFFLINE_LEAD, 'غير متصل');
+  assert.equal(PeopleDir.UPDATE_LEAD, 'تعذّر التحديث');
+  assert.equal(PeopleDir.LOAD_ERROR, 'تعذّر تحميل الأشخاص. تحقّق من الاتصال.');
+  assert.equal(PeopleDir.RETRY_LABEL, 'إعادة المحاولة');
+  assert.equal(PeopleDir.RENDER_ERROR, 'حدث خطأ في العرض. أعد فتح الصفحة.');
+});
+
 test('a stamped empty directory still offers a retry', () => {
   assert.equal(PeopleDir.directoryView(0, 5000, true, false), 'retry');
   assert.equal(PeopleDir.directoryView(0, 5000, false, true), 'retry');

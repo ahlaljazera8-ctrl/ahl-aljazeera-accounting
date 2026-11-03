@@ -228,14 +228,15 @@ function peopleViewOpen() {
 function peopleNote() {
   const stamp = Number(get(K.peopleSynced, 0));
   const when = Number.isFinite(stamp) && stamp > 0 ? formatSyncTime(stamp) : '—';
-  return '<p class="note" id="people-sync">غير متصل · آخر تحديث: <bdi class="num">' + esc(when) + '</bdi></p>';
+  const lead = PeopleDir.syncNoteLead(navigator.onLine === false, peopleLoader.failed());
+  return '<p class="note" id="people-sync">' + esc(lead) + ' · آخر تحديث: <bdi class="num">' + esc(when) + '</bdi></p>';
 }
 function peopleFrame(inner) {
   const list = userRows();
   const stamp = Number(get(K.peopleSynced, 0));
   const view = PeopleDir.directoryView(list.length, Number.isFinite(stamp) && stamp > 0 ? stamp : 0, navigator.onLine === false, peopleLoader.failed());
-  const retry = '<button type="button" class="btn" id="people-retry">إعادة المحاولة</button>';
-  if (view === 'error') return '<div class="card" id="people-error"><p>تعذّر تحميل الأشخاص. تحقّق من الاتصال.</p>' + retry + '</div>';
+  const retry = '<button type="button" class="btn" id="people-retry">' + esc(PeopleDir.RETRY_LABEL) + '</button>';
+  if (view === 'error') return '<div class="card" id="people-error"><p>' + esc(PeopleDir.LOAD_ERROR) + '</p>' + retry + '</div>';
   if (view === 'retry') return peopleNote() + retry + inner;
   if (view === 'note') return peopleNote() + inner;
   return inner;
@@ -974,7 +975,7 @@ function render() {
     const card = document.createElement('div');
     card.className = 'card';
     card.id = 'render-error';
-    card.textContent = 'حدث خطأ في العرض. أعد فتح الصفحة.';
+    card.textContent = PeopleDir.RENDER_ERROR;
     main.appendChild(card);
   }
 }

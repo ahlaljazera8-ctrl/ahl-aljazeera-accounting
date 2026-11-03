@@ -32,7 +32,7 @@ Verified from the file's own header and the names it publishes.
 - `public/people-dir.js` owns the people-directory load policy. It publishes `PeopleDir`, including `samePeople`, `loadPlan`, `applyPeople`, and `createLoader`. `render.js` calls it. The file does not import Firebase.
 - `public/render.js` owns the screens and the click handlers. It declares `L` and `POLICY`, and `render` is the screen function.
 - `public/session.js` owns IndexedDB (`aj-p0` and `aj-u-<uid>`), login, and logout. It publishes `get`, `set`, `demoRole`, `enterSession`, and `closeSession`.
-- `public/sw.js` owns the shell cache. `VERSION` is `aj-p0-v51`. `isShell` decides which GETs are cached, and a failed network read falls back to that cache.
+- `public/sw.js` owns the shell cache. `VERSION` is `aj-p0-v52`. `isShell` decides which GETs are cached, and a failed network read falls back to that cache.
 - `public/sync-status.js` owns the outbox result classes and the per-entry sync state. It publishes `SyncStatus`, including `isDeadAuth`, `applyFlush`, and `badgeHtml`.
 - `public/sync.js` owns the outbox flush and does not import Firebase. It publishes `Sync`, including `flushOutbox`, `pullChanges`, and `projectDeleteBatches`. The caller performs the write.
 

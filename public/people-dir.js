@@ -10,6 +10,11 @@
   const TIMEOUT_MS = 8000;
   const COOLDOWN_MS = 8000;
   const SUCCESS_TTL_MS = 30000;
+  const OFFLINE_LEAD = 'غير متصل';
+  const UPDATE_LEAD = 'تعذّر التحديث';
+  const LOAD_ERROR = 'تعذّر تحميل الأشخاص. تحقّق من الاتصال.';
+  const RETRY_LABEL = 'إعادة المحاولة';
+  const RENDER_ERROR = 'حدث خطأ في العرض. أعد فتح الصفحة.';
 
   /**
    * @param {PeopleRow | null | undefined} row
@@ -81,6 +86,27 @@
     if (count > 0) return 'note';
     if (stamp > 0) return 'retry';
     return 'error';
+  }
+
+  /**
+   * Offline keeps «غير متصل». An online refresh that failed keeps «تعذّر التحديث».
+   * @param {boolean} offline
+   * @param {boolean} failed
+   * @returns {string}
+   */
+  function syncNoteLead(offline, failed) {
+    if (offline) return OFFLINE_LEAD;
+    if (failed) return UPDATE_LEAD;
+    return '';
+  }
+
+  /**
+   * @param {string} lead
+   * @param {string} time
+   * @returns {string}
+   */
+  function syncNote(lead, time) {
+    return lead + ' · آخر تحديث: ' + (time || '—');
   }
 
   /**
@@ -186,6 +212,8 @@
   }
 
   return {
-    TIMEOUT_MS, COOLDOWN_MS, SUCCESS_TTL_MS, samePeople, loadPlan, directoryView, acceptGeneration, applyPeople, shouldRedraw, createLoader,
+    TIMEOUT_MS, COOLDOWN_MS, SUCCESS_TTL_MS,
+    OFFLINE_LEAD, UPDATE_LEAD, LOAD_ERROR, RETRY_LABEL, RENDER_ERROR,
+    samePeople, loadPlan, directoryView, syncNoteLead, syncNote, acceptGeneration, applyPeople, shouldRedraw, createLoader,
   };
 });
