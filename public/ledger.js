@@ -531,11 +531,11 @@
   }
 
   /**
-   * @param {ForemanMove} move
-   * @param {{ user?: LedgerUser | null, moves?: readonly ForemanMove[] | null, foremen?: readonly Foreman[] | null }} ctx
-   * @returns {string[]}
-   */
-  function validateForemanMove(move, ctx) {
+ * @param {{ id?: string, foremanId?: string, kind?: string, amount?: number, date?: string, note?: string, isReversal?: boolean, reversesMoveId?: string, reversalReason?: unknown, createdBy?: string }} move
+ * @param {{ user?: LedgerUser | null, moves?: readonly ForemanMove[] | null, foremen?: readonly Foreman[] | null }} ctx
+ * @returns {string[]}
+ */
+function validateForemanMove(move, ctx) {
     const user = ctx && ctx.user;
     const moves = (ctx && ctx.moves) || [];
     const people = (ctx && ctx.foremen) || [];

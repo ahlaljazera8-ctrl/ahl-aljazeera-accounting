@@ -596,7 +596,28 @@ test('can(user, action) is owner for the owner role and manageProject only when 
 
 const foremen = [{ id: 'fm1', name: 'حسن' }];
 const moveCtx = () => ({ user: owner, moves: [], foremen });
-const MV = (o = {}) => ({ id: 'mv' + (++n), foremanId: 'fm1', kind: 'advance', amount: 1000, date: '2026-11-03', note: '', isReversal: false, createdAtDevice: 1, createdAtServer: null, createdBy: 'o', deviceId: 'd', ...o });
+/**
+ * @param {Partial<ForemanMove>} [extra]
+ * @returns {ForemanMove}
+ */
+function MV(extra) {
+  const o = extra || {};
+  const requested = o.kind;
+  const kind = requested === 'settle' || requested === 'return' ? requested : 'advance';
+  return {
+    id: o.id || ('mv' + (++n)),
+    foremanId: o.foremanId || 'fm1',
+    kind,
+    amount: o.amount == null ? 1000 : o.amount,
+    date: o.date || '2026-11-03',
+    note: o.note == null ? '' : o.note,
+    isReversal: o.isReversal === true,
+    createdAtDevice: o.createdAtDevice == null ? 1 : o.createdAtDevice,
+    createdAtServer: o.createdAtServer === undefined ? null : o.createdAtServer,
+    createdBy: o.createdBy || 'o',
+    deviceId: o.deviceId || 'd',
+  };
+}
 
 test('foremanBalance derives holding, owed, settled, several advances, and a return', () => {
   const hold = L.foremanBalance('fm1', [MV({ amount: 100000 })], []);
@@ -667,7 +688,8 @@ test('validateForemanMove checks kind, amount, duplicates, and the rev_ rule', (
     const errs = L.validateForemanMove(MV({ amount }), moveCtx());
     assert.ok(errs.length > 0, String(amount));
   }
-  assert.ok(L.validateForemanMove(MV({ kind: 'adjust' }), moveCtx()).length > 0);
+  const adjust = Object.assign(MV(), { kind: 'adjust' });
+  assert.ok(L.validateForemanMove(adjust, moveCtx()).length > 0);
   const existing = MV({ id: 'dup' });
   assert.ok(L.validateForemanMove(MV({ id: 'dup' }), { user: owner, moves: [existing], foremen }).some(e => e === 'DUPLICATE'));
   assert.ok(L.validateForemanMove(MV({ id: 'rev_plain', isReversal: false }), moveCtx()).length > 0);
@@ -713,11 +735,10 @@ test('settleGuard uses pending rows and the time since the app last pulled', () 
 });
 
 test('a foreman expense CSV row matches the same row without a foreman', () => {
-  const row = E({ foremanId: 'fm1', description: 'كبلات' });
-  const plain = { ...row };
-  delete plain.foremanId;
-  const headed = L.toCSV([row], projects);
+  const row = E({ description: 'كبلات' });
+  const withForeman = Object.assign({}, row, { foremanId: 'fm1' });
+  const headed = L.toCSV([withForeman], projects);
   assert.equal(headed.slice(1).split('\r\n')[0], L.CSV_COLS.join(','));
-  assert.equal(headed, L.toCSV([plain], projects));
+  assert.equal(headed, L.toCSV([row], projects));
   assert.equal(headed.includes('fm1'), false);
 });

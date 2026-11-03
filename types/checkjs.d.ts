@@ -397,7 +397,18 @@ interface LedgerApi {
     errors?: Record<string, unknown> | null,
   ): ForemanFigures;
   validateForemanMove(
-    move: ForemanMove,
+    move: {
+      id?: string;
+      foremanId?: string;
+      kind?: string;
+      amount?: number;
+      date?: string;
+      note?: string;
+      isReversal?: boolean;
+      reversesMoveId?: string;
+      reversalReason?: unknown;
+      createdBy?: string;
+    },
     ctx: { user?: LedgerUser | null; moves?: readonly ForemanMove[] | null; foremen?: readonly Foreman[] | null },
   ): string[];
   foremanMoveReversal(
