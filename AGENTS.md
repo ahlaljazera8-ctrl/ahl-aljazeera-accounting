@@ -38,7 +38,7 @@ Ameer's gates override every skill.
 
 ## When to use
 
-Ameer's gates override every trigger below.
+Ameer's gates override every skill.
 
 Each line is a trigger from that skill's own file. The wording is the source wording.
 
@@ -64,5 +64,5 @@ Each line is a trigger from that skill's own file. The wording is the source wor
 - A throwaway sketch to make a design or behavioral decision cheaply, or to settle an empirical fork by observing it instead of asking the human ("prototype", "mock it up", "try this layout", "sketch it to decide").: use `prototype`
 - "If the answer is a fact you could observe by running something (behavior, timing, layout, output, perf, even whether an eval separates)": use `prototype`
 - "Pixel-exact UI equivalence: matching two implementations or migrating a styling system.": use `visual-parity`
-- "Asked to land or ship a green stack": use `shipping` (merge only with Ameer's approval; see Ameer's gates)
-- "The half after Babysit. Independently verifying a green stack, then landing the contiguous verified run bottom-up through `gh` by default or Origin when its CLI is available.": use `shipping` (merge only with Ameer's approval; see Ameer's gates)
+- "Asked to land or ship a green stack": use `shipping` (merge only with Ameer's approval; see gates)
+- "The half after Babysit. Independently verifying a green stack, then landing the contiguous verified run bottom-up through `gh` by default or Origin when its CLI is available.": use `shipping` (merge only with Ameer's approval; see gates)
