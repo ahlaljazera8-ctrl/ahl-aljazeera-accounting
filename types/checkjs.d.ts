@@ -37,12 +37,91 @@ interface AppCheckApi {
   initAppCheck(app: unknown, siteKey: unknown, importSdk?: unknown): Promise<AppCheckHandle | null>;
 }
 
+interface SyncRow {
+  id?: string;
+  projectId?: unknown;
+  direction?: unknown;
+  entryType?: string;
+  amount?: unknown;
+  currency?: string;
+  name?: string;
+  entryDate?: unknown;
+  isReversal?: boolean;
+  createdBy?: unknown;
+  description?: unknown;
+  partyName?: unknown;
+  createdByName?: unknown;
+  subcontractId?: unknown;
+  reversesEntryId?: unknown;
+}
+
+interface SyncFailure {
+  timeout?: boolean;
+  code?: string;
+  message?: string;
+}
+
+interface FlushRow {
+  id?: string;
+  message?: string;
+}
+
+interface FlushResult {
+  synced?: readonly string[];
+  failed?: readonly FlushRow[];
+  kept?: readonly string[];
+}
+
+interface SyncErrorMap {
+  [id: string]: string | undefined;
+}
+
+interface FirestoreSnap {
+  exists(): boolean;
+  data(): unknown;
+}
+
+interface FirestoreModule {
+  doc(db: unknown, collectionName: string, id: string): unknown;
+  getDocFromServer(ref: unknown): Promise<FirestoreSnap>;
+}
+
+interface SyncStatusApi {
+  FB_VER: string;
+  FIRESTORE_URL: string;
+  REJECTED: string;
+  CONFLICT: string;
+  UNVERIFIED: string;
+  sameContent(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
+  sameReversal(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
+  isTransient(err: SyncFailure | null | undefined): boolean;
+  isAlreadyExists(err: SyncFailure | null | undefined): boolean;
+  isDeadAuth(err: SyncFailure | null | undefined): boolean;
+  failureMessage(
+    err: SyncFailure | null | undefined,
+    local: SyncRow | null | undefined,
+    remote: SyncRow | null | undefined,
+    unverified?: boolean,
+  ): string;
+  applyFlush(
+    outbox: readonly string[] | null | undefined,
+    errors: SyncErrorMap | null | undefined,
+    result: FlushResult | null | undefined,
+  ): { outbox: string[]; errors: SyncErrorMap };
+  badgeHtml(
+    id: string,
+    outboxIds: readonly string[] | null | undefined,
+    errors: SyncErrorMap | null | undefined,
+  ): string;
+  readRemote(db: unknown, collectionName: string, id: string, importSdk?: unknown): Promise<unknown>;
+}
+
 interface Window {
   Ledger: any;
   AJ: any;
   FIREBASE_CONFIG: any;
   Sync: any;
-  SyncStatus: any;
+  SyncStatus: SyncStatusApi;
   DomSafe: DomSafeApi;
   AppCheck: AppCheckApi;
   __loginSeen?: boolean;
