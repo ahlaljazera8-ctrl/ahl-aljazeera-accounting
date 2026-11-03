@@ -95,8 +95,11 @@ test.before(async () => {
   await deleteApp(app);
   server = await startServer();
   origin = 'http://127.0.0.1:' + server.address().port;
+  // The emulator job installs Playwright's WebKit build only. Chrome is the
+  // browser already on that runner, same as the reconnect tests. Bundled
+  // Chromium is not downloaded there.
   browsers = {
-    chromium: await chromium.launch({ headless: true }),
+    chromium: await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] }),
     webkit: await webkit.launch({ headless: true }),
   };
 });
