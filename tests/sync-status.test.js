@@ -320,6 +320,14 @@ test('staleness follows lastSyncAt, not a pull watermark', () => {
   });
   assert.equal(stale.stale, true);
   assert.equal(stale.lastSync, now - 11 * minute);
+  const dayOld = Ledger.settleGuard('fm1', {
+    outbox: [], moves: [], entries: [],
+    lastSyncMs: now,
+    nowMs: now,
+    watermark: now - 24 * 60 * minute,
+  });
+  assert.equal(dayOld.stale, false);
+  assert.equal(dayOld.lastSync, now);
 });
 
 test('readRemote loads the 13.1.0 gstatic Firestore build', async () => {
