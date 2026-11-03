@@ -9,6 +9,7 @@ var LIST = { projects:1, entries:1, outbox:1 };
 var cache = {};
 /** @type {IDBDatabase | null | undefined} */
 var db;
+/** @type {Promise<unknown>} */
 var writing = Promise.resolve();
 var sessionEpoch = 0;
 /** @type {unknown} */
@@ -43,11 +44,11 @@ function openDB(name) {
 }
 async function loadAll() {
   const tx = /** @type {IDBDatabase} */ (db).transaction(['projects','entries','outbox','meta'], 'readonly');
-  cache.projects = /** @type {LedgerProject[]} */ (await req(tx.objectStore('projects').getAll()));
-  cache.entries = /** @type {LedgerEntry[]} */ (await req(tx.objectStore('entries').getAll())).sort((a, b) => /** @type {number} */ (a.createdAtDevice) - /** @type {number} */ (b.createdAtDevice) || (/** @type {string} */ (a.id) < /** @type {string} */ (b.id) ? -1 : 1));
-  cache.outbox = /** @type {OutboxRow[]} */ (await req(tx.objectStore('outbox').getAll())).sort(/** @param {OutboxRow} a @param {OutboxRow} b */ (a, b) => a.queuedAt - b.queuedAt).map(/** @param {OutboxRow} o */ o => o.id);
+  cache.projects = await req(tx.objectStore('projects').getAll());
+  cache.entries = (await req(tx.objectStore('entries').getAll())).sort(/** @param {LedgerEntry} a @param {LedgerEntry} b */ (a, b) => /** @type {number} */ (a.createdAtDevice) - /** @type {number} */ (b.createdAtDevice) || (/** @type {string} */ (a.id) < /** @type {string} */ (b.id) ? -1 : 1));
+  cache.outbox = (await req(tx.objectStore('outbox').getAll())).sort(/** @param {OutboxRow} a @param {OutboxRow} b */ (a, b) => a.queuedAt - b.queuedAt).map(/** @param {OutboxRow} o */ o => o.id);
   const ms = tx.objectStore('meta'); const keys = await req(ms.getAllKeys()); const vals = await req(ms.getAll());
-  keys.forEach((k, i) => cache[/** @type {string} */ (k)] = vals[i]);
+  keys.forEach((k, i) => { cache[/** @type {string} */ (k)] = vals[i]; });
 }
 /**
  * @param {string} k
@@ -62,13 +63,13 @@ function get(k, d) { return cache[k] === undefined ? d : JSON.parse(JSON.stringi
  */
 function set(k, v) {
   cache[k] = JSON.parse(JSON.stringify(v));
-  writing = writing.catch(() => {}).then(() => new Promise((ok, no) => {
+  writing = writing.catch(() => {}).then(() => new Promise(/** @param {(value?: unknown) => void} ok @param {(reason?: unknown) => void} no */ (ok, no) => {
     if (!db) return ok();
     const name = LIST[k] ? k : 'meta'; const tx = db.transaction(name, 'readwrite'); const st = tx.objectStore(name);
     if (k === 'outbox') { st.clear(); /** @type {string[]} */ (v).forEach(/** @param {string} id @param {number} i */ (id, i) => st.put({ id, queuedAt: i })); }
     else if (LIST[k]) /** @type {{ id?: string }[]} */ (v).forEach(/** @param {{ id?: string }} x */ x => st.put(x)); // entries/projects never deleted (append-only)
     else st.put(v, k);
-    tx.oncomplete = /** @type {(this: IDBTransaction, ev: Event) => void} */ (/** @type {unknown} */ (ok)); tx.onerror = () => no(tx.error);
+    tx.oncomplete = function (ev) { ok(ev); }; tx.onerror = () => no(tx.error);
   }));
   return writing;
 }
@@ -83,9 +84,9 @@ function me() {
 }
 /**
  * @param {string} s
- * @returns {HTMLElement}
+ * @returns {Element | null}
  */
-function $(s) { return /** @type {HTMLElement} */ (document.querySelector(s)); }
+function $(s) { return document.querySelector(s); }
 function markReady() { if (document.body) document.body.dataset.ready = '1'; }
 function clearLoginForm() {
   const form = $('#login-form');
@@ -95,8 +96,8 @@ function clearLoginForm() {
   if (email instanceof HTMLInputElement) email.value = '';
   if (password instanceof HTMLInputElement) password.value = '';
 }
-function showLogin() { clearLoginForm(); const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = false; $('#shell').hidden = true; markReady(); }
-function showApp() { const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = true; $('#shell').hidden = false; }
+function showLogin() { clearLoginForm(); const boot = $('#boot'); if (boot) boot.hidden = true; /** @type {Element} */ ($('#login')).hidden = false; /** @type {Element} */ ($('#shell')).hidden = true; markReady(); }
+function showApp() { const boot = $('#boot'); if (boot) boot.hidden = true; /** @type {Element} */ ($('#login')).hidden = true; /** @type {Element} */ ($('#shell')).hidden = false; }
 /**
  * @param {string} uid
  * @param {SessionProfileInput} data
@@ -287,7 +288,7 @@ async function openUserDb(uid) {
  */
 async function enterSession(fb, uid, data) {
   const profile = profileFrom(uid, data);
-  if (!profile.active || !['owner', 'site'].includes(/** @type {string} */ (profile.role))) {
+  if (!profile.active || (profile.role !== 'owner' && profile.role !== 'site')) {
     await disposeFirebase(true);
     throw new Error(data && data.active === false ? SUSPENDED_MSG : MISSING_PROFILE_MSG);
   }

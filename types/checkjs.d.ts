@@ -143,7 +143,7 @@ interface SessionCache {
   users?: LedgerUser[];
   sessionUser?: LedgerUser | null;
   role?: string;
-  deviceId?: string;
+  deviceId?: unknown;
   statusPending?: string[];
   [key: string]: unknown;
 }
