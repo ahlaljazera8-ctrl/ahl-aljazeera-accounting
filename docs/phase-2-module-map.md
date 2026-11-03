@@ -12,7 +12,7 @@ Layout A is more classic scripts. `app.js` would split by ownership, still as cl
 
 Layout B is one ES module entry. `app.js` becomes `type=module` and imports ledger, sync, and the Firebase SDK. The UMD wrappers can stay so Node tests keep `require('../public/ledger.js')`, or the tests move to `import`. The precache list can shrink if the module graph is bundled into one file, or grow if each module is its own URL. Either way `ASSETS` changes and `VERSION` bumps. Browser checks that eval `Ledger` and `AJ` as globals break until those names are still published. This is the larger blast radius and the cleaner long-term import graph. It should not be the first cut.
 
-Ameer chose Layout A at 10:39 Baghdad (in chat, relayed by EA), before #35 merged (10:53). [#35](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/pull/35) then opened at 10:48 Baghdad (`2026-11-03T07:48:22Z`) as the first Layout A file, and its body says Layout B (ES modules) was not used. `public/session.js`, `public/firebase-client.js`, and `public/render.js` are the classic scripts that landed.
+Ameer chose Layout A (plain-script modules, one per PR; ES modules only later, if proven safe and with his approval), per Ameer in chat with EA, 2026-11-03 10:39 Baghdad, before #35 merged (10:53). [#35](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/pull/35) then opened at 10:48 Baghdad (`2026-11-03T07:48:22Z`) as the first Layout A file, and its body says Layout B (ES modules) was not used. `public/session.js`, `public/firebase-client.js`, and `public/render.js` are the classic scripts that landed.
 
 ## What landed
 
