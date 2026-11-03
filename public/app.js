@@ -316,7 +316,7 @@ async function loadFirebase() {
       await fsMod.setDoc(fsMod.doc(fdb, col, clean.id), S.withServerTime(clean, fsMod.serverTimestamp()));
       if (col !== 'projects') return;
       const user = get(K.sessionUser, null);
-      if (!user || user.role !== 'owner') return;
+      if (!L.can(user, 'owner')) return;
       const stored = get(K.finance, {})[clean.id];
       const explicit = stored && Number.isInteger(stored.contractAmount) ? stored.contractAmount : undefined;
       const saved = S.splitProjectSave(local, explicit);
@@ -393,7 +393,7 @@ async function loadFirebase() {
       set(K.subcontracts, names);
       set(K.amendments, S.mergeById(get(K.amendments, []), owned.amendments, pendingNow));
       set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { subcontracts: owned.watermark }));
-      if (user && user.role === 'owner') {
+      if (L.can(user, 'owner')) {
       for (const sub of names) {
         if (!sub || pendingNow.includes(sub.id)) continue;
         const live = get(K.terms, {});
@@ -487,7 +487,7 @@ async function forgetGoneProjects(user, missingIds, readSpec) {
     if (project && project.id && !project.createdAtServer && get(K.outbox, []).includes(project.id)) hold.add(project.id);
   });
   const gone = new Set((missingIds || []).filter(id => !hold.has(id)));
-  if (user && user.role === 'owner') {
+  if (L.can(user, 'owner')) {
     for (const project of get(K.projects, [])) {
       if (!project || !project.id || hold.has(project.id) || gone.has(project.id)) continue;
       if (!project.createdAtServer) continue;
@@ -719,7 +719,7 @@ async function performFlush(token, run) {
     }
     if (token !== sessionEpoch) return;
     statusAtStart = get(K.statusPending, []).slice();
-    if (live.role === 'owner' && typeof fb.updateProjectStatus === 'function') {
+    if (L.can(live, 'owner') && typeof fb.updateProjectStatus === 'function') {
       try { await flushProjectStatus(fb); }
       catch (err) {
         if (token !== sessionEpoch) return;
@@ -765,7 +765,7 @@ function releaseDb() {
   for (const k of Object.keys(cache)) delete cache[k];
 }
 function usableProfile(profile, uid) {
-  return !!(profile && profile.uid === uid && profile.active !== false && (profile.role === 'owner' || profile.role === 'site'));
+  return !!(profile && profile.uid === uid && profile.active !== false && (L.can(profile, 'owner') || profile.role === 'site'));
 }
 async function localSession() {
   if (!indexedDB.databases) return null;
@@ -937,7 +937,7 @@ function queueDoc(id) {
   if (!demoRole()) flushRemote();
 }
 function saveSubcontract(u, button) {
-  if (!u || u.role !== 'owner') return;
+  if (!L.can(u, 'owner')) return;
   const projectId = (location.hash.slice(1).split('/')[1]) || '';
   const project = get(K.projects, []).find(p => p.id === projectId);
   if (!project) return;
@@ -969,7 +969,7 @@ function dateOk(s) {
     && !/^[0-9]{4}-(04|06|09|11)-31$/.test(s);
 }
 function saveAmendment(u, button) {
-  if (!u || u.role !== 'owner') return;
+  if (!L.can(u, 'owner')) return;
   const subcontractId = (location.hash.slice(1).split('/')[1]) || '';
   const sub = get(K.subcontracts, []).find(s => s.id === subcontractId);
   if (!sub) return;
@@ -991,7 +991,7 @@ function saveAmendment(u, button) {
   location.hash = subHref('sub', subcontractId);
 }
 const $ = s => document.querySelector(s);
-const roleLabel = role => role === 'owner' ? 'مالك' : 'مستخدم موقع';
+const roleLabel = role => (L.can({ role: role }, 'owner') ? 'مالك' : 'مستخدم موقع');
 function shownContract(id, project) {
   const fin = (get(K.finance, {}) || {})[id];
   if (fin && Number.isInteger(fin.contractAmount)) return fin.contractAmount;
@@ -1020,7 +1020,7 @@ function contractFields(project) {
     <div class="note">قيمة العقد لا تظهر لمستخدم الموقع. الحفظ ينقلها إلى سجل المالك ويمسحها من المشروع.</div>`;
 }
 function saveContract(u) {
-  if (!u || u.role !== 'owner') return;
+  if (!L.can(u, 'owner')) return;
   const id = (location.hash.slice(1).split('/')[1]) || '';
   const project = get(K.projects, []).find(p => p.id === id);
   const msg = $('#contract-msg');
@@ -1065,7 +1065,7 @@ function storePerson(value, existing, editor) {
   return row;
 }
 async function savePerson(u) {
-  if (!u || u.role !== 'owner') return;
+  if (!L.can(u, 'owner')) return;
   const btn = $('#save-person');
   const msg = $('#person-msg');
   const built = readPersonForm();
@@ -1228,7 +1228,7 @@ function entryListRow(row) {
 }
 function entryRow(e, u, all) {
   const reversed = all.some(x => x.isReversal && x.reversesEntryId === e.id);
-  const canRev = !e.isReversal && !reversed && (u.role === 'owner' || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
+  const canRev = !e.isReversal && !reversed && (L.can(u, 'owner') || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
   const cls = e.isReversal ? 'bad' : e.direction === 'income' ? 'ok' : '';
   const badge = window.SyncStatus
     ? SyncStatus.badgeHtml(e.id, get(K.outbox, []), get(K.syncErrors, {}))
@@ -1252,7 +1252,7 @@ const views = {
     const { u, projects, entries } = data();
     const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${connectionLabel()}</span></div></div>`;
     const ex = (demoRole() || get(K.entries, []).some(e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
-    if (u.role === 'owner') {
+    if (L.can(u, 'owner')) {
       const t = L.totals(counts(entries));
       return ex + sync + `<div class="card"><h2>ملخص كل المشاريع</h2>
         <div class="kv"><span>إجمالي المقبوض</span>${money(t.received)}</div>
@@ -1271,8 +1271,8 @@ const views = {
     const { u } = data();
     const projects = L.projectList(u, get(K.projects, []), POLICY, 'open');
     const types = Object.entries(L.ENTRY_TYPES).filter(([k, t]) => {
-      if (k === 'subcontractor') return u.role === 'owner' || u.role === 'site';
-      return u.role === 'owner' || t.direction === 'expense' || POLICY.siteCanCreateClientPayment;
+      if (k === 'subcontractor') return L.can(u, 'owner') || u.role === 'site';
+      return L.can(u, 'owner') || t.direction === 'expense' || POLICY.siteCanCreateClientPayment;
     });
     if (!types.some(([k]) => k === state.type)) state.type = types[0][0];
     if (pid) state.projectId = pid;
@@ -1297,9 +1297,9 @@ const views = {
   },
   projects() {
     const { u, entries } = data();
-    const list = u.role === 'owner' && state.projectList === 'archived' ? 'archived' : 'open';
+    const list = L.can(u, 'owner') && state.projectList === 'archived' ? 'archived' : 'open';
     const projects = L.projectList(u, get(K.projects, []), POLICY, list);
-    const filter = u.role === 'owner'
+    const filter = L.can(u, 'owner')
       ? `<div class="pills" id="project-filter"><button type="button" class="pill${list === 'open' ? ' on' : ''}" data-list="open">المشاريع</button><button type="button" class="pill${list === 'archived' ? ' on' : ''}" data-list="archived">المؤرشفة</button></div>`
       : '';
     const cards = list === 'archived'
@@ -1309,26 +1309,26 @@ const views = {
       }).join('') || '<div class="note">لا توجد مشاريع مؤرشفة</div>')
       : projects.map(p => {
         const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
-        const line = u.role === 'owner'
+        const line = L.can(u, 'owner')
           ? `<div class="kv"><span>${s.profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(s.profit))}</span></div>`
           : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
         return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
       }).join('');
-    const tail = list === 'archived' ? '' : (u.role === 'owner' ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
+    const tail = list === 'archived' ? '' : (L.can(u, 'owner') ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
     return filter + cards + tail;
   },
   project(id) {
     const { u, projects, entries } = data();
     const p = projects.find(x => x.id === id); if (!p) return '<div class="card">المشروع غير متاح</div>';
     const es = entries.filter(e => e.projectId === id); const s = L.projectSummary(u, counts(es));
-    const card = u.role === 'owner'
+    const card = L.can(u, 'owner')
       ? `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
          <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
-    const subs = u.role === 'owner' ? subcontractSection(p, counts(es)) : '';
+    const subs = L.can(u, 'owner') ? subcontractSection(p, counts(es)) : '';
     const deleteNote = state.deleteMsg ? `<p class="delete-msg">${esc(state.deleteMsg)}</p>` : '';
-    const manage = u.role === 'owner' && u.active === true
+    const manage = L.can(u, 'manageProject')
       ? `<section class="project-manage" id="project-manage"><button type="button" class="btn ghost" id="manage-project">إدارة المشروع</button>${deleteNote}</section>`
       : '';
     return `<div class="card">${card}</div>${subs}<div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
@@ -1348,13 +1348,13 @@ const views = {
   },
   people() {
     const u = me();
-    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     const rows = get(K.users, []).map(personLink).join('');
     return `<div class="card"><p class="note">${esc(UID_HELP)}</p></div>${rows}<a class="btn" href="#person">إضافة شخص</a>`;
   },
   person(uid) {
     const u = me();
-    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     if (uid && !(window.DomSafe && DomSafe.isSafeId(uid))) return '<div class="card">معرّف غير صالح</div>';
     const existing = uid ? get(K.users, []).find(x => x.uid === uid) : null;
     const person = existing || { uid: uid || '', displayName: '', email: '', role: 'site', active: true, assignedProjectIds: [] };
@@ -1365,7 +1365,7 @@ const views = {
       <label class="field">معرّف المستخدم (User UID)<input id="person-uid" class="full" maxlength="64" autocomplete="off" value="${esc(person.uid)}"${locked}></label>
       <label class="field">الاسم<input id="person-name" class="full" maxlength="80" value="${esc(person.displayName)}"></label>
       <label class="field">البريد<input id="person-email" class="full" maxlength="200" value="${esc(person.email)}"></label>
-      <label class="field">الدور<select id="person-role" class="full"><option value="site"${person.role === 'site' ? ' selected' : ''}>مستخدم موقع</option><option value="owner"${person.role === 'owner' ? ' selected' : ''}>مالك</option></select></label>
+      <label class="field">الدور<select id="person-role" class="full"><option value="site"${person.role === 'site' ? ' selected' : ''}>مستخدم موقع</option><option value="owner"${L.can(person, 'owner') ? ' selected' : ''}>مالك</option></select></label>
       <label class="check"><input id="person-active" type="checkbox"${person.active ? ' checked' : ''}>الحساب نشط</label>
       <div class="step">المشاريع</div>
       <p class="note">اختر كل مشروع بالاسم. التعيين يقتصر على المشاريع المحددة.</p>
@@ -1408,7 +1408,7 @@ const views = {
   },
   sub(id) {
     const u = me();
-    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     const sub = get(K.subcontracts, []).find(s => s.id === id);
     if (!sub) return '<div class="card">العقد غير متاح</div>';
     const entries = counts(get(K.entries, []).filter(e => e.projectId === sub.projectId));
@@ -1443,7 +1443,7 @@ const views = {
   },
   subnew(projectId) {
     const u = me();
-    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     const project = get(K.projects, []).find(p => p.id === projectId);
     if (!project) return '<div class="card">المشروع غير متاح</div>';
     if (!state.subFormId) {
@@ -1465,7 +1465,7 @@ const views = {
   },
   amend(id) {
     const u = me();
-    if (!u || u.role !== 'owner') return '<div class="card">هذه الشاشة للمالك.</div>';
+    if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     const sub = get(K.subcontracts, []).find(s => s.id === id);
     if (!sub) return '<div class="card">العقد غير متاح</div>';
     const fig = subFigures(sub, counts(get(K.entries, [])));
@@ -1509,7 +1509,7 @@ function syncPeopleTab(u) {
   if (!tabs) return;
   /** @type {HTMLAnchorElement | null} */
   let a = /** @type {HTMLAnchorElement | null} */ (tabs.querySelector('[data-tab="people"]'));
-  if (!u || u.role !== 'owner') { if (a) a.remove(); return; }
+  if (!L.can(u, 'owner')) { if (a) a.remove(); return; }
   if (!a) {
     a = document.createElement('a');
     a.href = '#people';
@@ -1595,7 +1595,7 @@ function openConfirm(action, id) {
 async function deleteProjectNow(id) {
   const u = me();
   const project = get(K.projects, []).find(p => p.id === id);
-  if (!u || u.role !== 'owner' || u.active !== true || !project) return;
+  if (!L.can(u, 'manageProject') || !project) return;
   if (demoRole()) {
     writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
     state.deleteMsg = '';
@@ -1708,7 +1708,7 @@ function render() {
   const v = views[view] ? view : 'home';
   if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
   if (v !== 'person') state.personMsg = '';
-  if (u.role !== 'owner') { state.confirm = null; state.projectList = 'open'; }
+  if (!L.can(u, 'owner')) { state.confirm = null; state.projectList = 'open'; }
   if (state.confirm && (state.confirm.action === 'manage' || state.confirm.action === 'delete' || state.confirm.action === 'archive') && v !== 'project') state.confirm = null;
   if (v !== 'project') state.deleteMsg = '';
   if (v !== 'subnew') state.subMsg = '';
@@ -1717,16 +1717,16 @@ function render() {
   $('#role-label').hidden = !demoRole();
   $('#logout').hidden = !!demoRole();
   $('#who').textContent = demoRole()
-    ? (u.role === 'owner' ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)')
-    : ((u.role === 'owner' ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
+    ? (L.can(u, 'owner') ? 'المالك · أمير' : 'مستخدم موقع · أحمد (مشرف)')
+    : ((L.can(u, 'owner') ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
   paintBell();
   syncPeopleTab(u);
   const tab = (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
-  if (!demoRole() && u.role === 'owner' && (v === 'people' || v === 'person') && !directoryPromise) {
+  if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person') && !directoryPromise) {
     $('#title').textContent = titles[v] || 'الأشخاص';
     $('#main').innerHTML = '<div class="card">' + esc('جارٍ تحميل الأشخاص') + '</div>';
-    ensureDirectory().then(() => { if (me() && me().role === 'owner') render(); }).catch(() => {
+    ensureDirectory().then(() => { if (me() && L.can(me(), 'owner')) render(); }).catch(() => {
       const main = $('#main'); if (main) main.innerHTML = '<div class="card">' + esc('تعذر تحميل الأشخاص') + '</div>';
     });
     return;
@@ -1799,7 +1799,7 @@ document.addEventListener('click', ev => {
     let party = ($('#party') && $('#party').value || '').trim();
     let subcontractId = '';
     if (state.type === 'subcontractor') {
-      if (!u || (u.role !== 'owner' && u.role !== 'site')) { b.disabled = false; setFormMsg('تسجيل دفعة المقاول غير مسموح', 'error'); return; }
+      if (!u || (!L.can(u, 'owner') && u.role !== 'site')) { b.disabled = false; setFormMsg('تسجيل دفعة المقاول غير مسموح', 'error'); return; }
       subcontractId = ($('#subcontract') && $('#subcontract').value) || '';
       const chosen = subcontractsOf(state.projectId).find(s => s.id === subcontractId);
       if (!chosen) { b.disabled = false; setFormMsg('اختر مقاولاً من هذا المشروع', 'error'); return; }
@@ -1839,7 +1839,7 @@ document.addEventListener('click', ev => {
     const blob = new Blob([L.toCSV(rows, get(K.projects, []))], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aj-ledger-' + today() + '.csv'; a.click();
   } else if (b.dataset.list) {
-    if (!u || u.role !== 'owner') return;
+    if (!L.can(u, 'owner')) return;
     state.projectList = b.dataset.list === 'archived' ? 'archived' : 'open';
     state.confirm = null;
     render();
@@ -1847,7 +1847,7 @@ document.addEventListener('click', ev => {
     const id = (location.hash.slice(1).split('/')[1]) || '';
     const uNow = me();
     const project = get(K.projects, []).find(p => p.id === id);
-    if (!uNow || uNow.role !== 'owner' || uNow.active !== true || !project) return;
+    if (!L.can(uNow, 'manageProject') || !project) return;
     state.confirm = { id, action: 'manage' };
     render();
   } else if (b.id === 'choose-archive') {
@@ -1857,7 +1857,7 @@ document.addEventListener('click', ev => {
     const id = state.confirm && state.confirm.id;
     const uNow = me();
     const project = id && get(K.projects, []).find(p => p.id === id);
-    if (!uNow || uNow.role !== 'owner' || uNow.active !== true || !project) return;
+    if (!L.can(uNow, 'manageProject') || !project) return;
     state.deleteMsg = '';
     state.confirm = { id, action: 'delete', step: 1, typed: '' };
     render();
