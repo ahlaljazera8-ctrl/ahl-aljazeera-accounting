@@ -1317,12 +1317,9 @@ const views = {
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
     const subs = u.role === 'owner' ? subcontractSection(p, counts(es)) : '';
-    const archiveBtn = L.nextProjectStatus(u, p, 'archive')
-      ? '<button type="button" class="btn ghost" id="archive-project">أرشفة المشروع</button>'
-      : '';
     const deleteNote = state.deleteMsg ? `<p class="delete-msg">${esc(state.deleteMsg)}</p>` : '';
     const manage = u.role === 'owner' && u.active === true
-      ? `<section class="project-manage" id="project-manage"><h2>إدارة المشروع</h2>${archiveBtn}<div class="manage-delete"><button type="button" class="btn danger" id="delete-project">حذف المشروع</button>${deleteNote}</div></section>`
+      ? `<section class="project-manage" id="project-manage"><button type="button" class="btn ghost" id="manage-project">إدارة المشروع</button>${deleteNote}</section>`
       : '';
     return `<div class="card">${card}</div>${subs}<div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
       <a class="btn ghost" id="all-entries" href="${allHref}">عرض جميع القيود</a>
@@ -1544,9 +1541,17 @@ function deleteConfirm(c) {
   }
   return confirmShell(`<p>حذف هذا المشروع نهائياً؟</p><p class="copy">يُحذف المشروع وكل ما فيه. كل القيود، بما فيها الدفعات وقيود «مقاول»، ومالية المشروع، وعقود المقاولين وشروطها وملاحقها.</p><p class="copy">القيود التي لم تُرسل بعد على أي هاتف (صندوق الإرسال عند مستخدمي الموقع) قد تُفقد أو يُرفض إرسالها.</p><p class="copy bad">الحذف نهائي. لا توجد نسخة احتياطية يُعتمد عليها.</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
 }
+function manageChoice(c) {
+  const project = get(K.projects, []).find(p => p.id === c.id);
+  const archive = L.nextProjectStatus(me(), project, 'archive')
+    ? '<button type="button" class="btn ghost" id="choose-archive">أرشفة</button>'
+    : '';
+  return confirmShell(`<p>إدارة المشروع</p>${archive}<button type="button" class="btn danger" id="choose-delete">حذف</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
+}
 function confirmDialog() {
   const c = state.confirm;
   if (!c) return '';
+  if (c.action === 'manage') return manageChoice(c);
   if (c.action === 'delete') return deleteConfirm(c);
   const ask = c.action === 'restore' ? 'استعادة هذا المشروع؟' : 'أرشفة هذا المشروع؟';
   return confirmShell(`<p>${ask}</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
@@ -1693,6 +1698,7 @@ function render() {
   if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
   if (v !== 'person') state.personMsg = '';
   if (u.role !== 'owner') { state.confirm = null; state.projectList = 'open'; }
+  if (state.confirm && (state.confirm.action === 'manage' || state.confirm.action === 'delete' || state.confirm.action === 'archive') && v !== 'project') state.confirm = null;
   if (v !== 'project') state.deleteMsg = '';
   if (v !== 'subnew') state.subMsg = '';
   if (v !== 'amend') state.amMsg = '';
@@ -1826,13 +1832,20 @@ document.addEventListener('click', ev => {
     state.projectList = b.dataset.list === 'archived' ? 'archived' : 'open';
     state.confirm = null;
     render();
-  } else if (b.id === 'archive-project') {
-    const id = (location.hash.slice(1).split('/')[1]) || '';
-    openConfirm('archive', id);
-  } else if (b.id === 'delete-project') {
+  } else if (b.id === 'manage-project') {
     const id = (location.hash.slice(1).split('/')[1]) || '';
     const uNow = me();
     const project = get(K.projects, []).find(p => p.id === id);
+    if (!uNow || uNow.role !== 'owner' || uNow.active !== true || !project) return;
+    state.confirm = { id, action: 'manage' };
+    render();
+  } else if (b.id === 'choose-archive') {
+    const id = state.confirm && state.confirm.id;
+    if (id) openConfirm('archive', id);
+  } else if (b.id === 'choose-delete') {
+    const id = state.confirm && state.confirm.id;
+    const uNow = me();
+    const project = id && get(K.projects, []).find(p => p.id === id);
     if (!uNow || uNow.role !== 'owner' || uNow.active !== true || !project) return;
     state.deleteMsg = '';
     state.confirm = { id, action: 'delete', step: 1, typed: '' };
