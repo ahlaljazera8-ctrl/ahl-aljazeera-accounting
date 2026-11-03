@@ -58,6 +58,15 @@ declare function disposeFirebase(signOutUser?: boolean): Promise<void>;
 declare function isDeadAuth(err: any): boolean;
 declare function render(): void;
 declare function flushRemote(): Promise<unknown>;
+declare function rebuildFirebase(signOutUser?: boolean): Promise<any>;
+declare function isImportFailure(err: any): boolean;
+declare function cacheSnapshot(): any;
+declare function writeCache(next: any): void;
+declare function withTimeout<T>(p: T, ms: number, step: string): Promise<T>;
+declare function paintBell(): void;
+declare var deleteLock: boolean;
+declare var flushing: Promise<unknown> | null;
+declare var lastSyncAt: number;
 
 // App errors carry a timeout flag, a Firebase code, or ledger validation messages.
 interface Error {
