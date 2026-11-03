@@ -9,7 +9,6 @@ var LIST = { projects:1, entries:1, outbox:1 };
 var cache = {};
 /** @type {IDBDatabase | null | undefined} */
 var db;
-/** @type {Promise<unknown>} */
 var writing = Promise.resolve();
 var sessionEpoch = 0;
 /** @type {unknown} */
@@ -43,12 +42,19 @@ function openDB(name) {
   });
 }
 async function loadAll() {
-  const tx = /** @type {IDBDatabase} */ (db).transaction(['projects','entries','outbox','meta'], 'readonly');
-  cache.projects = await req(tx.objectStore('projects').getAll());
-  cache.entries = (await req(tx.objectStore('entries').getAll())).sort(/** @param {LedgerEntry} a @param {LedgerEntry} b */ (a, b) => /** @type {number} */ (a.createdAtDevice) - /** @type {number} */ (b.createdAtDevice) || (/** @type {string} */ (a.id) < /** @type {string} */ (b.id) ? -1 : 1));
-  cache.outbox = (await req(tx.objectStore('outbox').getAll())).sort(/** @param {OutboxRow} a @param {OutboxRow} b */ (a, b) => a.queuedAt - b.queuedAt).map(/** @param {OutboxRow} o */ o => o.id);
+  if (!db) throw new TypeError('Cannot read properties of ' + db + " (reading 'transaction')");
+  const tx = db.transaction(['projects','entries','outbox','meta'], 'readonly');
+  /** @type {LedgerProject[]} */
+  const projects = await req(tx.objectStore('projects').getAll());
+  cache.projects = projects;
+  /** @type {LedgerEntry[]} */
+  const entries = await req(tx.objectStore('entries').getAll());
+  cache.entries = entries.sort((a, b) => Number(a.createdAtDevice) - Number(b.createdAtDevice) || (String(a.id) < String(b.id) ? -1 : 1));
+  /** @type {OutboxRow[]} */
+  const outbox = await req(tx.objectStore('outbox').getAll());
+  cache.outbox = outbox.sort((a, b) => a.queuedAt - b.queuedAt).map(o => o.id);
   const ms = tx.objectStore('meta'); const keys = await req(ms.getAllKeys()); const vals = await req(ms.getAll());
-  keys.forEach((k, i) => { cache[/** @type {string} */ (k)] = vals[i]; });
+  keys.forEach((k, i) => { cache[String(k)] = vals[i]; });
 }
 /**
  * @param {string} k
@@ -63,13 +69,16 @@ function get(k, d) { return cache[k] === undefined ? d : JSON.parse(JSON.stringi
  */
 function set(k, v) {
   cache[k] = JSON.parse(JSON.stringify(v));
-  writing = writing.catch(() => {}).then(() => new Promise(/** @param {(value?: unknown) => void} ok @param {(reason?: unknown) => void} no */ (ok, no) => {
+  writing = writing.catch(() => {}).then(() => new Promise((ok, no) => {
     if (!db) return ok();
     const name = LIST[k] ? k : 'meta'; const tx = db.transaction(name, 'readwrite'); const st = tx.objectStore(name);
+    // Cast: Array.isArray would turn a throw into a skip.
     if (k === 'outbox') { st.clear(); /** @type {string[]} */ (v).forEach(/** @param {string} id @param {number} i */ (id, i) => st.put({ id, queuedAt: i })); }
+    // Cast: Array.isArray would turn a throw into a skip.
     else if (LIST[k]) /** @type {{ id?: string }[]} */ (v).forEach(/** @param {{ id?: string }} x */ x => st.put(x)); // entries/projects never deleted (append-only)
     else st.put(v, k);
-    tx.oncomplete = function (ev) { ok(ev); }; tx.onerror = () => no(tx.error);
+    // Cast: () => ok() would resolve undefined instead of the completion event.
+    tx.oncomplete = /** @type {(this: IDBTransaction, ev: Event) => void} */ (/** @type {unknown} */ (ok)); tx.onerror = () => no(tx.error);
   }));
   return writing;
 }
@@ -78,8 +87,10 @@ function uuid() { return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.
 function today() { return new Date().toISOString().slice(0, 10); }
 function demoRole() { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; }
 function me() {
+  // Cast: get() is unknown, and a guard is not the same as s && s.uid.
   if (!demoRole()) { const s = /** @type {LedgerUser|null} */ (get(K.sessionUser, null)); if (s && s.uid) return s; }
   const role = get(K.role, demoRole() || 'owner');
+  // Cast: null users must still throw TypeError on .find.
   return /** @type {LedgerUser[]} */ (get(K.users, [])).find(/** @param {LedgerUser} u */ u => u.uid === (role === 'site' ? 'u-ahmed' : 'u-ameer'));
 }
 /**
@@ -87,6 +98,15 @@ function me() {
  * @returns {Element | null}
  */
 function $(s) { return document.querySelector(s); }
+/**
+ * @param {string} s
+ * @returns {Element}
+ */
+function must(s) {
+  const el = $(s);
+  if (!el) throw new TypeError("Cannot set properties of null (setting 'hidden')");
+  return el;
+}
 function markReady() { if (document.body) document.body.dataset.ready = '1'; }
 function clearLoginForm() {
   const form = $('#login-form');
@@ -96,8 +116,8 @@ function clearLoginForm() {
   if (email instanceof HTMLInputElement) email.value = '';
   if (password instanceof HTMLInputElement) password.value = '';
 }
-function showLogin() { clearLoginForm(); const boot = $('#boot'); if (boot) boot.hidden = true; /** @type {Element} */ ($('#login')).hidden = false; /** @type {Element} */ ($('#shell')).hidden = true; markReady(); }
-function showApp() { const boot = $('#boot'); if (boot) boot.hidden = true; /** @type {Element} */ ($('#login')).hidden = true; /** @type {Element} */ ($('#shell')).hidden = false; }
+function showLogin() { clearLoginForm(); const boot = $('#boot'); if (boot) boot.hidden = true; must('#login').hidden = false; must('#shell').hidden = true; markReady(); }
+function showApp() { const boot = $('#boot'); if (boot) boot.hidden = true; must('#login').hidden = true; must('#shell').hidden = false; }
 /**
  * @param {string} uid
  * @param {SessionProfileInput} data
@@ -166,6 +186,7 @@ async function localSession() {
     if (!uid) continue;
     try {
       await openUserDb(uid);
+      // Cast: get() is unknown; usableProfile still sees today's value, including null.
       const profile = /** @type {LedgerUser|null} */ (get(K.sessionUser, null));
       if (usableProfile(profile, uid)) return profile;
     } catch (e) { /* one unreadable aj-u database is skipped so the next name can be tried */ }
@@ -196,7 +217,9 @@ function deleteDb(name) {
   });
 }
 async function outboxEmpty() {
+  // Cast: null outbox must still throw TypeError on .length.
   if (/** @type {string[]} */ (get(K.outbox, [])).length) return false;
+  // Cast: || [] stays, so null statusPending does not throw on .length.
   if ((/** @type {string[]} */ (get(K.statusPending, [])) || []).length) return false;
   if (!db) return true;
   await writing.catch(() => {});

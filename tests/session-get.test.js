@@ -190,9 +190,25 @@ test('loadAll sorts entries by device time then id, and keeps every meta key', a
   assert.equal(s.cache[7], 'seven');
 });
 
-test('loadAll throws TypeError when the database is null', async () => {
-  const s = loadSession();
-  await assert.rejects(() => s.loadAll(), err => isTypeError(err, /transaction/));
+function nativeThrow(source, sandbox) {
+  const out = vm.runInNewContext(source, sandbox);
+  if (!out || typeof out.message !== 'string' || out.name !== 'TypeError') throw new Error('expected a TypeError');
+  return out;
+}
+
+test('loadAll throws the same TypeError as reading transaction on null and on undefined', async () => {
+  for (const value of [null, undefined]) {
+    const native = nativeThrow(
+      '(() => { try { value.transaction(); return null; } catch (e) { return { name: e.name, message: e.message }; } })()',
+      { value },
+    );
+    const s = loadSession();
+    s.db = value;
+    await assert.rejects(
+      () => s.loadAll(),
+      err => isTypeError(err, /transaction/) && isMessage(err, native.message),
+    );
+  }
 });
 
 test('set writes outbox ids and project rows, and a non-array throws on forEach', async () => {
@@ -229,9 +245,30 @@ test('set writes outbox ids and project rows, and a non-array throws on forEach'
   await assert.rejects(() => s.set('projects', null), err => isTypeError(err, /forEach/));
 });
 
+test('String(id) matches id < id for uuid, fallback, reversal, and seed ids', async () => {
+  const ids = [];
+  for (let i = 0; i < 6; i++) ids.push(crypto.randomUUID());
+  ids.push('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+  ids.push('rev_' + ids[0]);
+  ids.push('seed-3');
+  for (const a of ids) {
+    assert.equal(String(a), a);
+    for (const b of ids) assert.equal(String(a) < String(b), a < b);
+  }
+  const entries = ids.map((id, i) => ({ id, createdAtDevice: i % 2 === 0 ? 10 : 20 }));
+  const oldOrder = entries.slice().sort((a, b) => a.createdAtDevice - b.createdAtDevice || (a.id < b.id ? -1 : 1)).map(e => e.id);
+  const s = loadSession({ keys: ['deviceId'], vals: ['dev-1'], stores: { entries } });
+  await s.openUserDb('u1');
+  assert.deepEqual(s.cache.entries.map(e => e.id), oldOrder);
+});
+
 test('a missing login element throws on hidden, and a real element is toggled', () => {
+  const native = nativeThrow(
+    '(() => { try { (null).hidden = false; return null; } catch (e) { return { name: e.name, message: e.message }; } })()',
+  );
   const bare = loadSession();
-  assert.throws(() => bare.showLogin(), err => isTypeError(err, /hidden/));
+  assert.throws(() => bare.showLogin(), err => isTypeError(err, /hidden/) && isMessage(err, native.message));
+  assert.throws(() => bare.showApp(), err => isTypeError(err, /hidden/) && isMessage(err, native.message));
 
   const login = { hidden: true };
   const shell = { hidden: false };
