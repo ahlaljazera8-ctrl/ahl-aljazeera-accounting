@@ -11,6 +11,7 @@ var cache = {};
 var db;
 var writing = Promise.resolve();
 var sessionEpoch = 0;
+/** @type {unknown} */
 var deviceId;
 var directoryPromise = null;
 var syncNotice = '';
@@ -277,7 +278,7 @@ async function openUserDb(uid) {
   db = await openDB('aj-u-' + uid);
   await loadAll();
   if (!get(K.device)) set(K.device, uuid());
-  deviceId = /** @type {string|undefined} */ (get(K.device));
+  deviceId = get(K.device);
 }
 /**
  * @param {SessionFirebase} fb
