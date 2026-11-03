@@ -3,13 +3,15 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Sync = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : /** @type {Window} */ (/** @type {unknown} */ (this)), /** @returns {SyncApi} */ function () {
   'use strict';
 
+  /** @param {SyncDoc | null | undefined} doc */
   function isSeed(doc) {
     return !!(doc && (doc.isExample === true || doc.deviceId === 'seed' || String(doc.id || '').indexOf('seed-') === 0));
   }
 
+  /** @param {SyncDoc | null | undefined} doc @returns {string | null} */
   function collectionFor(doc) {
     if (!doc) return null;
     if (doc.entryType) return 'ledgerEntries';
@@ -19,7 +21,13 @@
     return null;
   }
 
+  /**
+   * @param {SyncDoc} doc
+   * @param {readonly string[]} keys
+   * @returns {SyncDoc}
+   */
   function copyFields(doc, keys) {
+    /** @type {SyncDoc} */
     const out = {};
     keys.forEach(function (k) {
       if (doc[k] !== undefined && doc[k] !== null) out[k] = doc[k];
@@ -27,6 +35,7 @@
     return out;
   }
 
+  /** @param {SyncDoc} doc @returns {SyncDoc} */
   function toRemote(doc) {
     if (doc.entryType) {
       const out = copyFields(doc, ['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdAtDevice', 'createdBy', 'deviceId']);
@@ -60,12 +69,15 @@
   })();
   const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+  /** @param {SyncDoc | null | undefined} doc @returns {number | null} */
   function contractAmountOf(doc) {
     if (!doc || !Number.isInteger(doc.contractAmount)) return null;
-    if (doc.contractAmount < 0 || doc.contractAmount > MAX_CONTRACT) return null;
-    return doc.contractAmount;
+    const amount = /** @type {number} */ (doc.contractAmount);
+    if (amount < 0 || amount > MAX_CONTRACT) return null;
+    return amount;
   }
 
+  /** @param {SyncDoc | null | undefined} doc */
   function withoutContractAmount(doc) {
     if (!doc || !Object.prototype.hasOwnProperty.call(doc, 'contractAmount')) return doc;
     const out = Object.assign({}, doc);
@@ -74,24 +86,38 @@
   }
 
   // Owner save: the number moves to projectFinance and is not part of the project write.
+  /**
+   * @param {SyncDoc | null | undefined} project
+   * @param {unknown} [amount]
+   */
   function splitProjectSave(project, amount) {
-    const chosen = Number.isInteger(amount) ? amount : contractAmountOf(project);
+    const chosen = Number.isInteger(amount) ? /** @type {number} */ (amount) : contractAmountOf(project);
     const next = withoutContractAmount(project || {});
-    if (!Number.isInteger(chosen) || chosen < 0 || chosen > MAX_CONTRACT) return { project: next, finance: null };
+    if (chosen === null || chosen < 0 || chosen > MAX_CONTRACT) return { project: next, finance: null };
     return { project: next, finance: { contractAmount: chosen } };
   }
 
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {readonly SyncDoc[] | null | undefined} projects
+   */
   function projectsForClient(user, projects) {
     const rows = projects || [];
     if (user && user.role === 'owner') return rows.map(row => Object.assign({}, row));
     return rows.map(withoutContractAmount);
   }
 
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {readonly string[] | null | undefined} projectIds
+   * @returns {readonly ReadSpec[]}
+   */
   function financeReads(user, projectIds) {
     if (!user || user.role !== 'owner' || user.active !== true) return [];
     return validProjectIds(projectIds).map(id => ({ collection: 'projectFinance', id }));
   }
 
+  /** @param {SyncDoc | null | undefined} doc */
   function stripMoney(doc) {
     if (!doc) return doc;
     const out = Object.assign({}, doc);
@@ -103,12 +129,18 @@
     return out;
   }
 
+  /** @param {unknown} amount @returns {{ originalAmount: number } | null} */
   function termsPayload(amount) {
-    if (!Number.isInteger(amount) || amount <= 0 || amount > MAX_CONTRACT) return null;
-    return { originalAmount: amount };
+    if (!Number.isInteger(amount) || /** @type {number} */ (amount) <= 0 || /** @type {number} */ (amount) > MAX_CONTRACT) return null;
+    return { originalAmount: /** @type {number} */ (amount) };
   }
 
   // Owner reads names and amendments. A site user reads names on assigned projects only, never terms or amendments.
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {unknown} since
+   * @returns {readonly ReadSpec[]}
+   */
   function subcontractReads(user, since) {
     if (!user || user.active !== true) return [];
     if (user.role === 'owner') {
@@ -124,15 +156,18 @@
     }));
   }
 
+  /** @param {SubPull} opts */
   async function pullSubcontracts(opts) {
     const specs = subcontractReads(opts.user, opts.since);
     if (!specs.length) return { subcontracts: [], amendments: [], watermark: finiteMillis(opts.since) };
     const rows = await readSpecs(specs, opts.read);
+    /** @type {SyncDoc[]} */
     const subcontracts = [];
+    /** @type {SyncDoc[]} */
     const amendments = [];
     rows.forEach(row => {
       if (!row) return;
-      if (row.agreedOn && !row.entryType && !row.currency) subcontracts.push(stripMoney(row));
+      if (row.agreedOn && !row.entryType && !row.currency) subcontracts.push(/** @type {SyncDoc} */ (stripMoney(row)));
       else if (row.subcontractId && row.date) amendments.push(row);
     });
     return {
@@ -142,6 +177,7 @@
     };
   }
 
+  /** @param {SyncUser | null | undefined} input @returns {PersonResult} */
   function personInput(input) {
     const src = input || {};
     const uid = typeof src.uid === 'string' ? src.uid.trim() : '';
@@ -154,28 +190,43 @@
     if (email.length < 4 || email.length > 200 || !/.+@.+\..+/.test(email)) errors.push('البريد غير صالح');
     if (src.role !== 'site' && src.role !== 'owner') errors.push('الدور غير صالح');
     if (typeof src.active !== 'boolean') errors.push('حالة الحساب غير صالحة');
-    if (!ids || ids.length > 20 || ids.some(id => typeof id !== 'string' || !ID_RE.test(id))) errors.push('اختر مشاريع محددة بحد أقصى 20');
+    if (!ids || ids.length > 20 || ids.some(/** @param {unknown} id */ id => typeof id !== 'string' || !ID_RE.test(id))) errors.push('اختر مشاريع محددة بحد أقصى 20');
     if (errors.length) return { ok: false, errors };
     return {
       ok: true,
-      value: { uid, displayName, email, role: src.role, active: src.active, assignedProjectIds: ids.slice() },
+      value: {
+        uid, displayName, email,
+        role: /** @type {string} */ (src.role),
+        active: /** @type {boolean} */ (src.active),
+        assignedProjectIds: /** @type {string[]} */ (ids).slice(),
+      },
     };
   }
 
+  /**
+   * @param {SyncDoc} doc
+   * @param {unknown} sentinel
+   */
   function withServerTime(doc, sentinel) {
     const data = toRemote(doc);
-    data.createdAtServer = sentinel;
+    data.createdAtServer = /** @type {SyncDoc['createdAtServer']} */ (sentinel);
     return data;
   }
 
+  /** @param {SyncDoc} data @returns {SyncDoc} */
   function fromRemote(data) {
     const out = Object.assign({}, data);
-    const ts = out.createdAtServer;
-    if (ts && typeof ts.toMillis === 'function') out.createdAtServer = ts.toMillis();
-    else if (ts && typeof ts.seconds === 'number') out.createdAtServer = ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
+    const ts = /** @type {ServerStamp | number | null | undefined} */ (data.createdAtServer);
+    if (ts != null && typeof ts === 'object' && typeof ts.toMillis === 'function') out.createdAtServer = ts.toMillis();
+    else if (ts != null && typeof ts === 'object' && typeof ts.seconds === 'number') out.createdAtServer = ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
     return out;
   }
 
+  /**
+   * @param {readonly SyncDoc[] | null | undefined} local
+   * @param {readonly SyncDoc[] | null | undefined} incoming
+   * @param {readonly string[] | null | undefined} pendingIds
+   */
   function mergeById(local, incoming, pendingIds) {
     const pending = new Set(pendingIds || []);
     const map = new Map();
@@ -187,6 +238,7 @@
     return Array.from(map.values());
   }
 
+  /** @param {readonly string[] | null | undefined} ids */
   function validProjectIds(ids) {
     return (ids || []).filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id));
   }
@@ -194,22 +246,34 @@
   // What a pull is allowed to read. A display-name edit does not change it.
   // An assignment, role, or active-flag change does: the old watermark was
   // measured on a different set, and an incremental query would skip history.
+  /** @param {SyncUser | null | undefined} user */
   function readSetKey(user) {
     const ids = validProjectIds(user && user.assignedProjectIds).slice().sort();
     const role = user && user.role === 'owner' ? 'owner' : 'site';
     return role + '\n' + (user && user.active === true ? '1' : '0') + '\n' + ids.join('\n');
   }
+  /**
+   * @param {SyncUser | null | undefined} prev
+   * @param {SyncUser | null | undefined} next
+   */
   function readSetChanged(prev, next) {
     return readSetKey(prev) !== readSetKey(next);
   }
 
+  /** @param {unknown} v @returns {number | null} */
   function finiteMillis(v) {
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
   }
 
   // Queries a site client is allowed to run. Rules are not a filter.
   // Own rows are limited to assigned projects (F11); an unconstrained createdBy query is denied.
+  /**
+   * @param {string | null | undefined} uid
+   * @param {readonly string[] | null | undefined} projectIds
+   * @returns {readonly ReadSpec[]}
+   */
   function siteReads(uid, projectIds) {
+    /** @type {ReadSpec[]} */
     const reads = [];
     const ids = validProjectIds(projectIds);
     for (let i = 0; i < ids.length; i += 10) {
@@ -230,6 +294,11 @@
   // createdAtServer >= watermark. The inclusive bound re-reads the last instant;
   // mergeById drops ids already stored, and a strict > would skip a row that
   // shares that server time. Null createdAtServer (still offline) is not a bound.
+  /**
+   * @param {readonly ReadSpec[]} specs
+   * @param {unknown} since
+   * @returns {readonly ReadSpec[]}
+   */
   function sinceClause(specs, since) {
     const ms = finiteMillis(since);
     if (ms === null) return specs;
@@ -239,6 +308,11 @@
     });
   }
 
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {unknown} since
+   * @returns {readonly ReadSpec[]}
+   */
   function entryReads(user, since) {
     const specs = user && user.role === 'owner'
       ? [{ collection: 'ledgerEntries', where: [] }]
@@ -246,11 +320,20 @@
     return sinceClause(specs, since);
   }
 
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {unknown} since
+   * @returns {readonly ReadSpec[]}
+   */
   function projectReads(user, since) {
     if (user && user.role === 'owner') return sinceClause([{ collection: 'projects', where: [] }], since);
     return validProjectIds(user && user.assignedProjectIds).map(id => ({ collection: 'projects', id }));
   }
 
+  /**
+   * @param {unknown} previous
+   * @param {readonly SyncDoc[] | null | undefined} rows
+   */
   function nextWatermark(previous, rows) {
     let max = finiteMillis(previous);
     (rows || []).forEach(row => {
@@ -260,10 +343,15 @@
     return max;
   }
 
+  /** @param {readonly ReadSpec[] | null | undefined} specs */
   function isBounded(specs) {
     return (specs || []).some(spec => (spec.where || []).some(part => part[0] === 'createdAtServer'));
   }
 
+  /**
+   * @param {readonly ReadSpec[]} specs
+   * @param {(spec: ReadSpec) => Promise<readonly SyncDoc[]>} read
+   */
   async function readSpecs(specs, read) {
     const out = [];
     for (let i = 0; i < specs.length; i++) {
@@ -277,6 +365,7 @@
   // only from a successful incremental read, never from a local pending entry.
   // A failed incremental query (missing index or any other error) repeats the
   // sync as a full pull and leaves the stored watermark where it was.
+  /** @param {PullCall} opts */
   async function pullChanges(opts) {
     const user = opts.user;
     const mark = opts.watermark || {};
@@ -311,14 +400,19 @@
     };
   }
 
+  /** @returns {SyncStatusApi | null} */
   function statusApi() {
     if (typeof require === 'function') {
-      try { return require('./sync-status.js'); } catch (e) { /* a missing module falls through to the global */ }
+      try { return /** @type {SyncStatusApi} */ (require('./sync-status.js')); } catch (e) { /* a missing module falls through to the global */ }
     }
-    const g = typeof globalThis !== 'undefined' ? globalThis : {};
+    const g = /** @type {Window} */ (typeof globalThis !== 'undefined' ? globalThis : {});
     return g.SyncStatus || null;
   }
 
+  /**
+   * @param {unknown} typed
+   * @param {unknown} name
+   */
   function exactProjectName(typed, name) {
     return typeof name === 'string' && name.length > 0 && typeof typed === 'string' && typed === name;
   }
@@ -326,10 +420,21 @@
   // The project document is its own first batch. Later batches delete children
   // only after that document is gone, which is what the rules require.
   // Terms batches stay small: each terms delete may read its subcontract.
+  /**
+   * @param {string | undefined} projectId
+   * @param {DeleteFound | null | undefined} found
+   * @returns {DeleteDoc[]}
+   */
   function projectDeleteDocs(projectId, found) {
-    if (!ID_RE.test(projectId || '')) return [];
+    const projectKey = projectId || '';
+    if (!ID_RE.test(projectKey)) return [];
     const src = found || {};
-    const docs = [{ collection: 'projects', id: projectId }];
+    /** @type {DeleteDoc[]} */
+    const docs = [{ collection: 'projects', id: projectKey }];
+    /**
+     * @param {string} collection
+     * @param {string} id
+     */
     const add = (collection, id) => {
       if (!ID_RE.test(id || '')) return;
       if (docs.some(row => row.collection === collection && row.id === id)) return;
@@ -339,10 +444,11 @@
     (src.subcontractIds || []).forEach(id => add('subcontracts', id));
     (src.amendmentIds || []).forEach(id => add('subcontractAmendments', id));
     (src.termIds || []).forEach(id => add('subcontractTerms', id));
-    if (src.finance) add('projectFinance', projectId);
+    if (src.finance) add('projectFinance', projectKey);
     return docs;
   }
 
+  /** @param {readonly DeleteDoc[] | null | undefined} docs @returns {DeleteDoc[][]} */
   function projectDeleteBatches(docs) {
     const list = docs || [];
     const project = list.filter(row => row && row.collection === 'projects').slice(0, 1);
@@ -355,9 +461,15 @@
     return out;
   }
 
+  /**
+   * @param {readonly ReadSpec[] | null | undefined} specs
+   * @param {readonly SyncDoc[] | null | undefined} rows
+   * @returns {string[]}
+   */
   function missingRequestedIds(specs, rows) {
     const found = new Set();
     (rows || []).forEach(row => { if (row && row.id) found.add(row.id); });
+    /** @type {string[]} */
     const missing = [];
     (specs || []).forEach(spec => {
       if (!spec || !spec.id || found.has(spec.id) || missing.indexOf(spec.id) >= 0) return;
@@ -369,6 +481,12 @@
   // Drop one project's local rows. Pending outbox rows stay when dropPending
   // is false, so another phone can still show that the send was rejected.
   // The deleting phone passes dropPending so its own unsent rows go too.
+  /**
+   * @param {LocalStore | null | undefined} store
+   * @param {string} projectId
+   * @param {{ dropPending?: boolean } | null | undefined} opts
+   * @returns {DroppedProject}
+   */
   function dropProjectLocal(store, projectId, opts) {
     const src = store || {};
     const dropPending = !!(opts && opts.dropPending);
@@ -378,31 +496,35 @@
     const removed = new Set([projectId]);
     // Another phone keeps a row that is still queued or already refused, so the
     // bell can show the rejection. The deleting phone drops those too.
-    const keep = row => row && !dropPending && (pending.has(row.id) || !!errors[row.id]);
+    /** @param {SyncDoc | null | undefined} row */
+    const keep = row => !!(row && !dropPending && (pending.has(/** @type {string} */ (row.id)) || !!errors[/** @type {string} */ (row.id)]));
     const entries = (src.entries || []).filter(row => {
       if (!row || row.projectId !== projectId) return true;
       if (keep(row)) return true;
-      removed.add(row.id);
+      removed.add(/** @type {string} */ (row.id));
       return false;
     });
     const amendments = (src.amendments || []).filter(row => {
       if (!row || (row.projectId !== projectId && !subIds.has(row.subcontractId))) return true;
       if (keep(row)) return true;
-      removed.add(row.id);
+      removed.add(/** @type {string} */ (row.id));
       return false;
     });
     const subcontracts = (src.subcontracts || []).filter(row => {
       if (!row || row.projectId !== projectId) return true;
       if (keep(row)) return true;
-      removed.add(row.id);
+      removed.add(/** @type {string} */ (row.id));
       return false;
     });
     const keptSubs = new Set(subcontracts.filter(row => row && row.projectId === projectId).map(row => row.id));
+    /** @type {Record<string, { originalAmount?: number }>} */
     const terms = Object.assign({}, src.terms || {});
-    subIds.forEach(id => { if (!keptSubs.has(id)) delete terms[id]; });
+    subIds.forEach(id => { if (!keptSubs.has(id)) delete terms[/** @type {string} */ (id)]; });
+    /** @type {Record<string, { contractAmount?: number }>} */
     const finance = Object.assign({}, src.finance || {});
     delete finance[projectId];
     const projects = (src.projects || []).filter(row => !row || row.id !== projectId);
+    /** @type {Record<string, unknown>} */
     const syncErrors = Object.assign({}, src.syncErrors || {});
     removed.forEach(id => { delete syncErrors[id]; });
     const outbox = (src.outbox || []).filter(id => !removed.has(id));
@@ -410,14 +532,16 @@
     return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending };
   }
 
-  /**
-   * @param {{ ids: any[], load: (id: any) => any, write: (local: any) => any, exists?: (local: any) => any, readServer?: (local: any) => any }} opts
-   */
+  /** @param {FlushCall} opts */
   async function flushOutbox({ ids, load, write, exists, readServer }) {
     const Status = statusApi();
+    /** @type {string[]} */
     const synced = [];
+    /** @type {string[]} */
     const kept = [];
+    /** @type {{ id: string, message: string }[]} */
     const failed = [];
+    /** @type {{ id: string, remote: SyncDoc }[]} */
     const adopted = [];
     const seen = new Set();
     for (const id of ids) {
@@ -431,22 +555,22 @@
         await write(local);
         synced.push(id);
       } catch (err) {
-        if (Status && Status.isDeadAuth(err)) {
+        if (Status && Status.isDeadAuth(/** @type {SyncFailure} */ (err))) {
           kept.push(id);
           return { synced, kept, failed, adopted, authDead: true };
         }
-        if (!Status || Status.isTransient(err)) { kept.push(id); continue; }
+        if (!Status || Status.isTransient(/** @type {SyncFailure} */ (err))) { kept.push(id); continue; }
         let remote = null;
         let unverified = false;
         try {
-          if (typeof readServer === 'function') remote = await readServer(local);
+          if (typeof readServer === 'function') remote = /** @type {SyncDoc | null} */ (await readServer(local));
           else if (typeof exists === 'function' && await exists(local)) unverified = true;
         } catch (readErr) {
-          if (Status.isDeadAuth(readErr)) {
+          if (Status.isDeadAuth(/** @type {SyncFailure} */ (readErr))) {
             kept.push(id);
             return { synced, kept, failed, adopted, authDead: true };
           }
-          if (Status.isTransient(readErr)) { kept.push(id); continue; }
+          if (Status.isTransient(/** @type {SyncFailure} */ (readErr))) { kept.push(id); continue; }
           unverified = true;
         }
         if (remote && Status.sameContent(local, remote)) { synced.push(id); continue; }
@@ -455,7 +579,7 @@
           adopted.push({ id, remote });
           continue;
         }
-        failed.push({ id, message: Status.failureMessage(err, local, remote, unverified && !remote) });
+        failed.push({ id, message: Status.failureMessage(/** @type {SyncFailure} */ (err), local, remote, unverified && !remote) });
       }
     }
     return { synced, kept, failed, adopted, authDead: false };

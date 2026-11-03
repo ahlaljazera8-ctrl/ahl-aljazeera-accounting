@@ -313,11 +313,211 @@ interface LedgerApi {
   ): { rows: ProjectListRow[]; total: number; reads: number } | null;
 }
 
+interface ServerStamp {
+  toMillis?: () => number;
+  seconds?: number;
+  nanoseconds?: number;
+}
+
+interface SyncDoc {
+  id?: string;
+  projectId?: string;
+  entryType?: string;
+  name?: string;
+  currency?: string;
+  agreedOn?: string;
+  subcontractId?: string;
+  date?: string;
+  isExample?: boolean;
+  deviceId?: string;
+  description?: string;
+  partyName?: string;
+  createdByName?: string;
+  isReversal?: boolean;
+  reversesEntryId?: string;
+  reversalReason?: unknown;
+  contractAmount?: number;
+  location?: string;
+  createdAtServer?: number | null;
+  createdBy?: string;
+  amount?: number;
+  note?: string;
+  work?: string;
+  clientName?: string;
+  status?: string;
+  createdAtDevice?: unknown;
+  [key: string]: unknown;
+}
+
+interface SyncUser {
+  uid?: string;
+  role?: string;
+  active?: boolean;
+  assignedProjectIds?: readonly string[] | null;
+  [key: string]: unknown;
+}
+
+interface ReadSpec {
+  collection: string;
+  id?: string;
+  where?: readonly (readonly [
+    string,
+    '<' | '<=' | '==' | '!=' | '>=' | '>' | 'array-contains' | 'in' | 'array-contains-any' | 'not-in',
+    unknown,
+  ])[];
+}
+
+interface DeleteDoc {
+  collection: string;
+  id: string;
+}
+
+interface DeleteFound {
+  entryIds?: readonly string[] | null;
+  subcontractIds?: readonly string[] | null;
+  amendmentIds?: readonly string[] | null;
+  termIds?: readonly string[] | null;
+  finance?: unknown;
+}
+
+interface LocalStore {
+  entries?: readonly SyncDoc[] | null;
+  projects?: readonly SyncDoc[] | null;
+  subcontracts?: readonly SyncDoc[] | null;
+  amendments?: readonly SyncDoc[] | null;
+  finance?: Record<string, { contractAmount?: number }> | null;
+  terms?: Record<string, { originalAmount?: number }> | null;
+  outbox?: readonly string[] | null;
+  syncErrors?: Record<string, unknown> | null;
+  statusPending?: readonly string[] | null;
+  [key: string]: unknown;
+}
+
+interface FlushCall {
+  ids: readonly string[];
+  load: (id: string) => SyncDoc | null | undefined;
+  write: (local: SyncDoc) => unknown;
+  exists?: (local: SyncDoc) => unknown;
+  readServer?: (local: SyncDoc) => unknown;
+}
+
+interface PullCall {
+  user?: SyncUser | null;
+  watermark?: { entries?: unknown; projects?: unknown };
+  read: (spec: ReadSpec) => Promise<readonly SyncDoc[]>;
+  localEntries?: readonly SyncDoc[] | null;
+  localProjects?: readonly SyncDoc[] | null;
+  pendingIds?: readonly string[] | null;
+  [key: string]: unknown;
+}
+
+interface SubPull {
+  user?: SyncUser | null;
+  since?: unknown;
+  read: (spec: ReadSpec) => Promise<readonly SyncDoc[]>;
+}
+
+interface PersonValue {
+  uid: string;
+  displayName: string;
+  email: string;
+  role: string;
+  active: boolean;
+  assignedProjectIds: string[];
+}
+
+interface PersonResult {
+  ok: boolean;
+  errors?: string[];
+  value?: PersonValue;
+}
+
+interface DroppedProject {
+  entries: LedgerEntry[];
+  projects: LedgerProject[];
+  subcontracts: SyncDoc[];
+  amendments: SyncDoc[];
+  finance: Record<string, { contractAmount?: number }>;
+  terms: Record<string, { originalAmount?: number }>;
+  outbox: string[];
+  syncErrors: Record<string, unknown>;
+  statusPending: string[];
+}
+
+interface SyncApi {
+  isSeed(doc: SyncDoc | null | undefined): boolean;
+  collectionFor(doc: SyncDoc | null | undefined): string | null;
+  toRemote(doc: SyncDoc): SyncDoc;
+  withServerTime(doc: SyncDoc, sentinel: unknown): SyncDoc;
+  fromRemote(data: SyncDoc): SyncDoc;
+  mergeById(
+    local: readonly SyncDoc[] | null | undefined,
+    incoming: readonly SyncDoc[] | null | undefined,
+    pendingIds: readonly string[] | null | undefined,
+  ): SyncDoc[];
+  siteReads(uid: string | null | undefined, projectIds: readonly string[] | null | undefined): readonly ReadSpec[];
+  pullChanges(opts: PullCall): Promise<{
+    entries: SyncDoc[];
+    projects: SyncDoc[];
+    incomingEntries: SyncDoc[];
+    incomingProjects: SyncDoc[];
+    watermark: { entries: number | null; projects: number | null };
+    missingProjectIds: string[];
+  }>;
+  flushOutbox(opts: FlushCall): Promise<{
+    synced: string[];
+    kept: string[];
+    failed: { id: string; message: string }[];
+    adopted: { id: string; remote: SyncDoc }[];
+    authDead: boolean;
+  }>;
+  contractAmountOf(doc: SyncDoc | null | undefined): number | null;
+  withoutContractAmount(doc: SyncDoc | null | undefined): SyncDoc | null | undefined;
+  splitProjectSave(
+    project: SyncDoc | null | undefined,
+    amount?: unknown,
+  ): {
+    project: SyncDoc | null | undefined;
+    finance: { contractAmount: number } | null;
+  };
+  projectsForClient(
+    user: SyncUser | null | undefined,
+    projects: readonly SyncDoc[] | null | undefined,
+  ): (SyncDoc | null | undefined)[];
+  financeReads(
+    user: SyncUser | null | undefined,
+    projectIds: readonly string[] | null | undefined,
+  ): readonly ReadSpec[];
+  personInput(input: SyncUser | null | undefined): PersonResult;
+  readSetKey(user: SyncUser | null | undefined): string;
+  readSetChanged(prev: SyncUser | null | undefined, next: SyncUser | null | undefined): boolean;
+  stripMoney(doc: SyncDoc | null | undefined): SyncDoc | null | undefined;
+  termsPayload(amount: unknown): { originalAmount: number } | null;
+  subcontractReads(user: SyncUser | null | undefined, since: unknown): readonly ReadSpec[];
+  pullSubcontracts(opts: SubPull): Promise<{
+    subcontracts: SyncDoc[];
+    amendments: SyncDoc[];
+    watermark: number | null;
+  }>;
+  exactProjectName(typed: unknown, name: unknown): boolean;
+  projectDeleteDocs(projectId: string | undefined, found: DeleteFound | null | undefined): DeleteDoc[];
+  projectDeleteBatches(docs: readonly DeleteDoc[] | null | undefined): DeleteDoc[][];
+  missingRequestedIds(
+    specs: readonly ReadSpec[] | null | undefined,
+    rows: readonly SyncDoc[] | null | undefined,
+  ): string[];
+  dropProjectLocal(
+    store: LocalStore | null | undefined,
+    projectId: string,
+    opts: { dropPending?: boolean } | null | undefined,
+  ): DroppedProject;
+}
+
 interface Window {
   Ledger: LedgerApi;
   AJ: any;
   FIREBASE_CONFIG: any;
-  Sync: any;
+  Sync: SyncApi;
   SyncStatus: SyncStatusApi;
   DomSafe: DomSafeApi;
   AppCheck: AppCheckApi;
