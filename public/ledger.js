@@ -44,8 +44,14 @@
     const wantArchived = list === 'archived' && !!(user && user.role === 'owner');
     return visible.filter(p => isArchived(p) === wantArchived);
   }
+  function can(user, action) {
+    const owner = !!(user && user.role === 'owner');
+    if (action === 'owner') return owner;
+    if (action === 'manageProject') return owner && user.active === true;
+    return false;
+  }
   function nextProjectStatus(user, project, action) {
-    if (!user || user.role !== 'owner' || user.active !== true || !project) return null;
+    if (!can(user, 'manageProject') || !project) return null;
     if (action === 'archive') return isArchived(project) ? null : 'archived';
     if (action === 'restore') return isArchived(project) ? 'active' : null;
     return null;
@@ -356,7 +362,7 @@
     return { rows, total: visible.length, reads: 0 };
   }
 
-  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
+  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
     baghdadTime, entryExportFields, entryToCSV, projectEntryList };
 });
