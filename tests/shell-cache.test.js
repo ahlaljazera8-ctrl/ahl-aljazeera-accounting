@@ -40,7 +40,7 @@ test('session.js is a classic script loaded before app.js and precached with the
   const appAt = html.indexOf('src="app.js"');
   assert.ok(sessionAt > 0 && appAt > sessionAt);
   assert.equal(html.includes('type="module"'), false);
-  assert.match(sw, /const VERSION = 'aj-p0-v34'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v35'/);
   assert.match(sw, /\.\/session\.js/);
   assert.match(sw, /'\/session\.js': 1/);
   assert.match(session, /window\.AJ/);
@@ -62,6 +62,24 @@ test('firebase-client.js is a classic script between session.js and app.js and i
   assert.match(src, /flushOutbox/);
   assert.match(sw, /\.\/firebase-client\.js/);
   assert.match(sw, /'\/firebase-client\.js': 1/);
-  assert.match(sw, /const VERSION = 'aj-p0-v34'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v35'/);
   assert.equal(cacheControl('/firebase-client.js'), 'no-cache');
+});
+
+test('render.js is a classic script between firebase-client.js and app.js and is precached', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
+  const sw = fs.readFileSync(path.join(ROOT, 'public/sw.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8');
+  const clientAt = html.indexOf('src="firebase-client.js"');
+  const renderAt = html.indexOf('src="render.js"');
+  const appAt = html.indexOf('src="app.js"');
+  assert.ok(clientAt > 0 && renderAt > clientAt && appAt > renderAt);
+  assert.equal(/^\s*import\s/m.test(src), false);
+  assert.equal(src.includes('export '), false);
+  assert.match(src, /function render/);
+  assert.match(src, /addEventListener\('click'/);
+  assert.match(sw, /\.\/render\.js/);
+  assert.match(sw, /'\/render\.js': 1/);
+  assert.match(sw, /const VERSION = 'aj-p0-v35'/);
+  assert.equal(cacheControl('/render.js'), 'no-cache');
 });
