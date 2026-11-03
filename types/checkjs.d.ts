@@ -651,6 +651,39 @@ interface SyncApi {
   ): DroppedProject;
 }
 
+interface RenderApi {
+  views: Record<string, (arg: string) => string>;
+  titles: Record<string, string>;
+  state: Record<string, unknown>;
+  render(): void;
+  esc(s: unknown): string;
+  money(n: number, cls?: string): string;
+  queueDoc(id: string): void;
+  confirmShell(inner: string): string;
+  lastSyncAt(): number;
+}
+
+interface SettleParts {
+  lead: string;
+  amount: string;
+  tail: string;
+  after: string;
+}
+
+interface ForemenUiApi {
+  install(api: RenderApi): void;
+  onClick(b: HTMLButtonElement): boolean;
+  onInput(el: HTMLElement): boolean;
+  blockedDeleteMessage(
+    projectId: string,
+    entries: readonly LedgerEntry[] | null | undefined,
+    foremen: readonly Foreman[] | null | undefined,
+    errors: Record<string, unknown> | null | undefined,
+  ): string;
+  settleParts(kind: string, amount: number, owed: number): SettleParts;
+  syncLine(lastSyncMs: number): string;
+}
+
 interface Window {
   Ledger: LedgerApi;
   AJ: any;
@@ -659,6 +692,7 @@ interface Window {
   SyncStatus: SyncStatusApi;
   DomSafe: DomSafeApi;
   AppCheck: AppCheckApi;
+  ForemenUI: ForemenUiApi;
   __loginSeen?: boolean;
   __forceOffline?: boolean;
   __unhandled?: string[];
@@ -670,6 +704,7 @@ declare const AJ: Window['AJ'];
 declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
 declare const AppCheck: AppCheckApi;
+declare const ForemenUI: ForemenUiApi;
 
 // session.js and app.js are classic scripts. checkJs treats each file as a module,
 // so the names they share are declared here. Nothing here is loaded by the app.
@@ -710,6 +745,7 @@ declare function disposeFirebase(signOutUser?: boolean): Promise<void>;
 declare function isDeadAuth(err: any): boolean;
 declare function render(): void;
 declare function flushRemote(): Promise<unknown>;
+declare function sendNow(): void;
 declare function rebuildFirebase(signOutUser?: boolean): Promise<any>;
 declare function isImportFailure(err: any): boolean;
 declare function cacheSnapshot(): any;

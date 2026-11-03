@@ -589,11 +589,12 @@
    * @returns {SettleGuard}
    */
   function settleGuard(foremanId, opts) {
+    const nowMs = opts && opts.nowMs;
+    if (typeof nowMs !== 'number' || !Number.isFinite(nowMs)) throw new Error('nowMs');
     const outbox = (opts && opts.outbox) || [];
     const moves = (opts && opts.moves) || [];
     const entries = (opts && opts.entries) || [];
     const lastSyncMs = opts && typeof opts.lastSyncMs === 'number' ? opts.lastSyncMs : 0;
-    const nowMs = opts.nowMs;
     /** @type {string[]} */
     const pendingIds = [];
     for (const id of outbox) {
