@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true
+  },
+  "include": ["public/session.js", "types/checkjs.d.ts"],
+  "exclude": ["public/sw.js", "node_modules"]
+}
