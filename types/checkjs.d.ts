@@ -10,6 +10,33 @@ interface DomSafeApi {
   projectButton(id: unknown, name: unknown, selected: boolean): string;
 }
 
+interface AppCheckProvider {
+  // The ReCaptchaV3Provider instance. This file only passes it through.
+}
+
+interface AppCheckOptions {
+  provider: AppCheckProvider;
+  isTokenAutoRefreshEnabled: boolean;
+}
+
+interface AppCheckSdk {
+  initializeAppCheck(app: unknown, options: AppCheckOptions): AppCheckHandle;
+  ReCaptchaV3Provider: new (siteKey: string) => AppCheckProvider;
+}
+
+// The object initializeAppCheck returns. This file does not read its fields.
+interface AppCheckHandle {
+  [key: string]: unknown;
+}
+
+interface AppCheckApi {
+  FB_VER: string;
+  SDK_URL: string;
+  PLACEHOLDER: string;
+  siteKeyReady(siteKey: unknown): siteKey is string;
+  initAppCheck(app: unknown, siteKey: unknown, importSdk?: unknown): Promise<AppCheckHandle | null>;
+}
+
 interface Window {
   Ledger: any;
   AJ: any;
@@ -17,7 +44,7 @@ interface Window {
   Sync: any;
   SyncStatus: any;
   DomSafe: DomSafeApi;
-  AppCheck: any;
+  AppCheck: AppCheckApi;
   __loginSeen?: boolean;
   __forceOffline?: boolean;
   __unhandled?: string[];
@@ -28,6 +55,7 @@ declare const Ledger: Window['Ledger'];
 declare const AJ: Window['AJ'];
 declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
+declare const AppCheck: AppCheckApi;
 
 // session.js and app.js are classic scripts. checkJs treats each file as a module,
 // so the names they share are declared here. Nothing here is loaded by the app.
