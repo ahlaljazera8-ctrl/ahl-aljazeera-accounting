@@ -1,12 +1,22 @@
 // Types for `tsc --noEmit` only. Nothing here is loaded by the app.
 // Classic scripts publish these names on window and also call them bare.
+interface DomSafeApi {
+  ID_RE: RegExp;
+  escapeHtml(value: unknown): string;
+  isSafeId(id: unknown): boolean;
+  projectAttr(id: unknown): string;
+  projectHref(kind: unknown, id: unknown): string;
+  entryHref(id: unknown): string;
+  projectButton(id: unknown, name: unknown, selected: boolean): string;
+}
+
 interface Window {
   Ledger: any;
   AJ: any;
   FIREBASE_CONFIG: any;
   Sync: any;
   SyncStatus: any;
-  DomSafe: any;
+  DomSafe: DomSafeApi;
   AppCheck: any;
   __loginSeen?: boolean;
   __forceOffline?: boolean;
@@ -17,7 +27,7 @@ interface Window {
 declare const Ledger: Window['Ledger'];
 declare const AJ: Window['AJ'];
 declare const SyncStatus: Window['SyncStatus'];
-declare const DomSafe: Window['DomSafe'];
+declare const DomSafe: DomSafeApi;
 
 // session.js and app.js are classic scripts. checkJs treats each file as a module,
 // so the names they share are declared here. Nothing here is loaded by the app.
