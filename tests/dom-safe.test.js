@@ -41,14 +41,14 @@ test('a safe project id stays in the attribute and the name is escaped', () => {
   assert.equal(Dom.isSafeId('a'.repeat(65)), false);
 });
 
-test('app.js puts project ids through DomSafe, not raw into attributes', () => {
-  const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-  assert.match(app, /DomSafe\.projectButton/);
-  assert.match(app, /DomSafe\.projectHref\('project'/);
-  assert.match(app, /DomSafe\.projectHref\('entry'/);
-  assert.match(app, /DomSafe\.projectHref\('entries'/);
-  assert.equal(app.includes('data-proj="${p.id}"'), false);
-  assert.equal(app.includes('href="#project/${p.id}"'), false);
-  assert.equal(app.includes('href="#entry/${p.id}"'), false);
-  assert.equal(app.includes('href="#entries/${p.id}"'), false);
+test('render.js puts project ids through DomSafe, not raw into attributes', () => {
+  const view = fs.readFileSync(path.join(__dirname, '../public/render.js'), 'utf8');
+  assert.match(view, /DomSafe\.projectButton/);
+  assert.match(view, /DomSafe\.projectHref\('project'/);
+  assert.match(view, /DomSafe\.projectHref\('entry'/);
+  assert.match(view, /DomSafe\.projectHref\('entries'/);
+  assert.equal(view.includes('data-proj="${p.id}"'), false);
+  assert.equal(view.includes('href="#project/${p.id}"'), false);
+  assert.equal(view.includes('href="#entry/${p.id}"'), false);
+  assert.equal(view.includes('href="#entries/${p.id}"'), false);
 });

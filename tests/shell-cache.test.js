@@ -40,7 +40,7 @@ test('session.js is a classic script loaded before app.js and precached with the
   const appAt = html.indexOf('src="app.js"');
   assert.ok(sessionAt > 0 && appAt > sessionAt);
   assert.equal(html.includes('type="module"'), false);
-  assert.match(sw, /const VERSION = 'aj-p0-v34'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v35'/);
   assert.match(sw, /\.\/session\.js/);
   assert.match(sw, /'\/session\.js': 1/);
   assert.match(session, /window\.AJ/);
@@ -62,7 +62,7 @@ test('firebase-client.js is a classic script between session.js and app.js and i
   assert.match(src, /flushOutbox/);
   assert.match(sw, /\.\/firebase-client\.js/);
   assert.match(sw, /'\/firebase-client\.js': 1/);
-  assert.match(sw, /const VERSION = 'aj-p0-v34'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v35'/);
   assert.equal(cacheControl('/firebase-client.js'), 'no-cache');
 });
 
@@ -83,4 +83,3 @@ test('render.js is a classic script between firebase-client.js and app.js and is
   assert.match(sw, /const VERSION = 'aj-p0-v35'/);
   assert.equal(cacheControl('/render.js'), 'no-cache');
 });
-
