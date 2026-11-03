@@ -1,5 +1,7 @@
 ## Why
 
+## Plan (sketch, reviewed by Architect)
+
 ## What changed
 
 ## Scope
