@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.sw.json",
+  "compilerOptions": {
+    "strict": true
+  }
+}
