@@ -205,6 +205,12 @@
         if (!sub || sub.projectId !== entry.projectId) errs.push('عقد مشروع آخر');
       }
     }
+    if (entry.foremanId != null && entry.foremanId !== '') {
+      if (!user || user.role !== 'owner') errs.push('عهدة الخلفة للمالك فقط');
+      if (entry.direction !== 'expense') errs.push('عهدة الخلفة للمصروف فقط');
+      if (typeof entry.foremanId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.foremanId)) errs.push('معرّف الخلفة غير صالح');
+      else if (Array.isArray(ctx.foremen) && !ctx.foremen.some(f => f && f.id === entry.foremanId)) errs.push('الخلفة غير موجود');
+    }
     if (user && user.role === 'site' && entry.direction === 'income' && !policy.siteCanCreateClientPayment) errs.push('دفعة عميل للمالك فقط');
     if (entry.isReversal) {
       const orig = ledger.find(e => e.id === entry.reversesEntryId);
@@ -260,6 +266,7 @@
       partyName: orig.partyName || '', isReversal: true, reversesEntryId: orig.id, reversalReason: reason,
       createdAtDevice: now, createdAtServer: null, createdBy: user.uid, deviceId };
     if (typeof orig.subcontractId === 'string' && orig.subcontractId) row.subcontractId = orig.subcontractId;
+    if (typeof orig.foremanId === 'string' && orig.foremanId) row.foremanId = orig.foremanId;
     const name = recorderName(user);
     if (name) row.createdByName = name;
     return row;
@@ -487,7 +494,118 @@
     return { rows, total: visible.length, reads: 0 };
   }
 
+  const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const STALE_MS = 10 * 60 * 1000;
+
+  /** @param {ForemanMove | LedgerEntry | null | undefined} row */
+  function rowSign(row) { return row && row.isReversal ? -1 : 1; }
+
+  /**
+   * @param {string} foremanId
+   * @param {readonly ForemanMove[] | null | undefined} moves
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {Record<string, unknown> | null | undefined} [errors]
+   * @returns {ForemanFigures}
+   */
+  function foremanBalance(foremanId, moves, entries, errors) {
+    const err = errors || {};
+    /** @param {{ id?: string } | null | undefined} row */
+    const live = row => !!(row && row.id && !err[row.id]);
+    let held = 0;
+    for (const m of moves || []) {
+      if (!live(m) || m.foremanId !== foremanId || typeof m.amount !== 'number' || !Number.isFinite(m.amount)) continue;
+      const signed = m.amount * rowSign(m);
+      if (m.kind === 'advance' || m.kind === 'settle') held += signed;
+      else if (m.kind === 'return') held -= signed;
+    }
+    for (const e of entries || []) {
+      if (!live(e) || e.foremanId !== foremanId || e.direction !== 'expense') continue;
+      if (typeof e.amount !== 'number' || !Number.isFinite(e.amount)) continue;
+      held -= e.amount * rowSign(e);
+    }
+    const remaining = held > 0 ? held : 0;
+    const owedToForeman = held < 0 ? -held : 0;
+    const state = held > 0 ? 'holding' : held < 0 ? 'owed' : 'settled';
+    return { held, remaining, owedToForeman, state };
+  }
+
+  /**
+   * @param {{ id?: string, foremanId?: string, kind?: string, amount?: number, date?: string, note?: string, isReversal?: boolean, reversesMoveId?: string, reversalReason?: unknown, createdBy?: string }} move
+   * @param {{ user?: LedgerUser | null, moves?: readonly ForemanMove[] | null, foremen?: readonly Foreman[] | null }} ctx
+   * @returns {string[]}
+   */
+  function validateForemanMove(move, ctx) {
+    const user = ctx && ctx.user;
+    const moves = (ctx && ctx.moves) || [];
+    const people = (ctx && ctx.foremen) || [];
+    const errs = [];
+    if (!user || user.role !== 'owner' || user.active !== true) errs.push('مستخدم غير مسموح');
+    if (!move.id || !ID_RE.test(move.id)) errs.push('id غير صالح');
+    if (moves.some(m => m && m.id === move.id)) errs.push('الحركة مكررة');
+    if (!people.some(f => f && f.id === move.foremanId)) errs.push('الخلفة غير موجود');
+    if (move.kind !== 'advance' && move.kind !== 'settle' && move.kind !== 'return') errs.push('نوع الحركة غير صالح');
+    if (typeof move.amount === 'number' && move.amount > MAX_AMOUNT_IQD) errs.push(AMOUNT_LIMIT_MSG);
+    else if (!isPosInt(move.amount)) errs.push(AMOUNT_MSG);
+    if (!DATE_RE.test(move.date == null ? '' : String(move.date))) errs.push('date بصيغة YYYY-MM-DD');
+    if (move.note != null && (typeof move.note !== 'string' || move.note.length > 200)) errs.push('الملاحظة غير صالحة');
+    if (user && move.createdBy !== user.uid) errs.push('createdBy يجب أن يساوي المستخدم');
+    if (move.isReversal === true) {
+      if (move.id !== 'rev_' + move.reversesMoveId) errs.push('معرّف قيد العكس يجب أن يكون rev_<id الأصلي>');
+      const orig = moves.find(m => m && m.id === move.reversesMoveId);
+      if (!orig) errs.push('الحركة الأصلية غير موجودة');
+      else {
+        if (orig.isReversal) errs.push('لا يُعكس قيد عكس');
+        if (moves.some(m => m && m.isReversal && m.reversesMoveId === orig.id)) errs.push('الحركة معكوسة مسبقاً');
+        if (orig.foremanId !== move.foremanId) errs.push('قيد العكس يجب أن ينسخ الخلفة');
+        if (orig.kind !== move.kind) errs.push('قيد العكس يجب أن ينسخ النوع');
+        if (orig.amount !== move.amount) errs.push('قيد العكس يجب أن ينسخ المبلغ');
+      }
+      if (!move.reversalReason) errs.push('سبب التصحيح مطلوب');
+    } else {
+      if (move.isReversal !== false) errs.push('isReversal مطلوب');
+      if (move.id && move.id.indexOf('rev_') === 0) errs.push('حركة عادية لا تبدأ بـ rev_');
+      if ('reversesMoveId' in move || 'reversalReason' in move) errs.push('حقول العكس فقط لقيد العكس');
+    }
+    return errs;
+  }
+
+  /**
+   * @param {ForemanMove} orig
+   * @param {{ user: LedgerUser, reason: string, now: number, deviceId: string, date: string }} ctx
+   * @returns {ForemanMove}
+   */
+  function foremanMoveReversal(orig, { user, reason, now, deviceId, date }) {
+    return {
+      id: 'rev_' + orig.id, foremanId: orig.foremanId, kind: orig.kind, amount: orig.amount, date,
+      note: '', isReversal: true, reversesMoveId: orig.id, reversalReason: reason,
+      createdAtDevice: now, createdAtServer: null, createdBy: user.uid, deviceId, docType: 'foremanMove',
+    };
+  }
+
+  /**
+   * @param {string} foremanId
+   * @param {{ outbox?: readonly string[] | null, moves?: readonly ForemanMove[] | null, entries?: readonly LedgerEntry[] | null, lastSyncMs?: number | null, nowMs: number }} opts
+   * @returns {SettleGuard}
+   */
+  function settleGuard(foremanId, opts) {
+    const outbox = (opts && opts.outbox) || [];
+    const moves = (opts && opts.moves) || [];
+    const entries = (opts && opts.entries) || [];
+    const lastSyncMs = opts && typeof opts.lastSyncMs === 'number' ? opts.lastSyncMs : 0;
+    const nowMs = opts.nowMs;
+    /** @type {string[]} */
+    const pendingIds = [];
+    for (const id of outbox) {
+      const move = moves.some(m => m && m.id === id && m.foremanId === foremanId);
+      const entry = entries.some(e => e && e.id === id && e.foremanId === foremanId);
+      if (move || entry) pendingIds.push(id);
+    }
+    const stale = pendingIds.length > 0 || lastSyncMs === 0 || nowMs - lastSyncMs > STALE_MS;
+    return { stale, pendingIds, lastSync: lastSyncMs > 0 ? lastSyncMs : null };
+  }
+
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
-    baghdadTime, entryExportFields, entryToCSV, projectEntryList };
+    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard };
 });

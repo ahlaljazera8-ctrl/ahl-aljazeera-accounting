@@ -136,6 +136,48 @@ interface LedgerUser {
   [key: string]: unknown;
 }
 
+type ForemanMoveKind = 'advance' | 'settle' | 'return';
+
+interface Foreman {
+  id?: string;
+  name?: string;
+  note?: string;
+  projectId?: string;
+  createdAtServer?: number | null;
+  createdBy?: string;
+  docType?: 'foreman';
+}
+
+interface ForemanMove {
+  id?: string;
+  foremanId?: string;
+  kind?: ForemanMoveKind;
+  amount?: number;
+  date?: string;
+  note?: string;
+  isReversal?: boolean;
+  reversesMoveId?: string;
+  reversalReason?: unknown;
+  createdAtDevice?: number;
+  createdAtServer?: number | null;
+  createdBy?: string;
+  deviceId?: string;
+  docType?: 'foremanMove';
+}
+
+interface ForemanFigures {
+  held: number;
+  remaining: number;
+  owedToForeman: number;
+  state: 'holding' | 'owed' | 'settled';
+}
+
+interface SettleGuard {
+  stale: boolean;
+  pendingIds: string[];
+  lastSync: number | null;
+}
+
 interface SessionCache {
   projects?: LedgerProject[];
   entries?: LedgerEntry[];
@@ -145,6 +187,8 @@ interface SessionCache {
   role?: string;
   deviceId?: unknown;
   statusPending?: string[];
+  foremen?: Foreman[];
+  foremanMoves?: ForemanMove[];
   [key: string]: unknown;
 }
 
@@ -195,6 +239,7 @@ interface LedgerEntry {
   createdAtServer?: number | null;
   deviceId?: unknown;
   subcontractId?: string;
+  foremanId?: string;
   name?: string;
   [key: string]: unknown;
 }
@@ -211,6 +256,7 @@ interface ValidateCtx {
   projects?: readonly LedgerProject[];
   policy?: LedgerPolicy;
   subcontracts?: readonly LedgerSubcontract[] | null;
+  foremen?: readonly Foreman[] | null;
 }
 
 interface LedgerViewCtx {
@@ -344,6 +390,41 @@ interface LedgerApi {
     ctx?: LedgerViewCtx,
     opts?: PageOpts | null,
   ): { rows: ProjectListRow[]; total: number; reads: number } | null;
+  foremanBalance(
+    foremanId: string,
+    moves: readonly ForemanMove[] | null | undefined,
+    entries: readonly LedgerEntry[] | null | undefined,
+    errors?: Record<string, unknown> | null,
+  ): ForemanFigures;
+  validateForemanMove(
+    move: {
+      id?: string;
+      foremanId?: string;
+      kind?: string;
+      amount?: number;
+      date?: string;
+      note?: string;
+      isReversal?: boolean;
+      reversesMoveId?: string;
+      reversalReason?: unknown;
+      createdBy?: string;
+    },
+    ctx: { user?: LedgerUser | null; moves?: readonly ForemanMove[] | null; foremen?: readonly Foreman[] | null },
+  ): string[];
+  foremanMoveReversal(
+    orig: ForemanMove,
+    ctx: { user: LedgerUser; reason: string; now: number; deviceId: string; date: string },
+  ): ForemanMove;
+  settleGuard(
+    foremanId: string,
+    opts: {
+      outbox?: readonly string[] | null;
+      moves?: readonly ForemanMove[] | null;
+      entries?: readonly LedgerEntry[] | null;
+      lastSyncMs?: number | null;
+      nowMs: number;
+    },
+  ): SettleGuard;
 }
 
 interface ServerStamp {

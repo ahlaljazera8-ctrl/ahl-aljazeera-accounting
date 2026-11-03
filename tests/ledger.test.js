@@ -593,3 +593,201 @@ test('can(user, action) is owner for the owner role and manageProject only when 
   assert.equal(L.can({ role: 'owner' }, 'manageProject'), false);
   assert.equal(L.can(activeOwner, 'unknown'), false);
 });
+
+const foremen = [{ id: 'fm1', name: 'حسن' }];
+const moveCtx = () => ({ user: owner, moves: [], foremen });
+/**
+ * @param {Partial<ForemanMove>} [extra]
+ * @returns {ForemanMove}
+ */
+function MV(extra) {
+  const o = extra || {};
+  const requested = o.kind;
+  const kind = requested === 'settle' || requested === 'return' ? requested : 'advance';
+  return {
+    id: o.id || ('mv' + (++n)),
+    foremanId: o.foremanId || 'fm1',
+    kind,
+    amount: o.amount == null ? 1000 : o.amount,
+    date: o.date || '2026-11-03',
+    note: o.note == null ? '' : o.note,
+    isReversal: o.isReversal === true,
+    createdAtDevice: o.createdAtDevice == null ? 1 : o.createdAtDevice,
+    createdAtServer: o.createdAtServer === undefined ? null : o.createdAtServer,
+    createdBy: o.createdBy || 'o',
+    deviceId: o.deviceId || 'd',
+  };
+}
+
+test('foremanBalance derives holding, owed, settled, several advances, and a return', () => {
+  const hold = L.foremanBalance('fm1', [MV({ amount: 100000 })], []);
+  assert.equal(hold.held, 100000);
+  assert.equal(hold.remaining, 100000);
+  assert.equal(hold.owedToForeman, 0);
+  assert.equal(hold.state, 'holding');
+  const owed = L.foremanBalance('fm1', [], [E({ foremanId: 'fm1', amount: 35000 })]);
+  assert.equal(owed.held, -35000);
+  assert.equal(owed.owedToForeman, 35000);
+  assert.equal(owed.remaining, 0);
+  assert.equal(owed.state, 'owed');
+  const settled = L.foremanBalance('fm1', [MV({ amount: 100000 })], [E({ foremanId: 'fm1', amount: 100000 })]);
+  assert.equal(settled.held, 0);
+  assert.equal(settled.state, 'settled');
+  const many = L.foremanBalance('fm1', [MV({ amount: 10000 }), MV({ amount: 20000 })], []);
+  assert.equal(many.held, 30000);
+  const back = L.foremanBalance('fm1', [MV({ amount: 50000 }), MV({ id: 'ret', kind: 'return', amount: 20000 })], []);
+  assert.equal(back.held, 30000);
+  assert.equal(back.state, 'holding');
+});
+
+test('foremanBalance leaves out rows named in syncErrors', () => {
+  const spent = E({ id: 'bad-exp', foremanId: 'fm1', amount: 999 });
+  const paid = MV({ id: 'bad-adv', amount: 5000 });
+  const open = L.foremanBalance('fm1', [paid], [spent]);
+  assert.equal(open.held, 5000 - 999);
+  const dropped = L.foremanBalance('fm1', [paid], [spent], { 'bad-exp': 'رُفض', 'bad-adv': 'رُفض' });
+  assert.equal(dropped.held, 0);
+  assert.equal(dropped.state, 'settled');
+});
+
+test('makeReversal keeps foremanId and the balance returns', () => {
+  const spent = E({ foremanId: 'fm1', amount: 40000 });
+  const rev = L.makeReversal(spent, { user: owner, reason: 'تصحيح', now: 2, deviceId: 'd', entryDate: '2026-11-03' });
+  assert.equal(rev.foremanId, 'fm1');
+  assert.equal(rev.isReversal, true);
+  const before = L.foremanBalance('fm1', [MV({ amount: 100000 })], [spent]);
+  const after = L.foremanBalance('fm1', [MV({ amount: 100000 })], [spent, rev]);
+  assert.equal(before.held, 60000);
+  assert.equal(after.held, 100000);
+});
+
+test('totals and projectSummary still count a foreman expense, and ignore moves', () => {
+  const plain = E({ amount: 1000 });
+  const fm = E({ amount: 400, foremanId: 'fm1' });
+  const labour = E({ entryType: 'labour', amount: 50 });
+  assert.equal(L.totals([plain, fm, labour]).spent, 1450);
+  assert.equal(L.projectSummary(owner, [plain, fm, labour]).spent, 1450);
+  const withMoves = L.foremanBalance('fm1', [MV({ amount: 900000 })], [fm, labour]);
+  assert.equal(withMoves.held, 900000 - 400);
+  assert.equal(L.totals([plain]).spent, 1000);
+});
+
+test('validateEntry accepts an owner foreman expense and rejects site, income, a bad id, and an unknown foreman', () => {
+  const lg = L.createLedger();
+  const base = { user: owner, projects, foremen };
+  assert.equal(lg.append(E({ foremanId: 'fm1' }), base).foremanId, 'fm1');
+  assert.throws(() => lg.append(E({ foremanId: 'fm1', createdBy: 's' }), { user: site, projects, foremen }), /للمالك/);
+  assert.throws(() => lg.append(E({ foremanId: 'fm1', direction: 'income', entryType: 'clientPayment' }), base), /مصروف/);
+  assert.throws(() => lg.append(E({ foremanId: 'bad id' }), base), /غير صالح/);
+  assert.throws(() => lg.append(E({ foremanId: 'missing' }), base), /غير موجود/);
+});
+
+test('validateForemanMove checks kind, amount, duplicates, and the rev_ rule', () => {
+  assert.deepEqual(L.validateForemanMove(MV(), moveCtx()), []);
+  for (const amount of [0, -5, 1.5, 10000000001]) {
+    const errs = L.validateForemanMove(MV({ amount }), moveCtx());
+    assert.ok(errs.length > 0, String(amount));
+  }
+  const adjust = Object.assign(MV(), { kind: 'adjust' });
+  assert.ok(L.validateForemanMove(adjust, moveCtx()).length > 0);
+  const existing = MV({ id: 'dup' });
+  assert.ok(L.validateForemanMove(MV({ id: 'dup' }), { user: owner, moves: [existing], foremen }).some(e => e === 'الحركة مكررة'));
+  assert.ok(L.validateForemanMove(MV({ id: 'rev_plain', isReversal: false }), moveCtx()).length > 0);
+  const orig = MV({ id: 'm-orig', isReversal: false });
+  const rev = L.foremanMoveReversal(orig, { user: owner, reason: 'خطأ', now: 3, deviceId: 'd', date: '2026-11-03' });
+  assert.equal(rev.id, 'rev_m-orig');
+  assert.equal(rev.kind, 'advance');
+  assert.equal(rev.amount, orig.amount);
+  assert.deepEqual(L.validateForemanMove(rev, { user: owner, moves: [orig], foremen }), []);
+  const second = L.foremanMoveReversal(rev, { user: owner, reason: 'مرة ثانية', now: 4, deviceId: 'd', date: '2026-11-03' });
+  assert.equal(second.id, 'rev_rev_m-orig');
+  assert.ok(L.validateForemanMove(second, { user: owner, moves: [orig, rev], foremen }).length > 0);
+});
+
+test('two settles of an owed amount leave the extra as cash still held', () => {
+  const expense = E({ foremanId: 'fm1', amount: 35000 });
+  const a = MV({ id: 'set-a', kind: 'settle', amount: 35000 });
+  const b = MV({ id: 'set-b', kind: 'settle', amount: 35000 });
+  const fig = L.foremanBalance('fm1', [a, b], [expense]);
+  assert.equal(fig.held, 35000);
+  assert.equal(fig.remaining, 35000);
+  assert.equal(fig.state, 'holding');
+});
+
+test('settleGuard uses pending rows and the time since the app last pulled', () => {
+  const now = 1700000000000;
+  const move = MV({ id: 'pend-m' });
+  const entry = E({ id: 'pend-e', foremanId: 'fm1' });
+  const pending = L.settleGuard('fm1', { outbox: ['pend-m', 'other'], moves: [move], entries: [], lastSyncMs: now, nowMs: now });
+  assert.equal(pending.stale, true);
+  assert.deepEqual(pending.pendingIds, ['pend-m']);
+  const fresh = L.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: now - 5 * 60 * 1000, nowMs: now });
+  assert.equal(fresh.stale, false);
+  assert.equal(fresh.lastSync, now - 5 * 60 * 1000);
+  const old = L.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: now - 11 * 60 * 1000, nowMs: now });
+  assert.equal(old.stale, true);
+  const unopened = L.settleGuard('fm1', { outbox: [], moves: [], entries: [], lastSyncMs: 0, nowMs: now });
+  assert.equal(unopened.stale, true);
+  assert.equal(unopened.lastSync, null);
+  const entryPending = L.settleGuard('fm1', { outbox: ['pend-e'], moves: [], entries: [entry], lastSyncMs: now, nowMs: now });
+  assert.deepEqual(entryPending.pendingIds, ['pend-e']);
+  assert.equal(entryPending.stale, true);
+});
+
+test('a full settle of an owed 35000 clears the balance', () => {
+  const expense = E({ foremanId: 'fm1', amount: 35000 });
+  const owed = L.foremanBalance('fm1', [], [expense]);
+  assert.equal(owed.state, 'owed');
+  assert.equal(owed.owedToForeman, 35000);
+  const settled = L.foremanBalance('fm1', [MV({ id: 'set-full', kind: 'settle', amount: 35000 })], [expense]);
+  assert.equal(settled.held, 0);
+  assert.equal(settled.remaining, 0);
+  assert.equal(settled.owedToForeman, 0);
+  assert.equal(settled.state, 'settled');
+});
+
+test('a partial settle leaves the rest owed', () => {
+  const expense = E({ foremanId: 'fm1', amount: 35000 });
+  const fig = L.foremanBalance('fm1', [MV({ id: 'set-part', kind: 'settle', amount: 10000 })], [expense]);
+  assert.equal(fig.held, -25000);
+  assert.equal(fig.owedToForeman, 25000);
+  assert.equal(fig.remaining, 0);
+  assert.equal(fig.state, 'owed');
+});
+
+test('reversing an advance and reversing a return go through foremanBalance', () => {
+  const adv = MV({ id: 'adv-rev', amount: 100000 });
+  const revAdv = L.foremanMoveReversal(adv, { user: owner, reason: 'ألغيت السلفة', now: 4, deviceId: 'd', date: '2026-11-03' });
+  assert.equal(L.foremanBalance('fm1', [adv], []).held, 100000);
+  assert.equal(L.foremanBalance('fm1', [adv, revAdv], []).held, 0);
+  assert.equal(L.foremanBalance('fm1', [adv, revAdv], []).state, 'settled');
+  const base = MV({ id: 'adv-keep', amount: 50000 });
+  const ret = MV({ id: 'ret-rev', kind: 'return', amount: 20000 });
+  const revRet = L.foremanMoveReversal(ret, { user: owner, reason: 'أُلغي الاستلام', now: 5, deviceId: 'd', date: '2026-11-03' });
+  assert.equal(L.foremanBalance('fm1', [base, ret], []).held, 30000);
+  assert.equal(L.foremanBalance('fm1', [base, ret, revRet], []).held, 50000);
+  assert.equal(L.foremanBalance('fm1', [base, ret, revRet], []).state, 'holding');
+});
+
+test('validateForemanMove rejects a site user, an inactive owner, an unknown foreman, and a mismatched reversal', () => {
+  const inactive = { uid: 'i', role: 'owner', active: false };
+  assert.ok(L.validateForemanMove(MV({ createdBy: 's' }), { user: site, moves: [], foremen }).length > 0);
+  assert.ok(L.validateForemanMove(MV({ createdBy: 'i' }), { user: inactive, moves: [], foremen }).length > 0);
+  assert.ok(L.validateForemanMove(MV({ foremanId: 'missing' }), moveCtx()).some(e => e === 'الخلفة غير موجود'));
+  const orig = MV({ id: 'm-mis', kind: 'advance', amount: 1000 });
+  const ctx = { user: owner, moves: [orig], foremen };
+  const badKind = Object.assign({}, L.foremanMoveReversal(orig, { user: owner, reason: 'خطأ', now: 6, deviceId: 'd', date: '2026-11-03' }), { kind: 'return' });
+  assert.ok(L.validateForemanMove(badKind, ctx).some(e => e === 'قيد العكس يجب أن ينسخ النوع'));
+  const badAmount = Object.assign({}, L.foremanMoveReversal(orig, { user: owner, reason: 'خطأ', now: 7, deviceId: 'd', date: '2026-11-03' }), { amount: 5 });
+  assert.ok(L.validateForemanMove(badAmount, ctx).some(e => e === 'قيد العكس يجب أن ينسخ المبلغ'));
+});
+
+test('a foreman expense CSV row matches the same row without a foreman', () => {
+  const row = E({ description: 'كبلات' });
+  const withForeman = Object.assign({}, row, { foremanId: 'fm1' });
+  const headed = L.toCSV([withForeman], projects);
+  const header = 'id,projectId,projectName,entryDate,direction,entryType,amount,signedAmount,currency,description,partyName,isReversal,reversesEntryId,reversalReason,createdBy,createdByName,createdAtDevice,deviceId';
+  assert.equal(headed.slice(1).split('\r\n')[0], header);
+  assert.equal(headed, L.toCSV([row], projects));
+  assert.equal(headed.includes('fm1'), false);
+});
