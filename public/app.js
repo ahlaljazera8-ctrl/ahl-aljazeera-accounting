@@ -125,7 +125,7 @@ function seed() {
   set(K.amendments, amendments);
   set(K.seeded, true);
 }
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
 let directoryPromise = null;
 const me = () => {
   if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
@@ -384,7 +384,7 @@ async function loadFirebase() {
       set(K.subcontracts, names);
       set(K.amendments, S.mergeById(get(K.amendments, []), owned.amendments, pendingNow));
       set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { subcontracts: owned.watermark }));
-      if (!user || user.role !== 'owner') return;
+      if (user && user.role === 'owner') {
       for (const sub of names) {
         if (!sub || pendingNow.includes(sub.id)) continue;
         const live = get(K.terms, {});
@@ -397,10 +397,47 @@ async function loadFirebase() {
         again[sub.id] = { originalAmount: amount };
         set(K.terms, again);
       }
+      }
+      await forgetGoneProjects(user, result.missingProjectIds || [], readSpec);
+    },
+    async deleteProject(projectId) {
+      const listIds = async col => {
+        const snap = await fsMod.getDocsFromServer(fsMod.query(fsMod.collection(fdb, col), fsMod.where('projectId', '==', projectId)));
+        return snap.docs.map(d => d.id).filter(id => /^[A-Za-z0-9_-]{1,64}$/.test(id));
+      };
+      const commit = async (docs) => {
+        const groups = S.projectDeleteBatches(docs);
+        for (const group of groups) {
+          if (!group.length) continue;
+          const batch = fsMod.writeBatch(fdb);
+          group.forEach(item => batch.delete(fsMod.doc(fdb, item.collection, item.id)));
+          await batch.commit();
+        }
+      };
+      await commit(S.projectDeleteDocs(projectId, {}));
+      for (let pass = 0; pass < 3; pass++) {
+        const entryIds = await listIds('ledgerEntries');
+        const subcontractIds = await listIds('subcontracts');
+        const amendmentIds = await listIds('subcontractAmendments');
+        const termIds = [];
+        for (const sid of subcontractIds) {
+          const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, 'subcontractTerms', sid));
+          if (snap.exists()) termIds.push(sid);
+        }
+        const fin = await fsMod.getDocFromServer(fsMod.doc(fdb, 'projectFinance', projectId));
+        const docs = S.projectDeleteDocs(projectId, {
+          entryIds, subcontractIds, amendmentIds, termIds, finance: fin.exists(),
+        }).filter(item => item.collection !== 'projects');
+        if (!docs.length) return;
+        await commit(docs);
+      }
+      const left = await listIds('ledgerEntries');
+      if (left.length) throw new Error('تبقّت قيود');
     },
   };
 }
 let flushing = null;
+let deleteLock = false;
 let syncNotice = '';
 let bellOpen = false;
 let lastSyncAt = 0;
@@ -411,6 +448,46 @@ const REPAIR_MSG = 'تعذر الدخول بعد إصلاح الذاكرة ال�
 const SUSPENDED_MSG = 'هذا الحساب موقوف';
 const SESSION_DEAD_MSG = 'انتهت الجلسة. سجّل الدخول من جديد';
 const MISSING_PROFILE_MSG = 'لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب';
+function cacheSnapshot() {
+  return {
+    entries: get(K.entries, []),
+    projects: get(K.projects, []),
+    subcontracts: get(K.subcontracts, []),
+    amendments: get(K.amendments, []),
+    finance: get(K.finance, {}) || {},
+    terms: get(K.terms, {}) || {},
+    outbox: get(K.outbox, []),
+    syncErrors: get(K.syncErrors, {}) || {},
+    statusPending: get(K.statusPending, []),
+  };
+}
+function writeCache(next) {
+  set(K.entries, next.entries);
+  set(K.projects, next.projects);
+  set(K.subcontracts, next.subcontracts);
+  set(K.amendments, next.amendments);
+  set(K.finance, next.finance);
+  set(K.terms, next.terms);
+  set(K.outbox, next.outbox);
+  set(K.syncErrors, next.syncErrors);
+  set(K.statusPending, next.statusPending);
+}
+async function forgetGoneProjects(user, missingIds, readSpec) {
+  const hold = new Set();
+  get(K.projects, []).forEach(project => {
+    if (project && project.id && !project.createdAtServer && get(K.outbox, []).includes(project.id)) hold.add(project.id);
+  });
+  const gone = new Set((missingIds || []).filter(id => !hold.has(id)));
+  if (user && user.role === 'owner') {
+    for (const project of get(K.projects, [])) {
+      if (!project || !project.id || hold.has(project.id) || gone.has(project.id)) continue;
+      if (!project.createdAtServer) continue;
+      const rows = await readSpec({ collection: 'projects', id: project.id });
+      if (!rows.length) gone.add(project.id);
+    }
+  }
+  gone.forEach(id => writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: false })));
+}
 function isDeadAuth(err) { return !!(window.SyncStatus && SyncStatus.isDeadAuth(err)); }
 function showLoginMessage(message) {
   showLogin();
@@ -430,6 +507,7 @@ async function rebuildFirebase(signOutUser) {
   return ensureFirebase();
 }
 function flushRemote() {
+  if (deleteLock) return flushing || Promise.resolve();
   if (demoRole() || !get(K.sessionUser)) return Promise.resolve();
   if (flushing) return flushing;
   const token = sessionEpoch;
@@ -1215,7 +1293,10 @@ const views = {
       ? `<div class="pills" id="project-filter"><button type="button" class="pill${list === 'open' ? ' on' : ''}" data-list="open">المشاريع</button><button type="button" class="pill${list === 'archived' ? ' on' : ''}" data-list="archived">المؤرشفة</button></div>`
       : '';
     const cards = list === 'archived'
-      ? (projects.map(p => `<div class="card"><h2>${esc(p.name)}</h2><button type="button" class="btn ghost" data-restore="${esc(p.id)}">استعادة</button></div>`).join('') || '<div class="note">لا توجد مشاريع مؤرشفة</div>')
+      ? (projects.map(p => {
+        const href = window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects';
+        return `<div class="card"><a class="proj" href="${href}"><h2>${esc(p.name)}</h2></a><button type="button" class="btn ghost" data-restore="${esc(p.id)}">استعادة</button></div>`;
+      }).join('') || '<div class="note">لا توجد مشاريع مؤرشفة</div>')
       : projects.map(p => {
         const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
         const line = u.role === 'owner'
@@ -1236,8 +1317,9 @@ const views = {
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
     const subs = u.role === 'owner' ? subcontractSection(p, counts(es)) : '';
-    const manage = L.nextProjectStatus(u, p, 'archive')
-      ? `<section class="project-manage" id="project-manage"><h2>إدارة المشروع</h2><button type="button" class="btn ghost" id="archive-project">أرشفة المشروع</button></section>`
+    const deleteNote = state.deleteMsg ? `<p class="delete-msg">${esc(state.deleteMsg)}</p>` : '';
+    const manage = u.role === 'owner' && u.active === true
+      ? `<section class="project-manage" id="project-manage"><button type="button" class="btn ghost" id="manage-project">إدارة المشروع</button>${deleteNote}</section>`
       : '';
     return `<div class="card">${card}</div>${subs}<div class="card"><h2>آخر القيود</h2>${es.slice().reverse().slice(0, 8).map(e => entryRow(e, u, es)).join('')}</div>
       <a class="btn ghost" id="all-entries" href="${allHref}">عرض جميع القيود</a>
@@ -1443,12 +1525,36 @@ function captureForm() {
   const amDate = $('#am-date'); if (amDate) state.amDate = amDate.value;
   const amAmount = $('#am-amount'); if (amAmount) state.amAmount = amAmount.value;
   const amNote = $('#am-note'); if (amNote) state.amNote = amNote.value;
+  const typed = $('#delete-name');
+  if (typed && state.confirm && state.confirm.action === 'delete') state.confirm.typed = typed.value;
+}
+function confirmShell(inner) {
+  return `<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"><div class="confirm">${inner}</div></div>`;
+}
+function deleteConfirm(c) {
+  const project = get(K.projects, []).find(p => p.id === c.id);
+  const name = project ? project.name : '';
+  if (c.step === 2) {
+    const typed = c.typed || '';
+    const ready = window.Sync.exactProjectName(typed, name);
+    return confirmShell(`<p>اكتب اسم المشروع كما هو لتأكيد الحذف</p><p class="copy"><b>${esc(name)}</b></p><label class="field">اسم المشروع<input id="delete-name" class="full" autocomplete="off" value="${esc(typed)}"></label><p class="copy bad">الحذف نهائي. لا توجد نسخة احتياطية يُعتمد عليها.</p><button type="button" class="btn danger" id="confirm-delete"${ready ? '' : ' disabled'}>حذف نهائياً</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
+  }
+  return confirmShell(`<p>حذف هذا المشروع نهائياً؟</p><p class="copy">يُحذف المشروع وكل ما فيه. كل القيود، بما فيها الدفعات وقيود «مقاول»، ومالية المشروع، وعقود المقاولين وشروطها وملاحقها.</p><p class="copy">القيود التي لم تُرسل بعد على أي هاتف (صندوق الإرسال عند مستخدمي الموقع) قد تُفقد أو يُرفض إرسالها.</p><p class="copy bad">الحذف نهائي. لا توجد نسخة احتياطية يُعتمد عليها.</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
+}
+function manageChoice(c) {
+  const project = get(K.projects, []).find(p => p.id === c.id);
+  const archive = L.nextProjectStatus(me(), project, 'archive')
+    ? '<button type="button" class="btn ghost" id="choose-archive">أرشفة</button>'
+    : '';
+  return confirmShell(`<p>إدارة المشروع</p>${archive}<button type="button" class="btn danger" id="choose-delete">حذف</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
 }
 function confirmDialog() {
   const c = state.confirm;
   if (!c) return '';
+  if (c.action === 'manage') return manageChoice(c);
+  if (c.action === 'delete') return deleteConfirm(c);
   const ask = c.action === 'restore' ? 'استعادة هذا المشروع؟' : 'أرشفة هذا المشروع؟';
-  return `<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"><div class="confirm"><p>${ask}</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button></div></div>`;
+  return confirmShell(`<p>${ask}</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
 }
 function rememberProjectStatus(id, before) {
   if (!before || !before.createdAtServer) {
@@ -1474,6 +1580,38 @@ function openConfirm(action, id) {
   if (!L.nextProjectStatus(me(), project, action)) return;
   state.confirm = { id, action };
   render();
+}
+async function deleteProjectNow(id) {
+  const u = me();
+  const project = get(K.projects, []).find(p => p.id === id);
+  if (!u || u.role !== 'owner' || u.active !== true || !project) return;
+  if (demoRole()) {
+    writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
+    state.deleteMsg = '';
+    if (location.hash !== '#projects') location.hash = '#projects';
+    else render();
+    return;
+  }
+  if (navigator.onLine === false) {
+    state.deleteMsg = 'الحذف يحتاج اتصالاً. لم يُحذف شيء.';
+    render();
+    return;
+  }
+  deleteLock = true;
+  try {
+    if (flushing) await flushing.catch(() => {});
+    const fb = await ensureFirebase();
+    await fb.deleteProject(id);
+    writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
+    state.deleteMsg = '';
+    if (location.hash !== '#projects') location.hash = '#projects';
+    else render();
+  } catch (err) {
+    state.deleteMsg = 'تعذر الحذف. لم يُحذف شيء من هذا الجهاز.';
+    render();
+  } finally {
+    deleteLock = false;
+  }
 }
 function finishConfirm(c) {
   const ok = commitProjectStatus(c.action, c.id);
@@ -1560,6 +1698,8 @@ function render() {
   if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
   if (v !== 'person') state.personMsg = '';
   if (u.role !== 'owner') { state.confirm = null; state.projectList = 'open'; }
+  if (state.confirm && (state.confirm.action === 'manage' || state.confirm.action === 'delete' || state.confirm.action === 'archive') && v !== 'project') state.confirm = null;
+  if (v !== 'project') state.deleteMsg = '';
   if (v !== 'subnew') state.subMsg = '';
   if (v !== 'amend') state.amMsg = '';
   $('#role').value = u.role;
@@ -1692,9 +1832,24 @@ document.addEventListener('click', ev => {
     state.projectList = b.dataset.list === 'archived' ? 'archived' : 'open';
     state.confirm = null;
     render();
-  } else if (b.id === 'archive-project') {
+  } else if (b.id === 'manage-project') {
     const id = (location.hash.slice(1).split('/')[1]) || '';
-    openConfirm('archive', id);
+    const uNow = me();
+    const project = get(K.projects, []).find(p => p.id === id);
+    if (!uNow || uNow.role !== 'owner' || uNow.active !== true || !project) return;
+    state.confirm = { id, action: 'manage' };
+    render();
+  } else if (b.id === 'choose-archive') {
+    const id = state.confirm && state.confirm.id;
+    if (id) openConfirm('archive', id);
+  } else if (b.id === 'choose-delete') {
+    const id = state.confirm && state.confirm.id;
+    const uNow = me();
+    const project = id && get(K.projects, []).find(p => p.id === id);
+    if (!uNow || uNow.role !== 'owner' || uNow.active !== true || !project) return;
+    state.deleteMsg = '';
+    state.confirm = { id, action: 'delete', step: 1, typed: '' };
+    render();
   } else if (b.dataset.restore) {
     openConfirm('restore', b.dataset.restore);
   } else if (b.id === 'confirm-no') {
@@ -1702,8 +1857,22 @@ document.addEventListener('click', ev => {
     render();
   } else if (b.id === 'confirm-yes') {
     const pending = state.confirm;
+    if (pending && pending.action === 'delete') {
+      pending.step = 2;
+      pending.typed = '';
+      render();
+    } else {
+      state.confirm = null;
+      if (pending) finishConfirm(pending);
+    }
+  } else if (b.id === 'confirm-delete') {
+    if (b.disabled) return;
+    const pending = state.confirm;
+    const typed = ($('#delete-name') && $('#delete-name').value) || '';
+    const project = pending && get(K.projects, []).find(p => p.id === pending.id);
+    if (!pending || pending.action !== 'delete' || !project || !window.Sync.exactProjectName(typed, project.name)) return;
     state.confirm = null;
-    if (pending) finishConfirm(pending);
+    deleteProjectNow(project.id);
   } else if (b.id === 'newproj') {
     if (!L.canCreateProject(u)) return;
     const name = prompt('اسم المشروع:'); if (!name) return; const clientName = prompt('اسم الزبون:') || '';
@@ -1714,6 +1883,14 @@ document.addEventListener('click', ev => {
   else if (b.id === 'save-person') savePerson(u);
   else if (b.id === 'save-sub') saveSubcontract(u, b);
   else if (b.id === 'save-amend') saveAmendment(u, b);
+});
+document.addEventListener('input', ev => {
+  const el = ev.target;
+  if (!el || el.id !== 'delete-name' || !state.confirm || state.confirm.action !== 'delete') return;
+  state.confirm.typed = el.value;
+  const project = get(K.projects, []).find(p => p.id === state.confirm.id);
+  const btn = $('#confirm-delete');
+  if (btn) btn.disabled = !project || !window.Sync.exactProjectName(el.value, project.name);
 });
 document.addEventListener('beforeinput', ev => {
   const el = ev.target;

@@ -23,14 +23,16 @@ const LIVE = /https:\/\/(?:firestore|identitytoolkit|securetoken)\.googleapis\.c
 const CSP_VIOLATION = /content security policy|refused to .* because it violates/i;
 
 // Production allowlist: gstatic modules, Auth/Firestore under *.googleapis.com,
-// and the Auth iframe (gapi + the project's authDomain). style-src allows
-// 'unsafe-inline' because the ledger renders style attributes.
+// and the Auth iframe (gapi + the project's authDomain). connect-src includes
+// https://apis.google.com and https://www.google.com because a followed gen_204
+// GET redirects there.
+// style-src allows 'unsafe-inline' because the ledger renders style attributes.
 // Loopback emulator origins are not part of this policy. The emulator job
 // serves a copy that adds them; see scripts/emulator-csp-config.js.
 const PRODUCTION_CSP = [
   "default-src 'self'",
   "script-src 'self' https://www.gstatic.com https://apis.google.com",
-  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://apis.google.com https://www.google.com",
   "img-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "frame-src https://ahl-aljazeera-accounting.firebaseapp.com",
@@ -42,7 +44,7 @@ const PRODUCTION_CSP = [
 const EMULATOR_CSP = [
   "default-src 'self'",
   "script-src 'self' https://www.gstatic.com https://apis.google.com",
-  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com http://127.0.0.1:9099 http://127.0.0.1:8080",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://apis.google.com https://www.google.com http://127.0.0.1:9099 http://127.0.0.1:8080",
   "img-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "frame-src https://ahl-aljazeera-accounting.firebaseapp.com http://127.0.0.1:9099",
@@ -304,6 +306,14 @@ test('security headers still let the app boot, log in, sync an entry, and regist
     })`);
     const blocked = await waitFor(session, `window.__cspViolations.some(v => String(v).includes('example.com'))`, 5000);
     assert.equal(blocked, true, 'a foreign script was not blocked by CSP');
+
+    const beaconBefore = (await session.ev(`window.__cspViolations.slice()`)).length;
+    const logBefore = session.violations.length;
+    await session.ev(`fetch('https://apis.google.com/js/gen_204', { mode: 'no-cors', cache: 'no-store' }).then(() => 1, () => 1)`);
+    await sleep(500);
+    const beaconAdded = (await session.ev(`window.__cspViolations.slice()`)).slice(beaconBefore)
+      .concat(session.violations.slice(logBefore));
+    assert.deepEqual(beaconAdded, [], 'gen_204 beacon was blocked: ' + beaconAdded.join(' || '));
   } finally {
     if (session) session.close();
     killChrome(chrome);

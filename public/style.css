@@ -76,11 +76,13 @@ a.detail-link{color:var(--pri);font-weight:700}
 #login label{display:flex;flex-direction:column;gap:4px;font-size:14px}
 #boot[hidden],#login[hidden],#shell[hidden]{display:none !important}
 .project-manage{margin-top:48px;padding-top:28px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
-.project-manage h2{margin:0;font-size:16px;color:var(--sub);font-weight:700}
+.project-manage .delete-msg{margin:0;color:var(--bad);font-size:13px;font-weight:700}
 .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
 .confirm-back{position:fixed;inset:0;z-index:30;background:rgba(27,31,36,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
-.confirm{width:min(440px,100%);background:#fff;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.confirm{width:min(440px,100%);max-height:min(78vh,640px);overflow:auto;background:#fff;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
 .confirm p{margin:0;font-size:16px;font-weight:700;text-align:center}
+.confirm .copy{font-size:14px;font-weight:500;text-align:start;line-height:1.55}
+.confirm .copy.bad{color:var(--bad);font-weight:700}
 .subhead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .bar{height:8px;background:var(--line);border-radius:999px;overflow:hidden}
 .bar>i{display:block;height:100%;width:0;background:var(--pri);border-radius:999px}

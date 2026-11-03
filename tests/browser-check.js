@@ -69,7 +69,7 @@ let chrome;
       check('o4: old entry without a name shows a dash', await ev(`(()=>{const row=[...document.querySelectorAll('.entry')].find(el=>el.innerText.includes('إدخال خاطئ')&&!el.innerText.includes('تصحيح'));return !!row&&row.innerText.includes('—')&&!row.innerText.includes('أحمد')})()`));
       check('o4: owner project shows the contract value', info.text.includes('قيمة العقد') && info.text.includes('60,000,000') && await ev(`document.querySelector('#contract') && document.querySelector('#contract').value==='60000000'`));
       check('o4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
-      check('o4: archive sits below the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');if(!entry||!manage)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;const border=parseFloat(getComputedStyle(manage).borderTopWidth)||0;const text=manage.innerText||'';return gap>=40&&border>=1&&text.includes('إدارة المشروع')&&text.includes('أرشفة المشروع')&&!manage.innerText.includes('قيد لهذا المشروع')})()`));
+      check('o4: manage sits below the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');const btn=document.querySelector('#manage-project');if(!entry||!manage||!btn)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;const border=parseFloat(getComputedStyle(manage).borderTopWidth)||0;const text=(manage.innerText||'').trim();return gap>=40&&border>=1&&btn.textContent==='إدارة المشروع'&&text==='إدارة المشروع'&&!document.querySelector('#archive-project')&&!document.querySelector('#delete-project')&&!document.querySelector('#choose-archive')})()`));
     }
     if (role === 'owner' && hash === 'person/u-ahmed') {
       check('o5: instructions name the Firebase UID column', info.text.includes('Firebase') && info.text.includes('Authentication') && info.text.includes('Users') && info.text.includes('User UID'));
@@ -78,7 +78,7 @@ let chrome;
     if (role === 'site' && hash === 'project/p-school') {
       check('s4: site project hides the contract', !info.text.includes('قيمة العقد') && !info.text.includes('60,000,000') && await ev(`!document.querySelector('#contract') && !document.body.innerHTML.includes('projectFinance')`));
       check('s4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
-      check('s4: site has no project management', !info.text.includes('إدارة المشروع') && !info.text.includes('أرشفة') && await ev(`!document.querySelector('#project-manage') && !document.querySelector('#archive-project')`));
+      check('s4: site has no project management', !info.text.includes('إدارة المشروع') && !info.text.includes('أرشفة') && !info.text.includes('حذف') && await ev(`!document.querySelector('#project-manage') && !document.querySelector('#manage-project') && !document.querySelector('#choose-archive') && !document.querySelector('#choose-delete')`));
     }
     if (role === 'site' && hash === 'home') check('s1: own rows show the recorder', info.text.includes('أحمد'));
     if (role === 'owner' && hash === 'home') check('o1: totals shown', /صافي الربح/.test(info.text));
@@ -921,9 +921,13 @@ let chrome;
   await sleep(250);
   const shotView = async file => { const s = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, file), Buffer.from(s.result.data, 'base64')); };
   await shotView('archive-section.png');
-  check('archive section is separated from the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');if(!entry||!manage)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;return gap>=40&&(manage.innerText||'').includes('أرشفة المشروع')})()`));
+  check('archive section is separated from the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');const btn=document.querySelector('#manage-project');if(!entry||!manage||!btn)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;return gap>=40&&btn.textContent==='إدارة المشروع'})()`));
   const ledgerBefore = await ev(`(AJ.get('entries')||[]).length`);
-  await ev(`document.querySelector('#archive-project').click(); 1`);
+  await ev(`document.querySelector('#manage-project').click(); 1`);
+  await sleep(200);
+  const choice = await ev(`(()=>{const archive=document.querySelector('#choose-archive');const del=document.querySelector('#choose-delete');const no=document.querySelector('#confirm-no');if(!archive||!del||!no)return null;return {archive:archive.textContent,del:del.textContent,no:no.textContent,red:getComputedStyle(del).backgroundColor==='rgb(198, 40, 40)',order:archive.compareDocumentPosition(del)&Node.DOCUMENT_POSITION_FOLLOWING?true:false,title:(document.querySelector('#confirm-dialog p')||{}).textContent}})()`);
+  check('manage sheet offers أرشفة, red حذف, and إلغاء', choice && choice.title==='إدارة المشروع' && choice.archive==='أرشفة' && choice.del==='حذف' && choice.no==='إلغاء' && choice.red && choice.order);
+  await ev(`document.querySelector('#choose-archive').click(); 1`);
   await sleep(200);
   await shotView('archive-dialog.png');
   const dialog = await ev(`(()=>{const yes=document.querySelector('#confirm-yes');const no=document.querySelector('#confirm-no');if(!yes||!no)return null;const bg=getComputedStyle(yes).backgroundColor;return {ask:(document.querySelector('#confirm-dialog')||{}).innerText||'',yes:yes.textContent,no:no.textContent,danger:bg==='rgb(198, 40, 40)'}})()`);
@@ -931,7 +935,7 @@ let chrome;
   await ev(`document.querySelector('#confirm-no').click(); 1`);
   await sleep(150);
   check('إلغاء leaves the project on the main list', await ev(`!document.querySelector('#confirm-dialog') && (AJ.get('projects').find(p=>p.id==='p-market')||{}).status!=='archived' && location.hash==='#project/p-market'`));
-  await ev(`document.querySelector('#archive-project').click(); document.querySelector('#confirm-yes').click(); 1`);
+  await ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-archive').click(); document.querySelector('#confirm-yes').click(); 1`);
   await sleep(200);
   const archived = await ev(`(()=>{const p=(AJ.get('projects')||[]).find(x=>x.id==='p-market');const text=document.querySelector('#main').innerText||'';return {status:p&&p.status,hash:location.hash,text,entries:(AJ.get('entries')||[]).length}})()`);
   check('archive keeps every ledger row and hides the project', archived && archived.status === 'archived' && archived.hash === '#projects' && !archived.text.includes('بناية السوق') && archived.text.includes('مشروع المدرسة') && archived.entries === ledgerBefore);
@@ -943,6 +947,13 @@ let chrome;
   await sleep(200);
   check('site never sees the archived filter or the archived project', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';return !document.querySelector('#project-filter')&&!document.querySelector('[data-restore]')&&!document.querySelector('#project-manage')&&!text.includes('المؤرشفة')&&!text.includes('بناية السوق')&&!text.includes('أرشفة')&&!text.includes('استعادة')})()`));
   await ev(`document.querySelector('#role').value='owner'; location.hash='#projects'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
+  await sleep(150);
+  await ev(`document.querySelector('[data-list="archived"]').click(); 1`);
+  await sleep(150);
+  await ev(`location.hash='#project/p-market'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
+  check('an archived project offers delete and not archive', await ev(`(()=>{document.querySelector('#manage-project').click();const del=document.querySelector('#choose-delete');const no=document.querySelector('#confirm-no');return !!del&&del.textContent==='حذف'&&getComputedStyle(del).backgroundColor==='rgb(198, 40, 40)'&&!!no&&no.textContent==='إلغاء'&&!document.querySelector('#choose-archive')})()`));
+  await ev(`location.hash='#projects'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
   await ev(`document.querySelector('[data-list="archived"]').click(); document.querySelector('[data-restore="p-market"]').click(); 1`);
   await sleep(150);
@@ -980,6 +991,93 @@ let chrome;
     return { before, after: rows.length, amount: row && row.amount, date: row && row.date, controls: document.querySelectorAll('#main button').length };
   })()`);
   check('subcontracts: an amendment is appended and the form does not offer edit or delete', added && added.after === added.before + 1 && added.amount === 200000 && added.date === '2026-10-28');
+  await go(`${BASE}index.html?role=owner#project/p-school`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  await ev(`document.querySelector('#project-manage').scrollIntoView({block:'center'}); 1`);
+  await sleep(150);
+  await ev(`document.querySelector('#manage-project').click(); 1`);
+  await sleep(150);
+  const placed = await ev(`(()=>{
+    const archive=document.querySelector('#choose-archive');
+    const del=document.querySelector('#choose-delete');
+    const no=document.querySelector('#confirm-no');
+    if(!archive||!del||!no)return null;
+    return {
+      order: !!(archive.compareDocumentPosition(del) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(del.compareDocumentPosition(no) & Node.DOCUMENT_POSITION_FOLLOWING),
+      above: archive.getBoundingClientRect().top < del.getBoundingClientRect().top,
+      red: getComputedStyle(del).backgroundColor==='rgb(198, 40, 40)',
+      labels: archive.textContent+'|'+del.textContent+'|'+no.textContent,
+    };
+  })()`);
+  check('the manage sheet lists أرشفة, red حذف, then إلغاء', placed && placed.order && placed.above && placed.red && placed.labels==='أرشفة|حذف|إلغاء');
+  await ev(`document.querySelector('#choose-delete').click(); 1`);
+  await sleep(150);
+  const step1 = await ev(`(()=>{
+    const yes=document.querySelector('#confirm-yes');
+    const no=document.querySelector('#confirm-no');
+    const text=(document.querySelector('#confirm-dialog')||{}).innerText||'';
+    return {yes:yes&&yes.textContent,no:no&&no.textContent,red:yes&&getComputedStyle(yes).backgroundColor==='rgb(198, 40, 40)',text};
+  })()`);
+  check('delete step 1 warns and asks نعم or إلغاء', step1 && step1.yes==='نعم' && step1.no==='إلغاء' && step1.red && step1.text.includes('لم تُرسل بعد') && step1.text.includes('لا توجد نسخة احتياطية') && !step1.text.includes('نسخة احتياطية محفوظة') && step1.text.includes('مقاول'));
+  await ev(`document.querySelector('#confirm-no').click(); 1`);
+  await sleep(100);
+  check('إلغاء on delete leaves the project', await ev(`!document.querySelector('#confirm-dialog') && !!(AJ.get('projects')||[]).find(p=>p.id==='p-school')`));
+  await ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-delete').click(); document.querySelector('#confirm-yes').click(); 1`);
+  await sleep(150);
+  const gate = await ev(`(()=>{
+    const btn=document.querySelector('#confirm-delete');
+    const input=document.querySelector('#delete-name');
+    if(!btn||!input)return null;
+    const empty=btn.disabled===true;
+    input.value='مشروع المدرس';
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    const short=btn.disabled===true;
+    input.value='مشروع المدرسة ';
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    const spaced=btn.disabled===true;
+    input.value='مشروع المدرسة';
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    return {empty,short,spaced,ready:btn.disabled===false,label:btn.textContent};
+  })()`);
+  check('delete step 2 stays disabled until the exact project name', gate && gate.empty && gate.short && gate.spaced && gate.ready && gate.label==='حذف نهائياً');
+  await ev(`document.querySelector('#confirm-no').click(); 1`);
+  await sleep(100);
+  const countsBefore = await ev(`({
+    school:(AJ.get('entries')||[]).filter(e=>e.projectId==='p-school').length,
+    market:(AJ.get('entries')||[]).filter(e=>e.projectId==='p-market').length,
+    road:(AJ.get('projects')||[]).some(p=>p.id==='p-road'),
+  })`);
+  await go(`${BASE}index.html?role=owner#project/p-market`);
+  await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  await ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-delete').click(); document.querySelector('#confirm-yes').click(); 1`);
+  await sleep(150);
+  await ev(`(()=>{const input=document.querySelector('#delete-name'); input.value='بناية السوق'; input.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('#confirm-delete').click(); return 1})()`);
+  await sleep(250);
+  const deleted = await ev(`(()=>{
+    const projects=AJ.get('projects')||[];
+    const entries=AJ.get('entries')||[];
+    const subs=AJ.get('subcontracts')||[];
+    const csv=Ledger.toCSV(Ledger.countedEntries(entries, AJ.get('syncErrors')||{}), projects);
+    const u=AJ.get('users').find(x=>x.uid==='u-ameer');
+    const visible=Ledger.visibleEntries(u, entries, projects, Ledger.DEFAULT_POLICY);
+    const totals=Ledger.totals(Ledger.countedEntries(visible, AJ.get('syncErrors')||{}));
+    return {
+      hash: location.hash,
+      market: projects.some(p=>p.id==='p-market'),
+      school: projects.some(p=>p.id==='p-school'),
+      road: projects.some(p=>p.id==='p-road'),
+      marketEntries: entries.filter(e=>e.projectId==='p-market').length,
+      schoolEntries: entries.filter(e=>e.projectId==='p-school').length,
+      marketSubs: subs.filter(s=>s.projectId==='p-market').length,
+      csvMarket: csv.includes('p-market'),
+      csvSchool: csv.includes('p-school'),
+      received: totals.received,
+      text: document.querySelector('#main').innerText,
+    };
+  })()`);
+  check('confirming the exact name removes that project from the list, totals, and CSV', deleted && deleted.hash==='#projects' && deleted.market===false && deleted.school===true && deleted.road===true && deleted.marketEntries===0 && deleted.schoolEntries===countsBefore.school && deleted.marketSubs===0 && deleted.csvMarket===false && deleted.csvSchool===true && !deleted.text.includes('بناية السوق') && deleted.text.includes('مشروع المدرسة') && countsBefore.market>0 && countsBefore.road===true);
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
