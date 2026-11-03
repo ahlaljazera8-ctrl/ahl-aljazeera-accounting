@@ -3,9 +3,13 @@
 // Loaded into memory at boot; every write is persisted (write-through, serialized).
 // Outbox = ids not sent yet (no syncState). Login and logout live here too.
 var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
+/** @type {Record<string, 1>} */
 var LIST = { projects:1, entries:1, outbox:1 };
+/** @type {SessionCache} */
 var cache = {};
-var db, writing = Promise.resolve();
+/** @type {IDBDatabase | null | undefined} */
+var db;
+var writing = Promise.resolve();
 var sessionEpoch = 0;
 var deviceId;
 var directoryPromise = null;
@@ -15,7 +19,16 @@ var SUSPENDED_MSG = 'هذا الحساب موقوف';
 var SESSION_DEAD_MSG = 'انتهت الجلسة. سجّل الدخول من جديد';
 var MISSING_PROFILE_MSG = 'لا يوجد ملف مستخدم. اطلب من المالك إنشاء الحساب';
 
+/**
+ * @template T
+ * @param {IDBRequest<T>} r
+ * @returns {Promise<T>}
+ */
 function req(r) { return new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); }); }
+/**
+ * @param {string} name
+ * @returns {Promise<IDBDatabase>}
+ */
 function openDB(name) {
   const r = indexedDB.open(name, 1);
   r.onblocked = () => console.warn('IndexedDB open blocked by an older connection:', name);
@@ -28,23 +41,33 @@ function openDB(name) {
   });
 }
 async function loadAll() {
-  const tx = db.transaction(['projects','entries','outbox','meta'], 'readonly');
-  cache.projects = await req(tx.objectStore('projects').getAll());
-  cache.entries = (await req(tx.objectStore('entries').getAll())).sort((a, b) => a.createdAtDevice - b.createdAtDevice || (a.id < b.id ? -1 : 1));
-  cache.outbox = (await req(tx.objectStore('outbox').getAll())).sort((a, b) => a.queuedAt - b.queuedAt).map(o => o.id);
+  const tx = /** @type {IDBDatabase} */ (db).transaction(['projects','entries','outbox','meta'], 'readonly');
+  cache.projects = /** @type {LedgerProject[]} */ (await req(tx.objectStore('projects').getAll()));
+  cache.entries = /** @type {LedgerEntry[]} */ (await req(tx.objectStore('entries').getAll())).sort((a, b) => /** @type {number} */ (a.createdAtDevice) - /** @type {number} */ (b.createdAtDevice) || (/** @type {string} */ (a.id) < /** @type {string} */ (b.id) ? -1 : 1));
+  cache.outbox = /** @type {OutboxRow[]} */ (await req(tx.objectStore('outbox').getAll())).sort(/** @param {OutboxRow} a @param {OutboxRow} b */ (a, b) => a.queuedAt - b.queuedAt).map(/** @param {OutboxRow} o */ o => o.id);
   const ms = tx.objectStore('meta'); const keys = await req(ms.getAllKeys()); const vals = await req(ms.getAll());
-  keys.forEach((k, i) => cache[k] = vals[i]);
+  keys.forEach((k, i) => cache[/** @type {string} */ (k)] = vals[i]);
 }
+/**
+ * @param {string} k
+ * @param {unknown} [d]
+ * @returns {unknown}
+ */
 function get(k, d) { return cache[k] === undefined ? d : JSON.parse(JSON.stringify(cache[k])); }
+/**
+ * @param {string} k
+ * @param {unknown} v
+ * @returns {Promise<unknown>}
+ */
 function set(k, v) {
   cache[k] = JSON.parse(JSON.stringify(v));
   writing = writing.catch(() => {}).then(() => new Promise((ok, no) => {
     if (!db) return ok();
     const name = LIST[k] ? k : 'meta'; const tx = db.transaction(name, 'readwrite'); const st = tx.objectStore(name);
-    if (k === 'outbox') { st.clear(); v.forEach((id, i) => st.put({ id, queuedAt: i })); }
-    else if (LIST[k]) v.forEach(x => st.put(x)); // entries/projects never deleted (append-only)
+    if (k === 'outbox') { st.clear(); /** @type {string[]} */ (v).forEach(/** @param {string} id @param {number} i */ (id, i) => st.put({ id, queuedAt: i })); }
+    else if (LIST[k]) /** @type {{ id?: string }[]} */ (v).forEach(/** @param {{ id?: string }} x */ x => st.put(x)); // entries/projects never deleted (append-only)
     else st.put(v, k);
-    tx.oncomplete = ok; tx.onerror = () => no(tx.error);
+    tx.oncomplete = /** @type {(this: IDBTransaction, ev: Event) => void} */ (/** @type {unknown} */ (ok)); tx.onerror = () => no(tx.error);
   }));
   return writing;
 }
@@ -53,11 +76,15 @@ function uuid() { return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.
 function today() { return new Date().toISOString().slice(0, 10); }
 function demoRole() { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; }
 function me() {
-  if (!demoRole()) { const s = get(K.sessionUser, null); if (s && s.uid) return s; }
+  if (!demoRole()) { const s = /** @type {LedgerUser|null} */ (get(K.sessionUser, null)); if (s && s.uid) return s; }
   const role = get(K.role, demoRole() || 'owner');
-  return get(K.users, []).find(u => u.uid === (role === 'site' ? 'u-ahmed' : 'u-ameer'));
+  return /** @type {LedgerUser[]} */ (get(K.users, [])).find(/** @param {LedgerUser} u */ u => u.uid === (role === 'site' ? 'u-ahmed' : 'u-ameer'));
 }
-function $(s) { return document.querySelector(s); }
+/**
+ * @param {string} s
+ * @returns {HTMLElement}
+ */
+function $(s) { return /** @type {HTMLElement} */ (document.querySelector(s)); }
 function markReady() { if (document.body) document.body.dataset.ready = '1'; }
 function clearLoginForm() {
   const form = $('#login-form');
@@ -69,10 +96,19 @@ function clearLoginForm() {
 }
 function showLogin() { clearLoginForm(); const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = false; $('#shell').hidden = true; markReady(); }
 function showApp() { const boot = $('#boot'); if (boot) boot.hidden = true; $('#login').hidden = true; $('#shell').hidden = false; }
+/**
+ * @param {string} uid
+ * @param {SessionProfileInput} data
+ * @returns {LedgerUser}
+ */
 function profileFrom(uid, data) {
   return { uid, displayName: data.displayName || '', email: data.email || '', role: data.role, active: data.active === true,
     assignedProjectIds: Array.isArray(data.assignedProjectIds) ? data.assignedProjectIds : [], createdAtServer: data.createdAtServer || null, createdBy: data.createdBy || '' };
 }
+/**
+ * @param {{ code?: string } | null | undefined} err
+ * @returns {string}
+ */
 function loginError(err) {
   const code = err && err.code;
   if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found' || code === 'auth/invalid-email') return 'البريد أو كلمة المرور غير صحيحة';
@@ -80,6 +116,9 @@ function loginError(err) {
   if (code === 'auth/network-request-failed' || code === 'unavailable' || code === 'deadline-exceeded') return 'تعذر الاتصال. تحقق من الإنترنت';
   return 'تعذر الدخول';
 }
+/**
+ * @param {string} message
+ */
 function showLoginMessage(message) {
   showLogin();
   const box = $('#login-msg');
@@ -88,6 +127,9 @@ function showLoginMessage(message) {
 // Leave the ledger on screen without deleting aj-u-*. A suspended account keeps
 // the Firebase user so the next open can explain itself. A dead token is signed
 // out so the login form can start clean. Queued entries stay in the outbox.
+/**
+ * @param {string} message
+ */
 async function holdSession(message) {
   sessionEpoch += 1;
   syncNotice = '';
@@ -104,6 +146,11 @@ function releaseDb() {
   if (db) { try { db.close(); } catch (e) { /* the handle is dropped on the next line either way */ } db = null; }
   for (const k of Object.keys(cache)) delete cache[k];
 }
+/**
+ * @param {LedgerUser | null | undefined} profile
+ * @param {string} uid
+ * @returns {boolean}
+ */
 function usableProfile(profile, uid) {
   return !!(profile && profile.uid === uid && profile.active !== false && (Ledger.can(profile, 'owner') || profile.role === 'site'));
 }
@@ -111,13 +158,13 @@ async function localSession() {
   if (!indexedDB.databases) return null;
   let listed;
   try { listed = await indexedDB.databases(); } catch (e) { return null; }
-  const names = (listed || []).map(d => d && d.name).filter(n => typeof n === 'string' && n.indexOf('aj-u-') === 0);
+  const names = (listed || []).map(d => d && d.name).filter(/** @param {unknown} n @returns {n is string} */ n => typeof n === 'string' && n.indexOf('aj-u-') === 0);
   for (const name of names) {
     const uid = name.slice('aj-u-'.length);
     if (!uid) continue;
     try {
       await openUserDb(uid);
-      const profile = get(K.sessionUser, null);
+      const profile = /** @type {LedgerUser|null} */ (get(K.sessionUser, null));
       if (usableProfile(profile, uid)) return profile;
     } catch (e) { /* one unreadable aj-u database is skipped so the next name can be tried */ }
     releaseDb();
@@ -134,7 +181,10 @@ async function closeUserDb() {
   }
   for (const k of Object.keys(cache)) delete cache[k];
 }
-/** @returns {Promise<void>} */
+/**
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
 function deleteDb(name) {
   return new Promise(ok => {
     const done = () => { clearTimeout(timer); ok(); };
@@ -144,8 +194,8 @@ function deleteDb(name) {
   });
 }
 async function outboxEmpty() {
-  if (get(K.outbox, []).length) return false;
-  if ((get(K.statusPending, []) || []).length) return false;
+  if (/** @type {string[]} */ (get(K.outbox, [])).length) return false;
+  if ((/** @type {string[]} */ (get(K.statusPending, [])) || []).length) return false;
   if (!db) return true;
   await writing.catch(() => {});
   try {
@@ -155,7 +205,12 @@ async function outboxEmpty() {
     return !pending || !pending.length;
   } catch (e) { return false; }
 }
+/** @type {Record<string, 1>} */
 var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+/**
+ * @param {string} raw
+ * @returns {boolean}
+ */
 function isShellCacheRequest(raw) {
   const url = new URL(raw);
   if (url.origin !== location.origin || url.search) return false;
@@ -213,17 +268,25 @@ async function closeSession() {
   showLoginMessage(reason);
   return true;
 }
+/**
+ * @param {string} uid
+ */
 async function openUserDb(uid) {
   if (db) { try { db.close(); } catch (e) { /* the previous connection is abandoned before the new open */ } db = null; }
   for (const k of Object.keys(cache)) delete cache[k];
   db = await openDB('aj-u-' + uid);
   await loadAll();
   if (!get(K.device)) set(K.device, uuid());
-  deviceId = get(K.device);
+  deviceId = /** @type {string|undefined} */ (get(K.device));
 }
+/**
+ * @param {SessionFirebase} fb
+ * @param {string} uid
+ * @param {SessionProfileInput} data
+ */
 async function enterSession(fb, uid, data) {
   const profile = profileFrom(uid, data);
-  if (!profile.active || !['owner', 'site'].includes(profile.role)) {
+  if (!profile.active || !['owner', 'site'].includes(/** @type {string} */ (profile.role))) {
     await disposeFirebase(true);
     throw new Error(data && data.active === false ? SUSPENDED_MSG : MISSING_PROFILE_MSG);
   }

@@ -136,6 +136,39 @@ interface LedgerUser {
   [key: string]: unknown;
 }
 
+interface SessionCache {
+  projects?: LedgerProject[];
+  entries?: LedgerEntry[];
+  outbox?: string[];
+  users?: LedgerUser[];
+  sessionUser?: LedgerUser | null;
+  role?: string;
+  deviceId?: string;
+  statusPending?: string[];
+  [key: string]: unknown;
+}
+
+interface SessionProfileInput {
+  displayName?: string;
+  email?: string;
+  role?: string;
+  active?: unknown;
+  assignedProjectIds?: unknown;
+  createdAtServer?: unknown;
+  createdBy?: string;
+}
+
+interface SessionFirebase {
+  currentUser(): Promise<{ uid: string } | null>;
+  idToken?(force?: boolean): Promise<unknown>;
+  profile(uid: string): Promise<{ active?: boolean } | null | undefined>;
+}
+
+interface OutboxRow {
+  id: string;
+  queuedAt: number;
+}
+
 interface LedgerProject {
   id?: string;
   name?: string;
