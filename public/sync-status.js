@@ -4,7 +4,7 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.SyncStatus = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : /** @type {Window} */ (/** @type {unknown} */ (this)), /** @returns {SyncStatusApi} */ function () {
   'use strict';
 
   const FB_VER = '13.1.0';
@@ -13,18 +13,34 @@
   const CONFLICT = 'القيد موجود على الخادم بمحتوى مختلف';
   const UNVERIFIED = 'القيد موجود مسبقاً وتعذر مطابقة محتواه';
 
+  /**
+   * @param {unknown} s
+   * @returns {string}
+   */
   function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
+    return String(s ?? '').replace(/[&<>"']/g, ch => {
+      const entities = {
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      };
+      return entities[/** @type {'&' | '<' | '>' | '"' | "'"} */ (ch)];
+    });
   }
 
+  /**
+   * @param {unknown} v
+   * @returns {string}
+   */
   function norm(v) {
     return v == null ? '' : String(v);
   }
 
   // The reversal id is rev_ + the original id, so a second device that loses
   // the race is the same correction. The server row is the one that landed.
+  /**
+   * @param {SyncRow | null | undefined} local
+   * @param {SyncRow | null | undefined} remote
+   * @returns {boolean}
+   */
   function sameReversal(local, remote) {
     if (!local || !remote || local.isReversal !== true || remote.isReversal !== true) return false;
     if (local.id && remote.id && local.id !== remote.id) return false;
@@ -32,9 +48,15 @@
     return orig !== '' && orig === norm(remote.reversesEntryId);
   }
 
+  /**
+   * @param {SyncRow | null | undefined} local
+   * @param {SyncRow | null | undefined} remote
+   * @returns {boolean}
+   */
   function sameContent(local, remote) {
     if (!local || !remote) return false;
     if (!local.entryType && !(local.currency && local.name)) return false;
+    /** @type {readonly (keyof SyncRow)[]} */
     const keys = ['projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdBy'];
     for (const k of keys) if (local[k] !== remote[k]) return false;
     if (norm(local.description) !== norm(remote.description)) return false;
@@ -48,6 +70,10 @@
     return true;
   }
 
+  /**
+   * @param {SyncFailure | null | undefined} err
+   * @returns {boolean}
+   */
   function isTransient(err) {
     if (!err) return false;
     if (err.timeout) return true;
@@ -61,6 +87,10 @@
       || /offline|network-request-failed|unavailable|deadline/i.test(code + ' ' + msg);
   }
 
+  /**
+   * @param {SyncFailure | null | undefined} err
+   * @returns {boolean}
+   */
   function isAlreadyExists(err) {
     const code = String((err && err.code) || '');
     const msg = String((err && err.message) || '');
@@ -69,6 +99,10 @@
 
   // The refresh token was revoked or the access token can no longer be renewed.
   // This is not a rules rejection and not a network blip: the entry must stay queued.
+  /**
+   * @param {SyncFailure | null | undefined} err
+   * @returns {boolean}
+   */
   function isDeadAuth(err) {
     if (!err) return false;
     const code = String(err.code || '');
@@ -80,15 +114,29 @@
     return /auth\/user-token-expired|auth\/invalid-user-token|auth\/invalid-refresh-token|auth\/user-disabled|INVALID_REFRESH_TOKEN|TOKEN_EXPIRED|user-token-expired/i.test(blob);
   }
 
+  /**
+   * @param {SyncFailure | null | undefined} err
+   * @param {SyncRow | null | undefined} local
+   * @param {SyncRow | null | undefined} remote
+   * @param {boolean} [unverified]
+   * @returns {string}
+   */
   function failureMessage(err, local, remote, unverified) {
     if (remote && !sameContent(local, remote)) return CONFLICT;
     if (isAlreadyExists(err) || unverified) return UNVERIFIED;
     return REJECTED;
   }
 
+  /**
+   * @param {readonly string[] | null | undefined} outbox
+   * @param {SyncErrorMap | null | undefined} errors
+   * @param {FlushResult | null | undefined} result
+   * @returns {{ outbox: string[], errors: SyncErrorMap }}
+   */
   function applyFlush(outbox, errors, result) {
     const drop = new Set((result && result.synced) || []);
     ((result && result.failed) || []).forEach(row => { if (row && row.id) drop.add(row.id); });
+    /** @type {SyncErrorMap} */
     const errMap = Object.assign({}, errors || {});
     ((result && result.synced) || []).forEach(id => { delete errMap[id]; });
     ((result && result.kept) || []).forEach(id => { delete errMap[id]; });
@@ -99,6 +147,12 @@
     };
   }
 
+  /**
+   * @param {string} id
+   * @param {readonly string[] | null | undefined} outboxIds
+   * @param {SyncErrorMap | null | undefined} errors
+   * @returns {string}
+   */
   function badgeHtml(id, outboxIds, errors) {
     const message = errors && errors[id];
     if (message) {
@@ -110,8 +164,15 @@
     return '';
   }
 
+  /**
+   * @param {unknown} db
+   * @param {string} collectionName
+   * @param {string} id
+   * @param {unknown} [importSdk]
+   * @returns {Promise<unknown>}
+   */
   async function readRemote(db, collectionName, id, importSdk) {
-    const load = importSdk || (url => import(url));
+    const load = /** @type {(url: string) => Promise<FirestoreModule>} */ (importSdk || (/** @param {string} url */ url => import(url)));
     const fsMod = await load(FIRESTORE_URL);
     const snap = await fsMod.getDocFromServer(fsMod.doc(db, collectionName, id));
     return snap.exists() ? snap.data() : null;
