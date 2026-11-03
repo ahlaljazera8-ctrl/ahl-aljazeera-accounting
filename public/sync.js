@@ -303,6 +303,7 @@
         entries: finiteMillis(mark.entries),
         projects: finiteMillis(mark.projects),
       },
+      missingProjectIds: missingRequestedIds(projectSpecs, projects),
     };
   }
 
@@ -312,6 +313,97 @@
     }
     const g = typeof globalThis !== 'undefined' ? globalThis : {};
     return g.SyncStatus || null;
+  }
+
+  function exactProjectName(typed, name) {
+    return typeof name === 'string' && name.length > 0 && typeof typed === 'string' && typed === name;
+  }
+
+  // The project document is its own first batch. Later batches delete children
+  // only after that document is gone, which is what the rules require.
+  // Terms batches stay small: each terms delete may read its subcontract.
+  function projectDeleteDocs(projectId, found) {
+    if (!ID_RE.test(projectId || '')) return [];
+    const src = found || {};
+    const docs = [{ collection: 'projects', id: projectId }];
+    const add = (collection, id) => {
+      if (!ID_RE.test(id || '')) return;
+      if (docs.some(row => row.collection === collection && row.id === id)) return;
+      docs.push({ collection, id });
+    };
+    (src.entryIds || []).forEach(id => add('ledgerEntries', id));
+    (src.subcontractIds || []).forEach(id => add('subcontracts', id));
+    (src.amendmentIds || []).forEach(id => add('subcontractAmendments', id));
+    (src.termIds || []).forEach(id => add('subcontractTerms', id));
+    if (src.finance) add('projectFinance', projectId);
+    return docs;
+  }
+
+  function projectDeleteBatches(docs) {
+    const list = docs || [];
+    const project = list.filter(row => row && row.collection === 'projects').slice(0, 1);
+    const terms = list.filter(row => row && row.collection === 'subcontractTerms');
+    const rest = list.filter(row => row && row.collection !== 'projects' && row.collection !== 'subcontractTerms');
+    const out = [];
+    if (project.length) out.push(project);
+    for (let i = 0; i < terms.length; i += 6) out.push(terms.slice(i, i + 6));
+    for (let i = 0; i < rest.length; i += 400) out.push(rest.slice(i, i + 400));
+    return out;
+  }
+
+  function missingRequestedIds(specs, rows) {
+    const found = new Set();
+    (rows || []).forEach(row => { if (row && row.id) found.add(row.id); });
+    const missing = [];
+    (specs || []).forEach(spec => {
+      if (!spec || !spec.id || found.has(spec.id) || missing.indexOf(spec.id) >= 0) return;
+      missing.push(spec.id);
+    });
+    return missing;
+  }
+
+  // Drop one project's local rows. Pending outbox rows stay when dropPending
+  // is false, so another phone can still show that the send was rejected.
+  // The deleting phone passes dropPending so its own unsent rows go too.
+  function dropProjectLocal(store, projectId, opts) {
+    const src = store || {};
+    const dropPending = !!(opts && opts.dropPending);
+    const pending = new Set(dropPending ? [] : (src.outbox || []));
+    const errors = src.syncErrors || {};
+    const subIds = new Set((src.subcontracts || []).filter(row => row && row.projectId === projectId).map(row => row.id));
+    const removed = new Set([projectId]);
+    // Another phone keeps a row that is still queued or already refused, so the
+    // bell can show the rejection. The deleting phone drops those too.
+    const keep = row => row && !dropPending && (pending.has(row.id) || !!errors[row.id]);
+    const entries = (src.entries || []).filter(row => {
+      if (!row || row.projectId !== projectId) return true;
+      if (keep(row)) return true;
+      removed.add(row.id);
+      return false;
+    });
+    const amendments = (src.amendments || []).filter(row => {
+      if (!row || (row.projectId !== projectId && !subIds.has(row.subcontractId))) return true;
+      if (keep(row)) return true;
+      removed.add(row.id);
+      return false;
+    });
+    const subcontracts = (src.subcontracts || []).filter(row => {
+      if (!row || row.projectId !== projectId) return true;
+      if (keep(row)) return true;
+      removed.add(row.id);
+      return false;
+    });
+    const keptSubs = new Set(subcontracts.filter(row => row && row.projectId === projectId).map(row => row.id));
+    const terms = Object.assign({}, src.terms || {});
+    subIds.forEach(id => { if (!keptSubs.has(id)) delete terms[id]; });
+    const finance = Object.assign({}, src.finance || {});
+    delete finance[projectId];
+    const projects = (src.projects || []).filter(row => !row || row.id !== projectId);
+    const syncErrors = Object.assign({}, src.syncErrors || {});
+    removed.forEach(id => { delete syncErrors[id]; });
+    const outbox = (src.outbox || []).filter(id => !removed.has(id));
+    const statusPending = (src.statusPending || []).filter(id => id !== projectId);
+    return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending };
   }
 
   async function flushOutbox({ ids, load, write, exists, readServer }) {
@@ -366,5 +458,6 @@
     isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
     readSetKey, readSetChanged, stripMoney, termsPayload, subcontractReads, pullSubcontracts,
+    exactProjectName, projectDeleteDocs, projectDeleteBatches, missingRequestedIds, dropProjectLocal,
   };
 });

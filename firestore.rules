@@ -50,6 +50,12 @@ service cloud.firestore {
     function projectOpen(pid) {
       return idOk(pid) && exists(projectPath(pid)) && get(projectPath(pid)).data.status == 'active';
     }
+    // A child delete is allowed only when that one project document is gone
+    // by the end of the request. Deleting a single ledger row of a project
+    // that is still there is denied. existsAfter sees the rest of the batch.
+    function projectGone(pid) {
+      return idOk(pid) && !existsAfter(projectPath(pid));
+    }
 
     match /ledgerEntries/{entryId} {
       function d() { return request.resource.data; }
@@ -138,6 +144,7 @@ service cloud.firestore {
       }
 
       allow create: if (isOwner() || isSite()) && baseOk() && (normalOk() || reversalOk()) && linkOk();
+      allow delete: if isOwner() && projectGone(resource.data.projectId);
       // F11: assignment is required for every site read, including the author's own rows.
       // Rules are not a filter. The site client queries each assigned project.
       allow read: if isOwner();
@@ -175,6 +182,8 @@ service cloud.firestore {
         && p().id == resource.data.id
         && p().createdBy == resource.data.createdBy
         && p().createdAtDevice == resource.data.createdAtDevice;
+      // Any status. Archived and closed projects are included.
+      allow delete: if isOwner() && idOk(projectId);
     }
 
     match /users/{uid} {
@@ -204,6 +213,7 @@ service cloud.firestore {
       }
       allow read: if isOwner() && idOk(projectId);
       allow create, update: if isOwner() && idOk(projectId) && financeShape();
+      allow delete: if isOwner() && projectGone(projectId);
     }
 
     // The name is readable by the project. The agreed amount is subcontractTerms.
@@ -223,7 +233,8 @@ service cloud.firestore {
       }
       allow read: if isOwner() || (isSite() && assigned(resource.data.projectId));
       allow create: if isOwner() && nameShape();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isOwner() && projectGone(resource.data.projectId);
     }
 
     match /subcontractTerms/{id} {
@@ -238,7 +249,15 @@ service cloud.firestore {
       }
       allow read: if isOwner() && idOk(id);
       allow create: if isOwner() && termsShape();
-      allow update, delete: if false;
+      allow update: if false;
+      // Terms have no projectId. The subcontract document carries it. Once that
+      // subcontract is already gone, the terms row is an orphan of a project
+      // delete and the owner may remove it.
+      allow delete: if isOwner() && idOk(id) && (
+        exists(/databases/$(database)/documents/subcontracts/$(id))
+          ? projectGone(get(/databases/$(database)/documents/subcontracts/$(id)).data.projectId)
+          : true
+      );
     }
 
     match /subcontractAmendments/{amendmentId} {
@@ -262,7 +281,8 @@ service cloud.firestore {
       }
       allow read: if isOwner();
       allow create: if isOwner() && amendmentShape();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isOwner() && projectGone(resource.data.projectId);
     }
   }
 }

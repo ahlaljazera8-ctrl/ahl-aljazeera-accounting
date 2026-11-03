@@ -8,7 +8,7 @@ const {
   initializeTestEnvironment, assertFails, assertSucceeds,
 } = require('@firebase/rules-unit-testing');
 const {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch,
   collection, query, where, getDocs,
 } = require('firebase/firestore');
 const Sync = require('../../public/sync.js');
@@ -229,13 +229,16 @@ testSeq('site cannot write users; owner can create and update but not delete', (
   await assertSucceeds(getDoc(doc(db(OWNER), 'users', SITE)));
 }));
 
-testSeq('site reads only assigned projects; owner creates and updates projects; nobody deletes them', () => seeded(async () => {
+testSeq('site reads only assigned projects; owner creates, updates, and deletes a project; a site user cannot', () => seeded(async () => {
   await assertSucceeds(getDoc(doc(db(SITE), 'projects', 'p1')));
   await assertFails(getDoc(doc(db(SITE), 'projects', 'p2')));
   await assertFails(setDoc(doc(db(SITE), 'projects', 'p3'), projectDoc('p3', 'ممنوع')));
   await assertSucceeds(setDoc(doc(db(OWNER), 'projects', 'p3'), projectDoc('p3', 'مشروع جديد')));
   await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p3'), { status: 'closed' }));
-  await assertFails(deleteDoc(doc(db(OWNER), 'projects', 'p3')));
+  await assertFails(deleteDoc(doc(db(SITE), 'projects', 'p3')));
+  await assertSucceeds(deleteDoc(doc(db(OWNER), 'projects', 'p3')));
+  assert.equal((await getDoc(doc(db(OWNER), 'projects', 'p3'))).exists(), false);
+  assert.equal((await getDoc(doc(db(OWNER), 'projects', 'p1'))).exists(), true);
   await assertFails(deleteDoc(doc(db(SITE), 'projects', 'p1')));
 }));
 
@@ -281,7 +284,6 @@ testSeq('owner can archive and restore a project; a site user cannot', () => see
   await assertSucceeds(getDoc(doc(db(SITE), 'ledgerEntries', 'own-exp')));
   await assertFails(updateDoc(doc(db(OWNER), 'ledgerEntries', 'own-exp'), { amount: 1 }));
   await assertFails(deleteDoc(doc(db(OWNER), 'ledgerEntries', 'own-exp')));
-  await assertFails(deleteDoc(doc(db(OWNER), 'projects', 'p1')));
   await assertFails(updateDoc(doc(db(SITE), 'projects', 'p1'), { status: 'active' }));
   await assertSucceeds(updateDoc(doc(db(OWNER), 'projects', 'p1'), { status: 'active' }));
   const restored = await getDoc(doc(db(OWNER), 'projects', 'p1'));
@@ -547,3 +549,88 @@ testSeq('subcontracts: an assigned site user can link a مقاول payment and c
   await assertFails(deleteDoc(doc(db(OWNER), 'ledgerEntries', 'owner-sub')));
   await assertFails(updateDoc(doc(db(OWNER), 'ledgerEntries', 'owner-sub'), { subcontractId: 'sc-new' }));
 }));
+
+testSeq('owner deletes one archived project and everything in it; a site user is denied and another project stays', async () => {
+  await testEnv.clearFirestore();
+  const entryIds = ['del-pay', 'del-subpay', 'del-exp'];
+  for (let i = 0; i < 25; i++) entryIds.push('del-n-' + i);
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const d = ctx.firestore();
+    await setDoc(doc(d, 'users', OWNER), userDoc(OWNER, { role: 'owner', displayName: 'أمير', email: 'owner@example.invalid', assignedProjectIds: [] }));
+    await setDoc(doc(d, 'users', SITE), userDoc(SITE, { displayName: 'أحمد', email: 'site@example.invalid', assignedProjectIds: ['p-del', 'p-keep'] }));
+    const archived = projectDoc('p-del', 'مشروع المدرسة');
+    archived.status = 'archived';
+    await setDoc(doc(d, 'projects', 'p-del'), archived);
+    await setDoc(doc(d, 'projects', 'p-keep'), projectDoc('p-keep', 'بناية السوق'));
+    await setDoc(doc(d, 'projectFinance', 'p-del'), { contractAmount: 60000000 });
+    await setDoc(doc(d, 'projectFinance', 'p-keep'), { contractAmount: 15000000 });
+    const row = (id, over) => plain(OWNER, Object.assign({ id, projectId: 'p-del' }, over));
+    await setDoc(doc(d, 'ledgerEntries', 'del-pay'), row('del-pay', { direction: 'income', entryType: 'clientPayment', amount: 40000000 }));
+    await setDoc(doc(d, 'ledgerEntries', 'del-subpay'), row('del-subpay', { entryType: 'subcontractor', amount: 7200000, subcontractId: 'sc-del' }));
+    await setDoc(doc(d, 'ledgerEntries', 'del-exp'), row('del-exp', { amount: 250000 }));
+    for (let i = 0; i < 25; i++) await setDoc(doc(d, 'ledgerEntries', 'del-n-' + i), row('del-n-' + i, { amount: 1000 + i }));
+    await setDoc(doc(d, 'ledgerEntries', 'keep-exp'), plain(OWNER, { id: 'keep-exp', projectId: 'p-keep', amount: 80 }));
+    await setDoc(doc(d, 'subcontracts', 'sc-del'), {
+      id: 'sc-del', projectId: 'p-del', name: 'مقاول الكهرباء', work: 'إنارة', agreedOn: '2026-10-03',
+      createdAtServer: new Date(), createdBy: OWNER,
+    });
+    await setDoc(doc(d, 'subcontracts', 'sc-keep'), {
+      id: 'sc-keep', projectId: 'p-keep', name: 'مقاول البناء', work: 'هيكل', agreedOn: '2026-10-04',
+      createdAtServer: new Date(), createdBy: OWNER,
+    });
+    await setDoc(doc(d, 'subcontractTerms', 'sc-del'), { originalAmount: 2500000 });
+    await setDoc(doc(d, 'subcontractTerms', 'sc-keep'), { originalAmount: 9000000 });
+    await setDoc(doc(d, 'subcontractAmendments', 'am-del'), {
+      id: 'am-del', subcontractId: 'sc-del', projectId: 'p-del', amount: 500000, date: '2026-10-18',
+      note: 'نقطة', createdAtServer: new Date(), createdBy: OWNER,
+    });
+    await setDoc(doc(d, 'subcontractAmendments', 'am-keep'), {
+      id: 'am-keep', subcontractId: 'sc-keep', projectId: 'p-keep', amount: 100000, date: '2026-10-19',
+      note: 'سور', createdAtServer: new Date(), createdBy: OWNER,
+    });
+  });
+
+  await assertFails(deleteDoc(doc(db(OWNER), 'ledgerEntries', 'del-exp')));
+  await assertFails(deleteDoc(doc(db(SITE), 'projects', 'p-del')));
+  await assertFails(deleteDoc(doc(db(SITE), 'ledgerEntries', 'del-exp')));
+  await assertFails(deleteDoc(doc(db(SITE), 'projectFinance', 'p-del')));
+  await assertFails(deleteDoc(doc(db(SITE), 'subcontracts', 'sc-del')));
+  await assertFails(deleteDoc(doc(db(SITE), 'subcontractTerms', 'sc-del')));
+  await assertFails(deleteDoc(doc(db(SITE), 'subcontractAmendments', 'am-del')));
+
+  const mixed = db(OWNER);
+  const mixedBatch = writeBatch(mixed);
+  mixedBatch.delete(doc(mixed, 'projects', 'p-del'));
+  mixedBatch.delete(doc(mixed, 'ledgerEntries', 'keep-exp'));
+  await assertFails(mixedBatch.commit());
+  assert.equal((await getDoc(doc(db(OWNER), 'projects', 'p-del'))).exists(), true);
+  assert.equal((await getDoc(doc(db(OWNER), 'ledgerEntries', 'keep-exp'))).exists(), true);
+
+  const docs = Sync.projectDeleteDocs('p-del', {
+    entryIds, subcontractIds: ['sc-del'], amendmentIds: ['am-del'], termIds: ['sc-del'], finance: true,
+  });
+  for (const group of Sync.projectDeleteBatches(docs)) {
+    const fs = db(OWNER);
+    const batch = writeBatch(fs);
+    group.forEach(item => batch.delete(doc(fs, item.collection, item.id)));
+    await assertSucceeds(batch.commit());
+  }
+
+  for (const id of entryIds) assert.equal((await getDoc(doc(db(OWNER), 'ledgerEntries', id))).exists(), false, id);
+  assert.equal((await getDoc(doc(db(OWNER), 'projects', 'p-del'))).exists(), false);
+  assert.equal((await getDoc(doc(db(OWNER), 'projectFinance', 'p-del'))).exists(), false);
+  assert.equal((await getDoc(doc(db(OWNER), 'subcontracts', 'sc-del'))).exists(), false);
+  assert.equal((await getDoc(doc(db(OWNER), 'subcontractTerms', 'sc-del'))).exists(), false);
+  assert.equal((await getDoc(doc(db(OWNER), 'subcontractAmendments', 'am-del'))).exists(), false);
+  assert.equal((await getDoc(doc(db(OWNER), 'projects', 'p-keep'))).data().name, 'بناية السوق');
+  assert.equal((await getDoc(doc(db(OWNER), 'ledgerEntries', 'keep-exp'))).data().amount, 80);
+  assert.equal((await getDoc(doc(db(OWNER), 'projectFinance', 'p-keep'))).data().contractAmount, 15000000);
+  assert.equal((await getDoc(doc(db(OWNER), 'subcontracts', 'sc-keep'))).data().name, 'مقاول البناء');
+  assert.equal((await getDoc(doc(db(OWNER), 'subcontractTerms', 'sc-keep'))).data().originalAmount, 9000000);
+  assert.equal((await getDoc(doc(db(OWNER), 'subcontractAmendments', 'am-keep'))).data().amount, 100000);
+  await assertFails(putEntry(SITE, 'after-del', { projectId: 'p-del', amount: 10 }));
+  await assertFails(putEntry(OWNER, 'after-del-owner', { projectId: 'p-del', amount: 10 }));
+  await assertSucceeds(deleteDoc(doc(db(OWNER), 'projects', 'p-del')));
+  const again = await getDocs(query(collection(db(OWNER), 'ledgerEntries'), where('projectId', '==', 'p-del')));
+  assert.equal(again.size, 0);
+});
