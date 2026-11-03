@@ -161,6 +161,22 @@ test('offline outbox reaches the emulator once after reconnect', { timeout: 4000
   assert.equal(still.length, 2);
 });
 
+test('resending one outbox entry a second time does not create a second server row', { timeout: 30000 }, async () => {
+  const row = entry(siteUid, 'resend-' + crypto.randomUUID(), { amount: 4100, description: 'إعادة إرسال' });
+  const local = new Map([[row.id, row]]);
+  const load = id => local.get(id) || null;
+  online = true;
+  const first = await flush(clientDb, [row.id], load);
+  assert.deepEqual(first.synced, [row.id]);
+  assert.deepEqual(first.failed, []);
+  const second = await flush(clientDb, [row.id], load);
+  assert.deepEqual(second.failed, []);
+  const found = (await serverRows()).filter(r => r.id === row.id);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].amount, 4100);
+  assert.equal(found[0].description, 'إعادة إرسال');
+});
+
 test('the same id flushed twice, even concurrently, is stored once', { timeout: 30000 }, async () => {
   const row = entry(siteUid, 'once-' + crypto.randomUUID(), { amount: 3200, entryType: 'materials' });
   const local = new Map([[row.id, row]]);
