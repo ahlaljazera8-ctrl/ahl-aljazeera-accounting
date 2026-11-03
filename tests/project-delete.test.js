@@ -144,6 +144,29 @@ test('permanent delete leaves the foreman, every move, and the balance', () => {
   assert.equal(after.state, 'holding');
 });
 
+test('D1 a counted foreman expense blocks the delete and names the foreman', () => {
+  const entries = [{ id: 'e-fm', projectId: 'p-del', direction: 'expense', entryType: 'materials', amount: 1000, isReversal: false, foremanId: 'fm1' }];
+  const foremen = [{ id: 'fm1', name: 'حسن' }];
+  const msg = Ledger.foremanDeleteBlock('p-del', entries, foremen, {});
+  assert.equal(msg, 'لا يمكن الحذف: فيه مصاريف عهدة لـ حسن. سوِّ العهدة أو أرشف المشروع');
+  assert.equal(Ledger.foremanDeleteBlock('p-del', entries, foremen, { 'e-fm': 'رُفض' }), '');
+});
+
+test('D2 a project with no foreman expense keeps an empty delete block', () => {
+  const entries = [{ id: 'keep-pay', projectId: 'p-keep', direction: 'income', entryType: 'clientPayment', amount: 6000000, isReversal: false }];
+  assert.equal(Ledger.foremanDeleteBlock('p-del', entries, [], {}), '');
+  assert.equal(Ledger.guardedForemanDelete(Ledger.foremanDeleteBlock, 'p-del', entries, [], {}), '');
+});
+
+test('a foreman-expense check that cannot run blocks the delete', () => {
+  const stop = 'لا يمكن الحذف: تعذر التحقق من مصاريف العهدة.';
+  assert.equal(Ledger.guardedForemanDelete(null, 'p-del', [], [], {}), stop);
+  assert.equal(Ledger.guardedForemanDelete(undefined, 'p-del', [], [], {}), stop);
+  assert.equal(Ledger.guardedForemanDelete(() => { throw new Error('down'); }, 'p-del', [], [], {}), stop);
+  assert.equal(Ledger.guardedForemanDelete(() => 1, 'p-del', [], [], {}), stop);
+  assert.equal(Ledger.guardedForemanDelete(() => '', 'p-del', [], [], {}), '');
+});
+
 test('dropping a project keeps foremen and foreman moves, and the server delete list omits them', () => {
   const src = store();
   src.foremen = [{ id: 'fm1', name: 'حسن', projectId: 'p-del' }];

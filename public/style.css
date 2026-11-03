@@ -57,6 +57,10 @@ label.check{display:flex;align-items:flex-start;gap:8px;font-size:14px}
 label.check input{width:18px;height:18px;margin-top:2px;flex:none}
 a.detail-link{color:var(--pri);font-weight:700}
 .num{direction:ltr;unicode-bidi:isolate;white-space:nowrap}
+.num.fm-hold{color:var(--ok)}
+.num.fm-owe{color:var(--warn)}
+.kv.fm-rule{border-bottom:3px solid var(--ok);padding-bottom:4px}
+.kv.fm-rule.owe{border-bottom-color:var(--warn)}
 .example{background:#EEF2FF;color:#3730A3;border:1px dashed #A5B4FC;border-radius:10px;padding:6px 10px;font-size:12px}
 .proj{color:inherit;text-decoration:none}
 .sync-msg{margin:0 20px 8px;color:var(--bad);font-size:13px;font-weight:700}

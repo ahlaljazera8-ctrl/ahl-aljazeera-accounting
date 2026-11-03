@@ -1,7 +1,7 @@
 'use strict';
 // Screens and click handlers. Boot, seed, and the login timeout stay in app.js.
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
+const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', foremanId: '', fmGone: '', fmCarry: false, entrySeen: false, dropForeman: false, formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
 let bellOpen = false;
 const ledger = () => L.createLedger(get(K.entries, []));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -207,7 +207,7 @@ function ensureDirectory() {
 
 function commit(entry) {
   const lg = ledger();
-  lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY, subcontracts: get(K.subcontracts, []) });
+  lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY, subcontracts: get(K.subcontracts, []), foremen: get(K.foremen, []) });
   set(K.entries, lg.all()); set(K.outbox, [...get(K.outbox, []), entry.id]);
   if (!demoRole()) flushRemote();
 }
@@ -218,6 +218,8 @@ function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending t
   set(K.projects, get(K.projects, []).map(p => out.has(p.id) && !p.createdAtServer ? { ...p, createdAtServer: now } : p));
   set(K.subcontracts, get(K.subcontracts, []).map(s => out.has(s.id) && !s.createdAtServer ? Object.assign({}, s, { createdAtServer: now }) : s));
   set(K.amendments, get(K.amendments, []).map(a => out.has(a.id) && !a.createdAtServer ? Object.assign({}, a, { createdAtServer: now }) : a));
+  set(K.foremen, get(K.foremen, []).map(f => out.has(f.id) && !f.createdAtServer ? Object.assign({}, f, { createdAtServer: now }) : f));
+  set(K.foremanMoves, get(K.foremanMoves, []).map(m => out.has(m.id) && !m.createdAtServer ? Object.assign({}, m, { createdAtServer: now }) : m));
   const terms = get(K.terms, {});
   let termsChanged = false;
   Object.keys(terms).forEach(id => {
@@ -388,6 +390,18 @@ const views = {
     if (!projects.some(p => p.id === state.projectId)) state.projectId = projects[0] && projects[0].id;
     const subsHere = subcontractsOf(state.projectId);
     if (state.type === 'subcontractor' && !subsHere.some(s => s.id === state.subcontractId)) state.subcontractId = (subsHere[0] && subsHere[0].id) || '';
+    if (state.fmGone && state.foremanId) {
+      const person = get(K.foremen, []).find(f => f && f.id === state.foremanId);
+      const open = person && get(K.projects, []).find(p => p && p.id === person.projectId && p.status !== 'archived');
+      if (open) state.fmGone = '';
+    }
+    const foremanBlock = L.can(u, 'owner') && L.ENTRY_TYPES[state.type] && L.ENTRY_TYPES[state.type].direction === 'expense'
+      ? '<label class="field">من عهدة (اختياري)<select id="foreman" class="full"><option value="">—</option>'
+        + get(K.foremen, []).map(f => {
+          if (!f || !window.DomSafe || !DomSafe.isSafeId(f.id)) return '';
+          return '<option value="' + DomSafe.projectAttr(f.id) + '"' + (f.id === state.foremanId ? ' selected' : '') + '>' + esc(f.name || f.id) + '</option>';
+        }).join('') + '</select></label>' + (state.fmGone ? '<div class="warnbox">' + esc(state.fmGone) + '</div>' : '')
+      : '';
     const partyBlock = state.type === 'subcontractor'
       ? `<label class="field">المقاول
           <select id="subcontract" class="full">${subsHere.map(s => `<option value="${esc(s.id)}"${s.id === state.subcontractId ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
@@ -401,6 +415,7 @@ const views = {
       <div class="card"><div class="step">3 المشروع${u.role === 'site' ? ' (مشاريعي فقط)' : ''}</div><div class="pills">${projects.map(p => window.DomSafe ? DomSafe.projectButton(p.id, p.name, p.id === state.projectId) : `<button class="pill ${p.id === state.projectId ? 'on' : ''}" data-proj="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div></div>
       <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)">${esc(state.desc || '')}</textarea>
       ${partyBlock}
+      ${foremanBlock}
       <button class="btn" id="save">حفظ</button><div id="msg" class="msg">${state.formMsgKind === 'saved' ? '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>' : esc(state.formMsg || '')}</div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
   },
@@ -629,6 +644,36 @@ function syncPeopleTab(u) {
     tabs.appendChild(a);
   }
 }
+function foremanGlyph() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const circle = document.createElementNS(ns, 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '8');
+  circle.setAttribute('r', '3');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M5.2 19.2c1.2-2.7 3.6-4 6.8-4s5.6 1.3 6.8 4');
+  svg.append(circle, path);
+  return svg;
+}
+function syncForemenTab(u) {
+  const tabs = document.querySelector('.tabs');
+  if (!tabs) return;
+  /** @type {HTMLAnchorElement | null} */
+  let a = /** @type {HTMLAnchorElement | null} */ (tabs.querySelector('[data-tab="foremen"]'));
+  if (!L.can(u, 'owner')) { if (a) a.remove(); return; }
+  if (!a) {
+    a = document.createElement('a');
+    a.href = '#foremen';
+    a.dataset.tab = 'foremen';
+    const span = document.createElement('span');
+    span.textContent = 'العُهد';
+    a.append(foremanGlyph(), span);
+    tabs.appendChild(a);
+  }
+}
 
 function captureForm() {
   const desc = $('#desc');
@@ -645,15 +690,24 @@ function captureForm() {
   const amDate = $('#am-date'); if (amDate) state.amDate = amDate.value;
   const amAmount = $('#am-amount'); if (amAmount) state.amAmount = amAmount.value;
   const amNote = $('#am-note'); if (amNote) state.amNote = amNote.value;
+  const foremanPick = $('#foreman'); if (foremanPick) state.foremanId = foremanPick.value;
   const typed = $('#delete-name');
   if (typed && state.confirm && state.confirm.action === 'delete') state.confirm.typed = typed.value;
 }
-function confirmShell(inner) {
-  return `<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"><div class="confirm">${inner}</div></div>`;
+function confirmShell(inner, labelId) {
+  const labelled = labelId ? ' aria-labelledby="' + String(labelId).replace(/[^A-Za-z0-9_-]/g, '') + '"' : '';
+  return '<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"' + labelled + '><div class="confirm">' + inner + '</div></div>';
+}
+function foremanExpenseBlock(projectId) {
+  return L.guardedForemanDelete(L.foremanDeleteBlock, projectId, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {});
 }
 function deleteConfirm(c) {
   const project = get(K.projects, []).find(p => p.id === c.id);
   const name = project ? project.name : '';
+  const block = foremanExpenseBlock(c.id);
+  if (block) {
+    return confirmShell('<p>لا يمكن حذف هذا المشروع</p><p class="copy">' + esc(block) + '</p><button type="button" class="btn danger" id="confirm-yes" disabled>نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>');
+  }
   if (c.step === 2) {
     const typed = c.typed || '';
     const ready = window.Sync.exactProjectName(typed, name);
@@ -705,6 +759,8 @@ async function deleteProjectNow(id) {
   const u = me();
   const project = get(K.projects, []).find(p => p.id === id);
   if (!L.can(u, 'manageProject') || !project) return;
+  const block = foremanExpenseBlock(id);
+  if (block) { state.deleteMsg = block; render(); return; }
   if (demoRole()) {
     writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
     state.deleteMsg = '';
@@ -810,12 +866,25 @@ function setFormMsg(text, kind) {
 }
 function render() {
   captureForm();
+  if (state.dropForeman) {
+    state.foremanId = '';
+    state.fmGone = '';
+    state.dropForeman = false;
+  }
   const u = me(); if (!u) return;
   const printRoot = $('#print-root');
   if (printRoot) printRoot.innerHTML = '';
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   const v = views[view] ? view : 'home';
-  if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; }
+  if (v === 'entry') {
+    if (!state.entrySeen && !state.fmCarry) {
+      state.foremanId = '';
+      state.fmGone = '';
+    }
+    state.fmCarry = false;
+    state.entrySeen = true;
+  } else state.entrySeen = false;
+  if (v !== 'entry') { state.formMsg = ''; state.formMsgKind = ''; state.fmGone = ''; }
   if (v !== 'person') state.personMsg = '';
   if (!L.can(u, 'owner')) { state.confirm = null; state.projectList = 'open'; }
   if (state.confirm && (state.confirm.action === 'manage' || state.confirm.action === 'delete' || state.confirm.action === 'archive') && v !== 'project') state.confirm = null;
@@ -830,7 +899,9 @@ function render() {
     : ((L.can(u, 'owner') ? 'المالك' : 'مستخدم موقع') + ' · ' + (u.displayName || ''));
   paintBell();
   syncPeopleTab(u);
-  const tab = (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
+  syncForemenTab(u);
+  const foremanTab = v === 'foremen' || v === 'foreman' || v === 'foremannew' || v === 'foremanmove';
+  const tab = foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person') && !directoryPromise) {
     $('#title').textContent = titles[v] || 'الأشخاص';
@@ -846,6 +917,11 @@ function render() {
     const found = get(K.subcontracts, []).find(s => s.id === arg);
     heading = found ? found.name : 'عقد مقاول';
   } else if (v === 'subnew') heading = arg && projectTitle !== 'مشروع' ? projectTitle : 'عقد مقاول';
+  if (v === 'foreman' || v === 'foremanmove') {
+    const person = get(K.foremen, []).find(f => f && f.id === arg);
+    heading = person && person.name ? person.name : 'خلفة';
+  } else if (v === 'foremen') heading = 'العُهد';
+  else if (v === 'foremannew') heading = 'خلفة جديد';
   $('#title').textContent = heading;
   $('#main').innerHTML = views[v](arg) + confirmDialog();
 }
@@ -853,6 +929,11 @@ function render() {
 document.addEventListener('click', ev => {
   if (bellOpen && !ev.target.closest('.bell-wrap')) { bellOpen = false; paintBell(); }
   if (ev.target.closest && ev.target.closest('#confirm-dialog') && !ev.target.closest('.confirm')) {
+    if (location.hash.indexOf('#foremanmove/') === 0) {
+      const moveId = location.hash.slice(1).split('/')[1] || '';
+      location.hash = window.DomSafe && DomSafe.isSafeId(moveId) ? '#foreman/' + DomSafe.projectAttr(moveId) : '#foremen';
+      return;
+    }
     state.confirm = null;
     render();
     return;
@@ -863,6 +944,7 @@ document.addEventListener('click', ev => {
   const b = ev.target.closest('button'); if (!b) return;
   if (!$('#login').hidden) return;
   const u = me();
+  if (window.ForemenUI && ForemenUI.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
   else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
   else if (b.dataset.add != null) {
@@ -920,11 +1002,14 @@ document.addEventListener('click', ev => {
       amount: parsed.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
       createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
     if (subcontractId) e.subcontractId = subcontractId;
+    const foremanPick = ($('#foreman') && $('#foreman').value) || '';
+    if (foremanPick && L.can(u, 'owner') && e.direction === 'expense') e.foremanId = foremanPick;
     const recorded = L.recorderName(u);
     if (recorded) e.createdByName = recorded;
     try {
       commit(e);
       state.amount = 0; state.amountDraft = ''; state.desc = ''; state.party = ''; state.formId = uuid();
+      state.dropForeman = true;
       setFormMsg('حُفظ', 'saved');
       if ($('#desc')) $('#desc').value = '';
       if ($('#party')) $('#party').value = '';
@@ -1006,6 +1091,7 @@ document.addEventListener('click', ev => {
 });
 document.addEventListener('input', ev => {
   const el = /** @type {HTMLInputElement | null} */ (ev.target);
+  if (el && window.ForemenUI && ForemenUI.onInput(el)) return;
   if (!el || el.id !== 'delete-name' || !state.confirm || state.confirm.action !== 'delete') return;
   state.confirm.typed = el.value;
   const project = get(K.projects, []).find(p => p.id === state.confirm.id);
@@ -1066,6 +1152,15 @@ $('#login-form').addEventListener('submit', async ev => {
 addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && bellOpen) { bellOpen = false; paintBell(); }
 });
+if (window.ForemenUI) {
+  /** @type {RenderApi} */
+  const renderApi = {
+    views, titles, state, render, esc, money, queueDoc, confirmShell,
+    lastSyncAt: () => lastSyncAt,
+    formatSyncTime,
+  };
+  ForemenUI.install(renderApi);
+}
 addEventListener('hashchange', render);
 addEventListener('online', () => { if (!demoRole() && get(K.sessionUser)) flushRemote(); else if (!$('#shell').hidden) render(); });
 addEventListener('offline', () => { if (!$('#shell').hidden) render(); });
