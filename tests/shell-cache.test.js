@@ -29,4 +29,21 @@ test('firebase.json sets no-cache on the app shell and keeps sw.js no-cache', ()
   const security = cfg.hosting.headers.find(h => h.source === '**');
   assert.ok(security.headers.some(h => h.key === 'Content-Security-Policy'));
   assert.equal(security.headers.some(h => h.key === 'Cache-Control'), false);
+  assert.equal(cacheControl('/session.js'), 'no-cache');
+});
+
+test('session.js is a classic script loaded before app.js and precached with the shell', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
+  const sw = fs.readFileSync(path.join(ROOT, 'public/sw.js'), 'utf8');
+  const session = fs.readFileSync(path.join(ROOT, 'public/session.js'), 'utf8');
+  const sessionAt = html.indexOf('src="session.js"');
+  const appAt = html.indexOf('src="app.js"');
+  assert.ok(sessionAt > 0 && appAt > sessionAt);
+  assert.equal(html.includes('type="module"'), false);
+  assert.match(sw, /const VERSION = 'aj-p0-v33'/);
+  assert.match(sw, /\.\/session\.js/);
+  assert.match(sw, /'\/session\.js': 1/);
+  assert.match(session, /window\.AJ/);
+  assert.equal(session.includes('import '), false);
+  assert.equal(session.includes('export '), false);
 });
