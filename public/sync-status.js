@@ -14,9 +14,17 @@
   const UNVERIFIED = 'القيد موجود مسبقاً وتعذر مطابقة محتواه';
 
   function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
+    return String(s ?? '').replace(
+      /[&<>"']/g,
+      c =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[c],
+    );
   }
 
   function norm(v) {
@@ -53,12 +61,14 @@
     if (err.timeout) return true;
     const code = String(err.code || '');
     const msg = String(err.message || '');
-    return code === 'unavailable'
-      || code === 'deadline-exceeded'
-      || code === 'resource-exhausted'
-      || code === 'aborted'
-      || code === 'cancelled'
-      || /offline|network-request-failed|unavailable|deadline/i.test(code + ' ' + msg);
+    return (
+      code === 'unavailable' ||
+      code === 'deadline-exceeded' ||
+      code === 'resource-exhausted' ||
+      code === 'aborted' ||
+      code === 'cancelled' ||
+      /offline|network-request-failed|unavailable|deadline/i.test(code + ' ' + msg)
+    );
   }
 
   function isAlreadyExists(err) {
@@ -73,11 +83,16 @@
     if (!err) return false;
     const code = String(err.code || '');
     const blob = code + ' ' + String(err.message || '');
-    if (code === 'auth/user-token-expired'
-      || code === 'auth/invalid-user-token'
-      || code === 'auth/invalid-refresh-token'
-      || code === 'auth/user-disabled') return true;
-    return /auth\/user-token-expired|auth\/invalid-user-token|auth\/invalid-refresh-token|auth\/user-disabled|INVALID_REFRESH_TOKEN|TOKEN_EXPIRED|user-token-expired/i.test(blob);
+    if (
+      code === 'auth/user-token-expired' ||
+      code === 'auth/invalid-user-token' ||
+      code === 'auth/invalid-refresh-token' ||
+      code === 'auth/user-disabled'
+    )
+      return true;
+    return /auth\/user-token-expired|auth\/invalid-user-token|auth\/invalid-refresh-token|auth\/user-disabled|INVALID_REFRESH_TOKEN|TOKEN_EXPIRED|user-token-expired/i.test(
+      blob,
+    );
   }
 
   function failureMessage(err, local, remote, unverified) {
@@ -88,11 +103,19 @@
 
   function applyFlush(outbox, errors, result) {
     const drop = new Set((result && result.synced) || []);
-    ((result && result.failed) || []).forEach(row => { if (row && row.id) drop.add(row.id); });
+    ((result && result.failed) || []).forEach(row => {
+      if (row && row.id) drop.add(row.id);
+    });
     const errMap = Object.assign({}, errors || {});
-    ((result && result.synced) || []).forEach(id => { delete errMap[id]; });
-    ((result && result.kept) || []).forEach(id => { delete errMap[id]; });
-    ((result && result.failed) || []).forEach(row => { if (row && row.id) errMap[row.id] = row.message; });
+    ((result && result.synced) || []).forEach(id => {
+      delete errMap[id];
+    });
+    ((result && result.kept) || []).forEach(id => {
+      delete errMap[id];
+    });
+    ((result && result.failed) || []).forEach(row => {
+      if (row && row.id) errMap[row.id] = row.message;
+    });
     return {
       outbox: (outbox || []).filter(id => !drop.has(id)),
       errors: errMap,
@@ -118,8 +141,19 @@
   }
 
   return {
-    FB_VER, FIRESTORE_URL, REJECTED, CONFLICT, UNVERIFIED,
-    sameContent, sameReversal, isTransient, isAlreadyExists, isDeadAuth, failureMessage,
-    applyFlush, badgeHtml, readRemote,
+    FB_VER,
+    FIRESTORE_URL,
+    REJECTED,
+    CONFLICT,
+    UNVERIFIED,
+    sameContent,
+    sameReversal,
+    isTransient,
+    isAlreadyExists,
+    isDeadAuth,
+    failureMessage,
+    applyFlush,
+    badgeHtml,
+    readRemote,
   };
 });

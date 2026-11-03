@@ -8,9 +8,17 @@
   const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
   function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
+    return String(s ?? '').replace(
+      /[&<>"']/g,
+      c =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[c],
+    );
   }
 
   function isSafeId(id) {
@@ -34,7 +42,15 @@
   function projectButton(id, name, selected) {
     const attr = projectAttr(id);
     if (!attr) return '';
-    return '<button class="' + (selected ? 'pill on' : 'pill') + '" data-proj="' + attr + '">' + escapeHtml(name) + '</button>';
+    return (
+      '<button class="' +
+      (selected ? 'pill on' : 'pill') +
+      '" data-proj="' +
+      attr +
+      '">' +
+      escapeHtml(name) +
+      '</button>'
+    );
   }
 
   return { ID_RE, escapeHtml, isSafeId, projectAttr, projectHref, projectButton, entryHref };

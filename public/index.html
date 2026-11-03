@@ -1,69 +1,104 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0F5C4D">
-<title>حسابات أهل الجزيرة (نموذج تجريبي)</title>
-<link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="print.css">
-</head>
-<body>
-<div id="print-root" dir="rtl" lang="ar"></div>
-<div id="app">
-  <section id="boot">
-    <h1>أهل الجزيرة</h1>
-    <p class="sub">للتجارة والمقاولات</p>
-  </section>
-  <section id="login" hidden>
-    <form id="login-form" autocomplete="on">
-      <h1>تسجيل الدخول</h1>
-      <p class="sub">أهل الجزيرة للتجارة والمقاولات</p>
-      <label>البريد الإلكتروني
-        <input id="login-email" class="full" type="email" autocomplete="username" inputmode="email">
-      </label>
-      <label>كلمة المرور
-        <input id="login-password" class="full" type="password" autocomplete="current-password">
-      </label>
-      <button class="btn" id="login-btn" type="submit">دخول</button>
-      <div id="login-msg" class="msg"></div>
-      <p class="note">مرة واحدة مع إنترنت، ثم يعمل التطبيق في الموقع بدونه.</p>
-    </form>
-  </section>
-  <div id="shell" hidden>
-    <header class="top">
-      <div><h1 id="title">الرئيسية</h1><div id="who" class="sub"></div></div>
-      <div class="bell-wrap">
-        <button type="button" id="outbox" class="bell" aria-expanded="false" aria-controls="bell-panel" aria-haspopup="true" aria-label="التنبيهات، لم يُرسل بعد: 0">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.2a6 6 0 0 1 12 0c0 4.2 1.6 5.8 1.6 5.8H4.4S6 13.4 6 9.2"/><path d="M10 18.2a2 2 0 0 0 4 0"/></svg>
-          <span class="bell-badge" hidden></span>
-        </button>
-        <div id="bell-panel" class="bell-panel" hidden role="region" aria-label="حالة الإرسال"></div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#0F5C4D" />
+    <title>حسابات أهل الجزيرة (نموذج تجريبي)</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="print.css" />
+  </head>
+  <body>
+    <div id="print-root" dir="rtl" lang="ar"></div>
+    <div id="app">
+      <section id="boot">
+        <h1>أهل الجزيرة</h1>
+        <p class="sub">للتجارة والمقاولات</p>
+      </section>
+      <section id="login" hidden>
+        <form id="login-form" autocomplete="on">
+          <h1>تسجيل الدخول</h1>
+          <p class="sub">أهل الجزيرة للتجارة والمقاولات</p>
+          <label
+            >البريد الإلكتروني
+            <input id="login-email" class="full" type="email" autocomplete="username" inputmode="email" />
+          </label>
+          <label
+            >كلمة المرور
+            <input id="login-password" class="full" type="password" autocomplete="current-password" />
+          </label>
+          <button class="btn" id="login-btn" type="submit">دخول</button>
+          <div id="login-msg" class="msg"></div>
+          <p class="note">مرة واحدة مع إنترنت، ثم يعمل التطبيق في الموقع بدونه.</p>
+        </form>
+      </section>
+      <div id="shell" hidden>
+        <header class="top">
+          <div>
+            <h1 id="title">الرئيسية</h1>
+            <div id="who" class="sub"></div>
+          </div>
+          <div class="bell-wrap">
+            <button
+              type="button"
+              id="outbox"
+              class="bell"
+              aria-expanded="false"
+              aria-controls="bell-panel"
+              aria-haspopup="true"
+              aria-label="التنبيهات، لم يُرسل بعد: 0"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9.2a6 6 0 0 1 12 0c0 4.2 1.6 5.8 1.6 5.8H4.4S6 13.4 6 9.2" />
+                <path d="M10 18.2a2 2 0 0 0 4 0" />
+              </svg>
+              <span class="bell-badge" hidden></span>
+            </button>
+            <div id="bell-panel" class="bell-panel" hidden role="region" aria-label="حالة الإرسال"></div>
+          </div>
+        </header>
+        <p id="sync-msg" class="sync-msg" hidden></p>
+        <div class="rolebar">
+          <label id="role-label"
+            >الدور:
+            <select id="role">
+              <option value="owner">المالك · أمير</option>
+              <option value="site">مستخدم موقع · أحمد</option>
+            </select>
+          </label>
+          <button id="logout" class="mini" hidden type="button">خروج</button>
+        </div>
+        <main id="main"></main>
+        <nav class="tabs">
+          <a href="#home" data-tab="home"
+            ><svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 10.7 12 4.2l8 6.5V19a1.2 1.2 0 0 1-1.2 1.2H5.2A1.2 1.2 0 0 1 4 19Z" />
+              <path d="M9.4 20.2v-5.6h5.2v5.6" /></svg
+            ><span>الرئيسية</span></a
+          >
+          <a href="#entry" data-tab="entry"
+            ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13" /></svg><span>قيد جديد</span></a
+          >
+          <a href="#projects" data-tab="projects"
+            ><svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 7.4V6.3A1.3 1.3 0 0 1 9.3 5h5.4A1.3 1.3 0 0 1 16 6.3v1.1" />
+              <path d="M3.8 12h16.4" />
+              <path
+                d="M4.6 7.4h14.8A1.4 1.4 0 0 1 20.8 8.8v8.8a1.4 1.4 0 0 1-1.4 1.4H4.6a1.4 1.4 0 0 1-1.4-1.4V8.8a1.4 1.4 0 0 1 1.4-1.4Z"
+              /></svg
+            ><span>المشاريع</span></a
+          >
+        </nav>
       </div>
-    </header>
-    <p id="sync-msg" class="sync-msg" hidden></p>
-    <div class="rolebar">
-      <label id="role-label">الدور:
-        <select id="role"><option value="owner">المالك · أمير</option><option value="site">مستخدم موقع · أحمد</option></select>
-      </label>
-      <button id="logout" class="mini" hidden type="button">خروج</button>
     </div>
-    <main id="main"></main>
-    <nav class="tabs">
-      <a href="#home" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.7 12 4.2l8 6.5V19a1.2 1.2 0 0 1-1.2 1.2H5.2A1.2 1.2 0 0 1 4 19Z"/><path d="M9.4 20.2v-5.6h5.2v5.6"/></svg><span>الرئيسية</span></a>
-      <a href="#entry" data-tab="entry"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg><span>قيد جديد</span></a>
-      <a href="#projects" data-tab="projects"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7.4V6.3A1.3 1.3 0 0 1 9.3 5h5.4A1.3 1.3 0 0 1 16 6.3v1.1"/><path d="M3.8 12h16.4"/><path d="M4.6 7.4h14.8A1.4 1.4 0 0 1 20.8 8.8v8.8a1.4 1.4 0 0 1-1.4 1.4H4.6a1.4 1.4 0 0 1-1.4-1.4V8.8a1.4 1.4 0 0 1 1.4-1.4Z"/></svg><span>المشاريع</span></a>
-    </nav>
-  </div>
-</div>
-<script src="ledger.js"></script>
-<script src="sync.js"></script>
-<script src="sync-status.js"></script>
-<script src="dom-safe.js"></script>
-<script src="appcheck.js"></script>
-<script src="firebase-config.js"></script>
-<script src="app.js"></script>
-</body>
+    <script src="ledger.js"></script>
+    <script src="sync.js"></script>
+    <script src="sync-status.js"></script>
+    <script src="dom-safe.js"></script>
+    <script src="appcheck.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="app.js"></script>
+  </body>
 </html>

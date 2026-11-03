@@ -7,7 +7,10 @@
   'use strict';
 
   function isSeed(doc) {
-    return !!(doc && (doc.isExample === true || doc.deviceId === 'seed' || String(doc.id || '').indexOf('seed-') === 0));
+    return !!(
+      doc &&
+      (doc.isExample === true || doc.deviceId === 'seed' || String(doc.id || '').indexOf('seed-') === 0)
+    );
   }
 
   function collectionFor(doc) {
@@ -29,7 +32,19 @@
 
   function toRemote(doc) {
     if (doc.entryType) {
-      const out = copyFields(doc, ['id', 'projectId', 'direction', 'entryType', 'amount', 'currency', 'entryDate', 'isReversal', 'createdAtDevice', 'createdBy', 'deviceId']);
+      const out = copyFields(doc, [
+        'id',
+        'projectId',
+        'direction',
+        'entryType',
+        'amount',
+        'currency',
+        'entryDate',
+        'isReversal',
+        'createdAtDevice',
+        'createdBy',
+        'deviceId',
+      ]);
       if (doc.description) out.description = doc.description;
       if (doc.partyName) out.partyName = doc.partyName;
       if (doc.createdByName) out.createdByName = doc.createdByName;
@@ -48,7 +63,16 @@
     if (doc.subcontractId && doc.date && !doc.entryType) {
       return copyFields(doc, ['id', 'subcontractId', 'projectId', 'amount', 'date', 'note', 'createdBy']);
     }
-    const out = copyFields(doc, ['id', 'name', 'clientName', 'currency', 'status', 'createdAtDevice', 'createdBy', 'deviceId']);
+    const out = copyFields(doc, [
+      'id',
+      'name',
+      'clientName',
+      'currency',
+      'status',
+      'createdAtDevice',
+      'createdBy',
+      'deviceId',
+    ]);
     if (doc.location) out.location = doc.location;
     return out;
   }
@@ -108,10 +132,13 @@
   function subcontractReads(user, since) {
     if (!user || user.active !== true) return [];
     if (user.role === 'owner') {
-      return sinceClause([
-        { collection: 'subcontracts', where: [] },
-        { collection: 'subcontractAmendments', where: [] },
-      ], since);
+      return sinceClause(
+        [
+          { collection: 'subcontracts', where: [] },
+          { collection: 'subcontractAmendments', where: [] },
+        ],
+        since,
+      );
     }
     if (user.role !== 'site') return [];
     return validProjectIds(user.assignedProjectIds).map(id => ({
@@ -150,7 +177,8 @@
     if (email.length < 4 || email.length > 200 || !/.+@.+\..+/.test(email)) errors.push('البريد غير صالح');
     if (src.role !== 'site' && src.role !== 'owner') errors.push('الدور غير صالح');
     if (typeof src.active !== 'boolean') errors.push('حالة الحساب غير صالحة');
-    if (!ids || ids.length > 20 || ids.some(id => typeof id !== 'string' || !ID_RE.test(id))) errors.push('اختر مشاريع محددة بحد أقصى 20');
+    if (!ids || ids.length > 20 || ids.some(id => typeof id !== 'string' || !ID_RE.test(id)))
+      errors.push('اختر مشاريع محددة بحد أقصى 20');
     if (errors.length) return { ok: false, errors };
     return {
       ok: true,
@@ -168,14 +196,17 @@
     const out = Object.assign({}, data);
     const ts = out.createdAtServer;
     if (ts && typeof ts.toMillis === 'function') out.createdAtServer = ts.toMillis();
-    else if (ts && typeof ts.seconds === 'number') out.createdAtServer = ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
+    else if (ts && typeof ts.seconds === 'number')
+      out.createdAtServer = ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
     return out;
   }
 
   function mergeById(local, incoming, pendingIds) {
     const pending = new Set(pendingIds || []);
     const map = new Map();
-    (local || []).forEach(function (row) { if (row && row.id) map.set(row.id, row); });
+    (local || []).forEach(function (row) {
+      if (row && row.id) map.set(row.id, row);
+    });
     (incoming || []).forEach(function (row) {
       if (!row || !row.id || pending.has(row.id)) return;
       map.set(row.id, row);
@@ -191,7 +222,9 @@
   // An assignment, role, or active-flag change does: the old watermark was
   // measured on a different set, and an incremental query would skip history.
   function readSetKey(user) {
-    const ids = validProjectIds(user && user.assignedProjectIds).slice().sort();
+    const ids = validProjectIds(user && user.assignedProjectIds)
+      .slice()
+      .sort();
     const role = user && user.role === 'owner' ? 'owner' : 'site';
     return role + '\n' + (user && user.active === true ? '1' : '0') + '\n' + ids.join('\n');
   }
@@ -212,11 +245,17 @@
       const chunk = ids.slice(i, i + 10);
       reads.push({
         collection: 'ledgerEntries',
-        where: [['direction', '==', 'expense'], ['projectId', 'in', chunk]],
+        where: [
+          ['direction', '==', 'expense'],
+          ['projectId', 'in', chunk],
+        ],
       });
       reads.push({
         collection: 'ledgerEntries',
-        where: [['createdBy', '==', uid], ['projectId', 'in', chunk]],
+        where: [
+          ['createdBy', '==', uid],
+          ['projectId', 'in', chunk],
+        ],
       });
     }
     return reads;
@@ -229,16 +268,21 @@
   function sinceClause(specs, since) {
     const ms = finiteMillis(since);
     if (ms === null) return specs;
-    return specs.map(spec => spec.id ? spec : {
-      collection: spec.collection,
-      where: (spec.where || []).concat([['createdAtServer', '>=', ms]]),
-    });
+    return specs.map(spec =>
+      spec.id
+        ? spec
+        : {
+            collection: spec.collection,
+            where: (spec.where || []).concat([['createdAtServer', '>=', ms]]),
+          },
+    );
   }
 
   function entryReads(user, since) {
-    const specs = user && user.role === 'owner'
-      ? [{ collection: 'ledgerEntries', where: [] }]
-      : siteReads(user && user.uid, user && user.assignedProjectIds);
+    const specs =
+      user && user.role === 'owner'
+        ? [{ collection: 'ledgerEntries', where: [] }]
+        : siteReads(user && user.uid, user && user.assignedProjectIds);
     return sinceClause(specs, since);
   }
 
@@ -296,20 +340,24 @@
       projects: mergeById(opts.localProjects, projects, opts.pendingIds),
       incomingEntries: incoming,
       incomingProjects: projects,
-      watermark: advance ? {
-        entries: nextWatermark(mark.entries, incoming),
-        projects: nextWatermark(mark.projects, projects),
-      } : {
-        entries: finiteMillis(mark.entries),
-        projects: finiteMillis(mark.projects),
-      },
+      watermark: advance
+        ? {
+            entries: nextWatermark(mark.entries, incoming),
+            projects: nextWatermark(mark.projects, projects),
+          }
+        : {
+            entries: finiteMillis(mark.entries),
+            projects: finiteMillis(mark.projects),
+          },
       missingProjectIds: missingRequestedIds(projectSpecs, projects),
     };
   }
 
   function statusApi() {
     if (typeof require === 'function') {
-      try { return require('./sync-status.js'); } catch (e) {}
+      try {
+        return require('./sync-status.js');
+      } catch (e) {}
     }
     const g = typeof globalThis !== 'undefined' ? globalThis : {};
     return g.SyncStatus || null;
@@ -353,7 +401,9 @@
 
   function missingRequestedIds(specs, rows) {
     const found = new Set();
-    (rows || []).forEach(row => { if (row && row.id) found.add(row.id); });
+    (rows || []).forEach(row => {
+      if (row && row.id) found.add(row.id);
+    });
     const missing = [];
     (specs || []).forEach(spec => {
       if (!spec || !spec.id || found.has(spec.id) || missing.indexOf(spec.id) >= 0) return;
@@ -368,9 +418,11 @@
   function dropProjectLocal(store, projectId, opts) {
     const src = store || {};
     const dropPending = !!(opts && opts.dropPending);
-    const pending = new Set(dropPending ? [] : (src.outbox || []));
+    const pending = new Set(dropPending ? [] : src.outbox || []);
     const errors = src.syncErrors || {};
-    const subIds = new Set((src.subcontracts || []).filter(row => row && row.projectId === projectId).map(row => row.id));
+    const subIds = new Set(
+      (src.subcontracts || []).filter(row => row && row.projectId === projectId).map(row => row.id),
+    );
     const removed = new Set([projectId]);
     // Another phone keeps a row that is still queued or already refused, so the
     // bell can show the rejection. The deleting phone drops those too.
@@ -395,12 +447,16 @@
     });
     const keptSubs = new Set(subcontracts.filter(row => row && row.projectId === projectId).map(row => row.id));
     const terms = Object.assign({}, src.terms || {});
-    subIds.forEach(id => { if (!keptSubs.has(id)) delete terms[id]; });
+    subIds.forEach(id => {
+      if (!keptSubs.has(id)) delete terms[id];
+    });
     const finance = Object.assign({}, src.finance || {});
     delete finance[projectId];
     const projects = (src.projects || []).filter(row => !row || row.id !== projectId);
     const syncErrors = Object.assign({}, src.syncErrors || {});
-    removed.forEach(id => { delete syncErrors[id]; });
+    removed.forEach(id => {
+      delete syncErrors[id];
+    });
     const outbox = (src.outbox || []).filter(id => !removed.has(id));
     const statusPending = (src.statusPending || []).filter(id => id !== projectId);
     return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending };
@@ -420,9 +476,18 @@
       if (seen.has(id)) continue;
       seen.add(id);
       const local = load(id);
-      if (!local) { kept.push(id); continue; }
-      if (isSeed(local)) { synced.push(id); continue; }
-      if (!collectionFor(local)) { kept.push(id); continue; }
+      if (!local) {
+        kept.push(id);
+        continue;
+      }
+      if (isSeed(local)) {
+        synced.push(id);
+        continue;
+      }
+      if (!collectionFor(local)) {
+        kept.push(id);
+        continue;
+      }
       try {
         await write(local);
         synced.push(id);
@@ -431,21 +496,30 @@
           kept.push(id);
           return { synced, kept, failed, adopted, authDead: true };
         }
-        if (!Status || Status.isTransient(err)) { kept.push(id); continue; }
+        if (!Status || Status.isTransient(err)) {
+          kept.push(id);
+          continue;
+        }
         let remote = null;
         let unverified = false;
         try {
           if (typeof readServer === 'function') remote = await readServer(local);
-          else if (typeof exists === 'function' && await exists(local)) unverified = true;
+          else if (typeof exists === 'function' && (await exists(local))) unverified = true;
         } catch (readErr) {
           if (Status.isDeadAuth(readErr)) {
             kept.push(id);
             return { synced, kept, failed, adopted, authDead: true };
           }
-          if (Status.isTransient(readErr)) { kept.push(id); continue; }
+          if (Status.isTransient(readErr)) {
+            kept.push(id);
+            continue;
+          }
           unverified = true;
         }
-        if (remote && Status.sameContent(local, remote)) { synced.push(id); continue; }
+        if (remote && Status.sameContent(local, remote)) {
+          synced.push(id);
+          continue;
+        }
         if (remote && Status.sameReversal(local, remote)) {
           synced.push(id);
           adopted.push({ id, remote });
@@ -458,9 +532,31 @@
   }
 
   return {
-    isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
-    contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
-    readSetKey, readSetChanged, stripMoney, termsPayload, subcontractReads, pullSubcontracts,
-    exactProjectName, projectDeleteDocs, projectDeleteBatches, missingRequestedIds, dropProjectLocal,
+    isSeed,
+    collectionFor,
+    toRemote,
+    withServerTime,
+    fromRemote,
+    mergeById,
+    siteReads,
+    pullChanges,
+    flushOutbox,
+    contractAmountOf,
+    withoutContractAmount,
+    splitProjectSave,
+    projectsForClient,
+    financeReads,
+    personInput,
+    readSetKey,
+    readSetChanged,
+    stripMoney,
+    termsPayload,
+    subcontractReads,
+    pullSubcontracts,
+    exactProjectName,
+    projectDeleteDocs,
+    projectDeleteBatches,
+    missingRequestedIds,
+    dropProjectLocal,
   };
 });
