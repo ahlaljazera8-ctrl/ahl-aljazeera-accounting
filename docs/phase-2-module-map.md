@@ -4,15 +4,15 @@
 
 #34 was opened at 09:05 Baghdad on 2026-11-03 (GitHub `createdAt` `2026-11-03T06:05:56Z`). The original commit `fa7192fafeb6431d17468736a2a78f306578d43a` is 09:05 Baghdad the same morning (`2026-11-03T06:05:38Z`). [#35](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/pull/35) merged at 10:53 Baghdad (`2026-11-03T07:53:00Z`, `17433b96d4fc97bd30554bdef85abdfce7afda70`). The plan was on the pull request before the first split merged.
 
-## Options considered
+## Layout A vs Layout B (ES modules)
 
-The original map offered two layouts and said not to start the file split in the same step as the pick.
+The original map (`fa7192f`) offered both layouts and said not to start the file split in the same step as the pick.
 
 Layout A is more classic scripts. `app.js` would split by ownership, still as classic scripts and still as globals: `session.js` for IndexedDB, the cache, `AJ`, login, and logout; `firebase-client.js` for `loadFirebase` and the flush that calls `Sync`; `render.js` for the views and the click handlers. `ledger.js`, `sync.js`, and `sync-status.js` stay. `index.html`, `ASSETS`, and `SHELL` gain the new names, with one service-worker bump per pull request that adds a file. Tests that call `Ledger`, `Sync`, `SyncStatus`, `DomSafe`, and `AJ` keep working. This is the smaller blast radius. The cost is more globals and a longer precache list.
 
 Layout B is one ES module entry. `app.js` becomes `type=module` and imports ledger, sync, and the Firebase SDK. The UMD wrappers can stay so Node tests keep `require('../public/ledger.js')`, or the tests move to `import`. The precache list can shrink if the module graph is bundled into one file, or grow if each module is its own URL. Either way `ASSETS` changes and `VERSION` bumps. Browser checks that eval `Ledger` and `AJ` as globals break until those names are still published. This is the larger blast radius and the cleaner long-term import graph. It should not be the first cut.
 
-Layout A was chosen before any split, because it is the smaller blast radius.
+Ameer chose Layout A at 10:39 Baghdad. [#35](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/pull/35) then opened at 10:48 Baghdad (`2026-11-03T07:48:22Z`) as the first Layout A file, and its body says Layout B (ES modules) was not used. `public/session.js`, `public/firebase-client.js`, and `public/render.js` are the classic scripts that landed.
 
 ## What landed
 
