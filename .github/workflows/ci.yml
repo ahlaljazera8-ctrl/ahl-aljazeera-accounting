@@ -152,7 +152,7 @@ jobs:
           if [[ "$os_id" != "$WEBKIT_UBUNTU" || "$zip_name" != "webkit-ubuntu-${os_id}.zip" ]]; then
             echo "install webkit refused: /etc/os-release VERSION_ID is '${os_id}', WEBKIT_UBUNTU is '${WEBKIT_UBUNTU}', archive is '${zip_name}'." >&2
             echo "The WebKit dependency script installs the libraries for that Ubuntu. webkit-ubuntu-24.04.zip needs libicu74 and libvpx9. On Ubuntu 26.04 apt exits 100, which is how emulator job 129341047932 failed after ubuntu-latest moved to 26.04." >&2
-            echo "Follow-up: when Playwright ships webkit-ubuntu-26.04.zip, bump WEBKIT_UBUNTU and the four runs-on labels together. Do not change one without the other. https://github.com/actions/runner-images#image-deprecation-policy" >&2
+            echo "Follow-up: when Playwright ships webkit-ubuntu-26.04.zip, bump WEBKIT_UBUNTU and the four runs-on labels together. Do not change one without the other. https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/issues/55" >&2
             exit 1
           fi
           REV=2215
