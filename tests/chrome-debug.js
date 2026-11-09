@@ -85,6 +85,16 @@ function descendantPids(root) {
   return out;
 }
 
+function processAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function stopChrome(chrome, detached) {
   if (!chrome || !chrome.pid) return;
   const pid = chrome.pid;
@@ -102,6 +112,19 @@ function stopChrome(chrome, detached) {
   try {
     chrome.kill('SIGKILL');
   } catch (e) {}
+}
+
+async function stopAndWait(chrome, detached) {
+  const pid = chrome && chrome.pid;
+  const descendants = pid ? descendantPids(pid) : [];
+  stopChrome(chrome, detached);
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    const rootGone = !processAlive(pid);
+    const kidsGone = descendants.every(child => !processAlive(child));
+    if (rootGone && kidsGone) return;
+    await sleep(20);
+  }
 }
 
 async function waitForPage(port, child, attempts) {
@@ -163,6 +186,9 @@ function launchChrome(command, dir, detached) {
   const keep = chunk => {
     held.text = (held.text + chunk).slice(-8000);
   };
+  chrome.on('error', err => {
+    held.text = (held.text + '\n' + String((err && err.message) || err)).slice(-8000);
+  });
   if (chrome.stdout) chrome.stdout.on('data', keep);
   if (chrome.stderr) chrome.stderr.on('data', keep);
   return chrome;
@@ -196,13 +222,17 @@ async function openChrome(opts) {
     const waited = await waitForDebugPort(chrome, dir, attempts);
     if (waited.early) {
       const code = chrome.exitCode;
-      const message = logged('Chrome exited before opening a debug port (code ' + code + ')', chrome);
+      let message = logged('Chrome exited before opening a debug port (code ' + code + ')', chrome);
+      for (let i = 0; i < misses.length; i++) {
+        const extra = String(misses[i].log || '').trim();
+        if (extra) message += '\nattempt ' + (i + 1) + ' log:\n' + extra;
+      }
       stopChrome(chrome, detached);
       throw new Error(message);
     }
     if (!waited.port) {
       misses.push({ last: waited.last || 'no DevToolsActivePort', log: chromeLog(chrome) });
-      stopChrome(chrome, detached);
+      await stopAndWait(chrome, detached);
       if (attempt === 1) {
         process.stderr.write('chrome-debug: retry 1/1 ' + misses[0].last + '\n');
         continue;

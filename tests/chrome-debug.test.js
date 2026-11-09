@@ -54,6 +54,7 @@ const FAKE_CHROME = `#!/usr/bin/env node
 'use strict';
 const fs = require('fs');
 const http = require('http');
+const { spawn } = require('child_process');
 const dirArg = process.argv.find(arg => arg.startsWith('--user-data-dir='));
 if (!dirArg) process.exit(2);
 const dir = dirArg.slice('--user-data-dir='.length);
@@ -63,7 +64,16 @@ const n = (fs.existsSync(countPath) ? Number(fs.readFileSync(countPath, 'utf8'))
 fs.writeFileSync(countPath, String(n));
 process.stderr.write('fake-log-' + n + '\\n');
 if (mode === 'exit') process.exit(7);
-if (mode === 'serve' && n >= 2) {
+if (fs.existsSync(dir + '/SingletonLock')) {
+  process.stderr.write('fake-lock-still-present\\n');
+  process.exit(8);
+}
+if (n === 1) {
+  fs.writeFileSync(dir + '/SingletonLock', String(process.pid));
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  fs.writeFileSync(dir + '/fake-pid', String(child.pid));
+  setInterval(() => {}, 1000);
+} else if (mode === 'serve') {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify([{ type: 'page', id: 'p1', webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/p1' }]));
@@ -72,8 +82,10 @@ if (mode === 'serve' && n >= 2) {
     const port = server.address().port;
     fs.writeFileSync(dir + '/DevToolsActivePort', String(port) + '\\n/devtools/browser/fake\\n');
   });
+  setInterval(() => {}, 1000);
+} else {
+  setInterval(() => {}, 1000);
 }
-setInterval(() => {}, 1000);
 `;
 
 function writeFake(dir, mode) {
@@ -86,6 +98,13 @@ function writeFake(dir, mode) {
 }
 
 function stopOpened(dir, opened) {
+  const pidFile = path.join(dir, 'fake-pid');
+  if (fs.existsSync(pidFile)) {
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (e) {}
+  }
   const api = require('./chrome-debug.js');
   if (opened && opened.chrome && typeof api.stopChrome === 'function') api.stopChrome(opened.chrome, false);
   let names;
@@ -139,6 +158,9 @@ test('a hung chrome start retries once in the same profile', { timeout: 10000 },
     assert.ok(opened.page.webSocketDebuggerUrl);
     assert.match(run.stderr, /chrome-debug: retry 1\/1/);
     assert.equal(fs.readFileSync(path.join(dir, 'fake-count'), 'utf8'), '2');
+    const pid = Number(fs.readFileSync(path.join(dir, 'fake-pid'), 'utf8'));
+    assert.ok(pid > 1);
+    assert.equal(fs.existsSync('/proc/' + pid), false);
   } finally {
     stopOpened(dir, opened);
     fs.rmSync(dir, { recursive: true, force: true });

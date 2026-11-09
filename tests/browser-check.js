@@ -1,3 +1,4 @@
+// Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
 const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
@@ -49,10 +50,25 @@ let chrome;
     }
     if (!(await ready())) throw new Error('browser-check: document was not ready');
   };
+  const sameDocument = async target => {
+    try {
+      const href = await ev('location.href');
+      return !!href && new URL(href).href === new URL(target).href;
+    } catch (e) {
+      return false;
+    }
+  };
   const go = async url => {
     const origin = await ev('performance.timeOrigin');
     const message = await send('Page.navigate', { url });
-    await waitReady(url, loaderOf(message), origin);
+    const loaderId = loaderOf(message);
+    if (!loaderId) {
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline && !(await sameDocument(url))) await sleep(20);
+      await sleep(900);
+      return;
+    }
+    await waitReady(url, loaderId, origin);
   };
   const reload = async params => {
     const origin = await ev('performance.timeOrigin');
@@ -278,6 +294,7 @@ let chrome;
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   check('subcontracts: site detail does not show the amount', await ev(`(()=>{const text=document.querySelector('#main').innerText; return text.includes('هذه الشاشة للمالك') && !text.includes('3,000,000') && !text.includes('3,200,000') && !document.querySelector('.warnbox');})()`));
+  // functional: save expense as site -> outbox +1; send now drains
   await go(`${BASE}index.html?role=site#entry`);
   const before = await ev(`AJ.get('outbox').length`);
   await ev(`document.querySelector('[data-add="1000"]').click(); document.querySelector('#save').click(); 1`);
@@ -293,6 +310,7 @@ let chrome;
   check('IndexedDB data survives reload', i2.entries === i1.entries && i2.outbox === i1.outbox && after2 === after);
   check('navigator.storage.persist called (result: ' + (await ev('String(AJ.persisted)')) + ')', (await ev('typeof navigator.storage.persist')) === 'function');
   check('header bell shows the unsent count', await ev(`(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const panel=document.querySelector('#bell-panel');const n=AJ.get('outbox').length;const label=(btn&&btn.getAttribute('aria-label'))||'';const text=panel?panel.innerText:'';return btn&&btn.tagName==='BUTTON'&&n===${after}&&label.includes('لم يُرسل بعد: '+n)&&badge&&badge.hidden===false&&badge.textContent===String(n)&&text.includes('لم يُرسل بعد')&&text.includes('آخر مزامنة')&&text.includes('إرسال الآن')&&text.includes(String(n))&&!document.querySelector('#send')})()`));
+  // offline reload: SW must control page, then block network
   await ev(`navigator.serviceWorker.ready.then(()=>1)`); await go(`${BASE}index.html?role=owner#home`);
   check('service worker controls page', await ev('!!navigator.serviceWorker.controller'));
   await send('Network.enable'); await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
