@@ -72,6 +72,7 @@ Each line is a trigger from that skill's own file. The wording is the source wor
 
 Keep this identical to .cursor/rules/pstack-models.mdc; edit both together.
 
+```text
 # budget: large (xhigh)
 feature, refactoring: grok-4.7-xhigh-fast
 bug-fix: grok-4.7-xhigh-fast
@@ -90,3 +91,4 @@ arena cross-judge pool: claude-opus-5-5-xhigh, grok-4.7-xhigh-fast
 swarm workers: grok-4.7-xhigh-fast
 architect runners: claude-opus-5-5-xhigh, grok-4.7-xhigh-fast
 interrogate reviewers: claude-opus-5-5-xhigh, grok-4.7-xhigh-fast
+```
