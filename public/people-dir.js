@@ -66,7 +66,7 @@
     if (s.inflight) return 'inflight';
     if (reason === 'retry') return 'start';
     if (!s.online) return 'offline';
-    if (reason === 'online') return 'start';
+    if (reason === 'online' || reason === 'save') return 'start';
     if (s.failedAt && now - s.failedAt < COOLDOWN_MS) return 'cooldown';
     if (!s.failedAt && s.syncedAt && now - s.syncedAt < SUCCESS_TTL_MS) return 'fresh';
     return 'start';
@@ -168,7 +168,7 @@
      */
     function run(reason) {
       const why = reason || 'render';
-      if (why === 'retry' && inflight) retireInflight();
+      if (why === 'save' && inflight) retireInflight();
       const plan = loadPlan({
         inflight: inflight !== null,
         failedAt: failedAt,

@@ -181,17 +181,26 @@ async function savePerson(u) {
   if (!built.ok) { if (msg) msg.textContent = built.errors[0]; return; }
   if (btn) btn.disabled = true;
   const existing = get(K.users, []).find(x => x.uid === built.value.uid);
+  let saved = false;
   try {
     if (demoRole()) storePerson(built.value, existing, u);
     else {
       const fb = await ensureFirebase();
       await fb.saveUser(built.value.uid, built.value, existing);
-      await ensureDirectory('retry');
+      saved = true;
+      try {
+        await ensureDirectory('save');
+      } catch {
+        storePerson(built.value, existing, u);
+        location.hash = '#people';
+        return;
+      }
       const fresh = get(K.users, []).find(x => x.uid === built.value.uid) || storePerson(built.value, existing, u);
       if (get(K.sessionUser, null) && get(K.sessionUser).uid === built.value.uid) set(K.sessionUser, Object.assign({}, get(K.sessionUser), fresh));
     }
     location.hash = '#people';
-  } catch (err) {
+  } catch {
+    if (saved) return;
     if (btn) btn.disabled = false;
     if (msg) msg.textContent = 'تعذر حفظ الشخص';
   }

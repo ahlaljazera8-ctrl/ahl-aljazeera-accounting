@@ -1259,6 +1259,116 @@ let chrome;
     } finally { window.get = orig; }
   })()`);
   check('a render error shows the generic card', renderError && renderError.text==='حدث خطأ في العرض. أعد فتح الصفحة.' && renderError.blank===false);
+  await go(BASE + 'index.html?role=owner#home');
+  const savedRefresh = await ev(`(async()=>{
+    try {
+    history.replaceState(null, '', location.pathname);
+    const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };
+    const ahmed = { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] };
+    set(K.users, [owner, ahmed]);
+    set(K.sessionUser, owner);
+    const stamp = Date.parse('2026-11-03T12:00:00Z');
+    set(K.peopleSynced, stamp);
+    window.ensureFirebase = () => Promise.resolve({
+      saveUser() { return Promise.resolve(); },
+      listUsers() { return Promise.reject(new Error('down')); },
+    });
+    location.hash = '#person/u-ahmed';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 40));
+    const name = document.querySelector('#person-name');
+    const email = document.querySelector('#person-email');
+    const boxes = [...document.querySelectorAll('[data-assign]')];
+    if (name) name.value = 'أحمد المحفوظ';
+    if (email && !email.value) email.value = 'ahmed@example.invalid';
+    if (boxes.length && !boxes.some(b => b.checked)) boxes[0].checked = true;
+    const save = document.querySelector('#save-person');
+    if (save) save.click();
+    await new Promise(r => setTimeout(r, 80));
+    const users = get(K.users) || [];
+    const rows = users.filter(u => u && u.uid==='u-ahmed');
+    const msg = document.querySelector('#person-msg');
+    const note = (document.querySelector('#people-sync')||{}).innerText || '';
+    const afterFail = {
+      hash: location.hash,
+      msg: msg ? msg.textContent : '',
+      note,
+      count: rows.length,
+      name: rows[0] && rows[0].displayName,
+      synced: Number(get(K.peopleSynced)),
+      stamp,
+    };
+    window.ensureFirebase = () => Promise.resolve({
+      listUsers() {
+        return Promise.resolve([
+          { uid:'u-ahmed', displayName:'أحمد الخادم', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] },
+          { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] },
+        ]);
+      },
+    });
+    await ensureDirectory('retry');
+    render();
+    const next = (get(K.users)||[]).filter(u => u && u.uid==='u-ahmed');
+    return Object.assign(afterFail, {
+      refreshed: true,
+      nextCount: next.length,
+      nextName: next[0] && next[0].displayName,
+    });
+    } catch (e) { return { thrown: String(e && e.stack || e) }; }
+  })()`);
+  check('a saved person whose refresh fails shows the update note, not the save error', savedRefresh && !savedRefresh.thrown && savedRefresh.hash==='#people' && savedRefresh.msg!=='تعذر حفظ الشخص' && savedRefresh.note.includes('تعذّر التحديث') && savedRefresh.note.includes('آخر تحديث') && savedRefresh.note.includes('غير متصل')===false && savedRefresh.name==='أحمد المحفوظ');
+  check('the local save stays one row and the next refresh replaces it', savedRefresh && savedRefresh.count===1 && savedRefresh.refreshed===true && savedRefresh.nextCount===1 && savedRefresh.nextName==='أحمد الخادم');
+  check('a failed people refresh does not advance the last update', savedRefresh && savedRefresh.synced===savedRefresh.stamp && savedRefresh.stamp>0);
+  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  const savedOffline = await ev(`(async()=>{
+    const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };
+    const ahmed = { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] };
+    set(K.users, [owner, ahmed]);
+    set(K.sessionUser, owner);
+    let calls = 0;
+    window.ensureFirebase = () => Promise.resolve({
+      saveUser() { return Promise.resolve(); },
+      listUsers() { calls += 1; return Promise.reject(new Error('down')); },
+    });
+    location.hash = '#person/u-ahmed';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 30));
+    const email = document.querySelector('#person-email');
+    const boxes = [...document.querySelectorAll('[data-assign]')];
+    if (email) email.value = 'ahmed@example.invalid';
+    if (boxes.length && !boxes.some(b => b.checked)) boxes[0].checked = true;
+    const save = document.querySelector('#save-person');
+    if (save) save.click();
+    await new Promise(r => setTimeout(r, 80));
+    const msg = document.querySelector('#person-msg');
+    const note = (document.querySelector('#people-sync')||{}).innerText || '';
+    return { hash: location.hash, msg: msg ? msg.textContent : '', note, calls, onLine: navigator.onLine, hasSave: !!save };
+  })()`);
+  check('an offline save does not say the person failed to save', savedOffline && savedOffline.onLine===false && savedOffline.hash==='#people' && savedOffline.msg!=='تعذر حفظ الشخص' && savedOffline.note.includes('غير متصل') && savedOffline.calls===0);
+  const saveFailed = await ev(`(async()=>{
+    history.replaceState(null, '', location.pathname);
+    const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };
+    const ahmed = { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] };
+    set(K.users, [owner, ahmed]);
+    set(K.sessionUser, owner);
+    window.ensureFirebase = () => Promise.resolve({
+      saveUser() { return Promise.reject(new Error('no')); },
+      listUsers() { return Promise.resolve([]); },
+    });
+    location.hash = '#person/u-ahmed';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 40));
+    const email = document.querySelector('#person-email');
+    const boxes = [...document.querySelectorAll('[data-assign]')];
+    if (email && !email.value) email.value = 'ahmed@example.invalid';
+    if (boxes.length && !boxes.some(b => b.checked)) boxes[0].checked = true;
+    const save = document.querySelector('#save-person');
+    if (save) save.click();
+    await new Promise(r => setTimeout(r, 80));
+    const msg = document.querySelector('#person-msg');
+    return { hash: location.hash, msg: msg ? msg.textContent : '' };
+  })()`);
+  check('a rejected save still says the person was not saved', saveFailed && saveFailed.hash.indexOf('#person/')===0 && saveFailed.msg==='تعذر حفظ الشخص');
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
