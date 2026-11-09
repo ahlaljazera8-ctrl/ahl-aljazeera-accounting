@@ -201,6 +201,9 @@ test('a hash navigation that misses its url throws both hrefs', () => {
   assert.throws(
     () => landed(expected, actual),
     err => {
+      if (!(err instanceof Error)) {
+        assert.fail('expected an Error');
+      }
       assert.equal(err.message, 'browser-check: location.href is ' + actual + ', expected ' + expected);
       return true;
     },
@@ -221,6 +224,9 @@ test('stopAndWait throws when the process ignores the kill', { timeout: 10000 },
   };
   try {
     await assert.rejects(stopAndWait(child, false), err => {
+      if (!(err instanceof Error)) {
+        assert.fail('expected an Error');
+      }
       assert.match(err.message, new RegExp('chrome-debug: process ' + child.pid + ' did not exit before relaunch'));
       return true;
     });
