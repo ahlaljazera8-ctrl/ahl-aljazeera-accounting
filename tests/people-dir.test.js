@@ -75,6 +75,10 @@ test('loadPlan allows one start, then cooldown, and bypasses it for online and r
   assert.equal(PeopleDir.loadPlan(fresh, 1000 + PeopleDir.SUCCESS_TTL_MS, 'render'), 'start');
   assert.equal(PeopleDir.loadPlan(fresh, 1001, 'retry'), 'start');
   assert.equal(PeopleDir.loadPlan(fresh, 1001, 'online'), 'start');
+  assert.equal(PeopleDir.loadPlan(fresh, 1001, 'save'), 'start');
+  assert.equal(PeopleDir.loadPlan({ inflight: false, failedAt: 1000, online: true, syncedAt: 1000 }, 1001, 'save'), 'start');
+  assert.equal(PeopleDir.loadPlan({ inflight: false, failedAt: 0, online: false, syncedAt: 1000 }, 1001, 'save'), 'offline');
+  assert.equal(PeopleDir.loadPlan({ inflight: true, failedAt: 0, online: true }, 2000, 'save'), 'inflight');
   assert.equal(PeopleDir.loadPlan({ inflight: false, failedAt: 1000, online: true, syncedAt: 1000 }, 1001, 'render'), 'cooldown');
   assert.equal(PeopleDir.COOLDOWN_MS, 8000);
   assert.equal(PeopleDir.TIMEOUT_MS, 8000);
@@ -214,7 +218,28 @@ test('offline does not call ensureFirebase and a failure never writes', async ()
   assert.equal(failing.stored()[0].uid, 'a');
 });
 
-test('a retry does not keep an in-flight list from before the save', async () => {
+test('a retry joins an in-flight load', async () => {
+  /** @type {((rows: any[]) => void) | undefined} */
+  let release;
+  const h = harness({
+    load: () => new Promise(resolve => { release = resolve; }),
+  });
+  const background = h.loader.run('render');
+  const first = h.loader.run('retry');
+  const second = h.loader.run('retry');
+  const third = h.loader.run('retry');
+  assert.equal(first, background);
+  assert.equal(second, background);
+  assert.equal(third, background);
+  assert.equal(h.calls.length, 1);
+  if (!release) throw new Error('the load should be waiting');
+  release([row('a')]);
+  await background;
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.writes.length, 1);
+});
+
+test('a save does not keep an in-flight list from before the save', async () => {
   /** @type {((rows: any[]) => void) | undefined} */
   let first;
   /** @type {((rows: any[]) => void) | undefined} */
@@ -229,7 +254,7 @@ test('a retry does not keep an in-flight list from before the save', async () =>
     }),
   });
   const background = h.loader.run('render');
-  const save = h.loader.run('retry');
+  const save = h.loader.run('save');
   assert.notEqual(background, save);
   assert.equal(h.calls.length, 2);
   if (!first || !second) throw new Error('both loads should be waiting');
@@ -243,6 +268,15 @@ test('a retry does not keep an in-flight list from before the save', async () =>
   assert.equal(h.writes.length, 1);
   assert.equal(h.stored()[0].uid, 'saved');
   assert.equal(h.stored()[0].displayName, 'جديد');
+});
+
+test('a save while offline does not call listUsers', async () => {
+  const h = harness({ online: false, stored: [row('a')], rows: [row('b')] });
+  const skipped = await h.loader.run('save');
+  assert.equal(skipped.skipped, 'offline');
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.stored()[0].uid, 'a');
 });
 
 test('a fresh directory skips render and still loads for retry and online', async () => {
