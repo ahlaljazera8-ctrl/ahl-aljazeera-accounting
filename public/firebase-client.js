@@ -135,6 +135,19 @@ async function createFirebaseClient(mods, generation) {
     await dropAbandonedApp(mods, app);
     return null;
   }
+  const marked = signOutPending();
+  if (marked) {
+    let signed = false;
+    try {
+      await withTimeout(authMod.signOut(auth), 3000, 'خروج');
+      signed = true;
+    } catch (e) { /* a failed sign-out leaves the marker; the client is still returned */ }
+    if (generation !== fbGeneration) {
+      await dropAbandonedApp(mods, app);
+      return null;
+    }
+    if (signed) clearSignOutPending(marked);
+  }
   const S = window.Sync;
   return {
     auth, db: fdb,
@@ -155,8 +168,10 @@ async function createFirebaseClient(mods, generation) {
       const cleared = await step(() => fsMod.clearIndexedDbPersistence(fdb));
       await step(() => withTimeout(fsMod.terminate(fdb), 3000, 'إغلاق'));
       if (!cleared) await step(() => withTimeout(fsMod.clearIndexedDbPersistence(fdb), 3000, 'إغلاق'));
-      if (signOutUser) await step(() => withTimeout(authMod.signOut(auth), 3000, 'خروج'));
+      let signedOut = true;
+      if (signOutUser) signedOut = await step(() => withTimeout(authMod.signOut(auth), 3000, 'خروج'));
       await step(() => withTimeout(deleteApp(app), 3000, 'إغلاق'));
+      return signedOut;
     },
     async profile(uid) {
       const snap = await fsMod.getDoc(fsMod.doc(fdb, 'users', uid));
@@ -426,9 +441,13 @@ async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
   fbPromise = null;
   flushing = null;
-  if (!pending) return;
+  const marked = signOutPending();
+  if (!pending) return false;
   const fb = await pending.catch(() => null);
-  if (fb && fb.dispose) await fb.dispose(!!signOutUser);
+  if (!(fb && fb.dispose)) return false;
+  const signedOut = await fb.dispose(!!signOutUser);
+  if (signOutUser === true && signedOut === true) clearSignOutPending(marked);
+  return signOutUser === true && signedOut === true;
 }
 async function rebuildFirebase(signOutUser) {
   await disposeFirebase(signOutUser);

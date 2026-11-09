@@ -44,6 +44,9 @@ function loadClient() {
     clears: [],
     /** @type {'resolve' | 'hang-first' | 'reject'} */
     clearMode: 'resolve',
+    bumpOnFirestore: false,
+    /** @type {(() => void) | null} */
+    onFirestore: null,
     /** @type {'resolve' | 'hang-first'} */
     deleteMode: 'resolve',
     /** @type {(() => void) | null} */
@@ -91,7 +94,10 @@ function loadClient() {
     },
     fsMod: {
       memoryLocalCache() { return { kind: 'memory' }; },
-      initializeFirestore(app) { return { app, ping() { return 'ok'; } }; },
+      initializeFirestore(app) {
+        if (state.bumpOnFirestore && state.onFirestore) state.onFirestore();
+        return { app, ping() { return 'ok'; } };
+      },
       getFirestore(app) { return { app, ping() { return 'ok'; } }; },
       connectFirestoreEmulator() {},
       clearIndexedDbPersistence(db) {
@@ -126,6 +132,8 @@ function loadClient() {
     navigator: { onLine: true },
     sessionStorage: { getItem() { return null; }, setItem() {} },
     FIREBASE_CONFIG: { apiKey, projectId: 'ahl-aljazeera-accounting' },
+    signOutPending() { return ''; },
+    clearSignOutPending() {},
     Sync: {},
     get() { return null; },
     set() {},
@@ -318,6 +326,27 @@ test('a rejected persistence clear does not fail the load', async () => {
   assert.equal(client.db.ping(), 'ok');
   assert.equal(state.clears.length, 1);
   assert.equal(state.clears[0].settled, true);
+});
+
+test('the check before the persistence clear drops a generation bumped by Firestore', async () => {
+  const { context, state } = loadClient();
+  state.bumpOnFirestore = true;
+  state.onFirestore = () => { context.fbGeneration += 1; };
+  context.FB_LOAD_MS = 60000;
+  try {
+    await assert.rejects(context.ensureFirebase(), (err) => /** @type {Error} */ (err).abandoned === true);
+    assert.equal(state.clears.length, 0);
+  } finally {
+    context.FB_LOAD_MS = 20000;
+  }
+});
+
+test('abandonedLoad uses the same timeout sentence as withTimeout', () => {
+  const { context } = loadClient();
+  const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+  const found = app.match(/new Error\('(.*)' \+ step \+ '(.*)'\)/);
+  if (!found) throw new Error('app.js timeout sentence missing');
+  assert.equal(context.abandonedLoad().message, found[1] + 'تحميل' + found[2]);
 });
 
 test('a stale generation rejects the shared load instead of resolving null', async () => {
