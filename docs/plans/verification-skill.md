@@ -623,7 +623,7 @@ Quote §8 in that PR, including Ameer's decline of the product suggestions. Do n
 
 ## Draft PR body (not posted)
 
-Paste this when the branch is pushed with the post-#59 test-list appends. These seven wiring mutations still survive the unit tests, because each one needs a live emulator, a Chrome page, or a real pid. The pure-function tests do not reach the call site.
+Paste this when the branch is pushed with the post-#59 test-list appends. These 9/25 wiring mutations still survive the unit tests, because each one needs a live emulator, a Chrome page, or a real pid. The pure-function tests do not reach the call site.
 
 1. **Drive-failure network check.** Delete the `catch` in `driveLedgerEntry` that stores the error and the following `finishSession` call. A drive that throws before the end never writes `network.txt`, so a production request during a failed drive is not recorded.
 2. **adoptEmulatorHost, Auth.** Make `adoptEmulatorHost` assign `FIREBASE_AUTH_EMULATOR_HOST` even when the caller already set a non-loopback value. `seed` then overwrites it instead of refusing.
@@ -632,3 +632,5 @@ Paste this when the branch is pushed with the post-#59 test-list appends. These 
 5. **Home omits the row.** Remove both checks that throw when `#main` contains `قيد تحقق مواد`. Home can list the saved row and the drive still exits 0.
 6. **Launch call site, launchBlock.** Skip the `launchBlock` call that exits 2 when an emulator or port `8765` is already up. A second `launch` no longer refuses.
 7. **Launch call sites, page and CSP.** Remove the `urlModeOk(location.href)` check after navigation and the `cspOk` call on the hosting response. A page with `?role=owner`, or a hosting response without the emulator CSP, is treated as ready.
+8. **finishSession swallows the network error.** In `finishSession`, drop the rethrow after `flushNetwork` throws. `network.txt` records `BLOCKED` and the command still exits 0.
+9. **hosting-port check on the launch path (covered by readHub).** Remove the `launchBlock` call that runs after `readHub` and refuses hosting port `8765`. `readHub` already calls `hostPortOk` on that host and port, so the unit tests still pass.

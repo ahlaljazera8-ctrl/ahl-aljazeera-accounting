@@ -93,6 +93,7 @@ test('networkVerdict allows only loopback emulator ports and the Firebase JS SDK
     'https://www.gstatic.com/firebasejs-compat/13.1.0/firebase-app.js',
     'http://127.0.0.1:8765/index.html',
     'http://127.0.0.1:443/v1',
+    'http://10.0.0.8:8080/',
   ];
   assert.deepEqual(networkVerdict(blocked, ports), blocked);
 });
