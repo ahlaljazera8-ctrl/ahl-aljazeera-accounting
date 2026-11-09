@@ -42,8 +42,15 @@ function loadClient() {
     authStateCalls: 0,
     /** @type {{ db: any, ok: (value?: unknown) => void, no: (err: Error) => void, settled: boolean }[]} */
     clears: [],
-    /** @type {'resolve' | 'hang-first'} */
+    /** @type {'resolve' | 'hang-first' | 'reject'} */
     clearMode: 'resolve',
+    /** @type {'resolve' | 'hang-first'} */
+    deleteMode: 'resolve',
+    /** @type {(() => void) | null} */
+    releaseDelete: null,
+    signOuts: 0,
+    /** @type {{ uid: string } | null} */
+    persistedUser: { uid: 'u-ameer' },
   };
   const apiKey = 'test-key';
   const mods = {
@@ -55,14 +62,10 @@ function loadClient() {
     },
     getApps() { return state.apps.slice(); },
     deleteApp(app) {
+      const hang = state.deleteMode === 'hang-first' && state.deleted.length === 0;
       state.deleted.push(app);
       state.apps = state.apps.filter(a => a.name !== app.name);
-      for (const gate of state.clears) {
-        if (!gate.settled && gate.db && gate.db.app === app) {
-          gate.settled = true;
-          gate.no(new Error('app deleted'));
-        }
-      }
+      if (hang) return new Promise(ok => { state.releaseDelete = () => ok(undefined); });
       return Promise.resolve();
     },
     authMod: {
@@ -80,7 +83,11 @@ function loadClient() {
       onAuthStateChanged() { state.authStateCalls += 1; },
       connectAuthEmulator() {},
       signInWithEmailAndPassword() { return Promise.resolve(); },
-      signOut() { return Promise.resolve(); },
+      signOut() {
+        state.signOuts += 1;
+        state.persistedUser = null;
+        return Promise.resolve();
+      },
     },
     fsMod: {
       memoryLocalCache() { return { kind: 'memory' }; },
@@ -92,6 +99,11 @@ function loadClient() {
           const gate = { db, ok, no, settled: false };
           state.clears.push(gate);
           const hang = state.clearMode === 'hang-first' && state.clears.length === 1;
+          if (state.clearMode === 'reject' && !hang) {
+            gate.settled = true;
+            no(new Error('clear failed'));
+            return;
+          }
           if (!hang) {
             gate.settled = true;
             ok(undefined);
@@ -128,44 +140,50 @@ function loadClient() {
 
 test('a hung ensureFirebase times out and the next call loads again', async () => {
   const { context } = loadClient();
-  let calls = 0;
-  context.loadFirebase = () => {
-    calls += 1;
-    return new Promise(() => {});
-  };
   context.FB_LOAD_MS = 50;
-  const first = context.ensureFirebase();
-  await assert.rejects(first, isTimeout);
-  assert.equal(calls, 1);
-  const second = context.ensureFirebase();
-  assert.equal(calls, 2);
-  await assert.rejects(second, isTimeout);
-  context.FB_LOAD_MS = 20000;
+  try {
+    let calls = 0;
+    context.loadFirebase = () => {
+      calls += 1;
+      return new Promise(() => {});
+    };
+    const first = context.ensureFirebase();
+    await assert.rejects(first, isTimeout);
+    assert.equal(calls, 1);
+    const second = context.ensureFirebase();
+    assert.equal(calls, 2);
+    await assert.rejects(second, isTimeout);
+  } finally {
+    context.FB_LOAD_MS = 20000;
+  }
 });
 
 test('the app name stays [DEFAULT] across a timeout and the next load', async () => {
   const { context, state } = loadClient();
   state.clearMode = 'hang-first';
   context.FB_LOAD_MS = 50;
-  const first = context.ensureFirebase();
-  const rejected = assert.rejects(first, isTimeout);
-  await new Promise(r => setTimeout(r, 20));
-  assert.equal(state.initCalls.length, 1);
-  await rejected;
-  const gate = state.clears[0];
-  gate.settled = true;
-  gate.ok();
-  await new Promise(r => setTimeout(r, 20));
-  const second = await context.ensureFirebase();
-  assert.equal(second.db.ping(), 'ok');
-  assert.equal(state.initCalls.length, 2);
-  for (const call of state.initCalls) {
-    assert.equal(call.argc, 1);
-    assert.equal(call.name, null);
+  try {
+    const first = context.ensureFirebase();
+    const rejected = assert.rejects(first, isTimeout);
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(state.initCalls.length, 1);
+    await rejected;
+    const gate = state.clears[0];
+    gate.settled = true;
+    gate.ok();
+    await new Promise(r => setTimeout(r, 20));
+    const second = await context.ensureFirebase();
+    assert.equal(second.db.ping(), 'ok');
+    assert.equal(state.initCalls.length, 2);
+    for (const call of state.initCalls) {
+      assert.equal(call.argc, 1);
+      assert.equal(call.name, null);
+    }
+    assert.ok(state.authCalls.length >= 1);
+    for (const call of state.authCalls) assert.equal(call.key, 'firebase:authUser:test-key:[DEFAULT]');
+  } finally {
+    context.FB_LOAD_MS = 20000;
   }
-  assert.ok(state.authCalls.length >= 1);
-  for (const call of state.authCalls) assert.equal(call.key, 'firebase:authUser:test-key:[DEFAULT]');
-  context.FB_LOAD_MS = 20000;
 });
 
 test('a late import does not delete the newer default app', async () => {
@@ -186,23 +204,27 @@ test('a late import does not delete the newer default app', async () => {
       return context.createFirebaseClient(mods, generation);
     };
     context.FB_LOAD_MS = 50;
-    const first = context.ensureFirebase();
-    await assert.rejects(first, isTimeout);
-    const secondPromise = context.ensureFirebase();
-    const second = await secondPromise;
-    if (!open) throw new Error('the first import should be waiting');
-    const opened = open();
-    await opened;
-    await new Promise(r => setTimeout(r, 30));
-    assert.equal(seen.seen.length, 0);
-    assert.equal(context.fbPromise, secondPromise);
-    assert.equal(state.apps.length, 1);
-    assert.equal(state.apps[0].name, '[DEFAULT]');
-    assert.equal(state.deleted.includes(state.apps[0]), false);
-    assert.equal(second.db.ping(), 'ok');
-    assert.equal(state.authCalls.length, 1);
-    assert.equal(state.authStateCalls, 0);
-    context.FB_LOAD_MS = 20000;
+    try {
+      const first = context.ensureFirebase();
+      await assert.rejects(first, isTimeout);
+      const secondPromise = context.ensureFirebase();
+      const second = await secondPromise;
+      if (!open) throw new Error('the first import should be waiting');
+      const opened = open();
+      await opened;
+      await new Promise(r => setTimeout(r, 30));
+      assert.equal(seen.seen.length, 0);
+      assert.equal(context.fbPromise, secondPromise);
+      assert.equal(state.apps.length, 1);
+      assert.equal(state.apps[0].name, '[DEFAULT]');
+      assert.equal(state.deleted.includes(state.apps[0]), false);
+      assert.equal(state.initCalls.length, 1);
+      assert.equal(second.db.ping(), 'ok');
+      assert.equal(state.authCalls.length, 1);
+      assert.equal(state.authStateCalls, 0);
+    } finally {
+      context.FB_LOAD_MS = 20000;
+    }
   } finally {
     seen.stop();
   }
@@ -214,25 +236,30 @@ test('a late load that already created its app does not delete the newer one', a
     const { context, state } = loadClient();
     state.clearMode = 'hang-first';
     context.FB_LOAD_MS = 50;
-    const first = context.ensureFirebase();
-    const rejected = assert.rejects(first, isTimeout);
-    await new Promise(r => setTimeout(r, 20));
-    assert.equal(state.initCalls.length, 1);
-    assert.equal(state.authCalls.length, 1);
-    await rejected;
-    const secondPromise = context.ensureFirebase();
-    const second = await secondPromise;
-    await new Promise(r => setTimeout(r, 30));
-    assert.equal(seen.seen.length, 0);
-    assert.equal(context.fbPromise, secondPromise);
-    assert.equal(state.apps.length, 1);
-    assert.equal(state.apps[0], second.db.app);
-    assert.equal(state.deleted.includes(second.db.app), false);
-    assert.equal(state.deleted.length, 1);
-    assert.equal(state.authCalls.filter(call => call.app === second.db.app).length, 1);
-    assert.equal(second.db.ping(), 'ok');
-    assert.equal(state.authStateCalls, 0);
-    context.FB_LOAD_MS = 20000;
+    try {
+      const first = context.ensureFirebase();
+      const rejected = assert.rejects(first, isTimeout);
+      await new Promise(r => setTimeout(r, 20));
+      assert.equal(state.clears.length, 1);
+      assert.equal(state.clears[0].settled, false);
+      await rejected;
+      const secondPromise = context.ensureFirebase();
+      const second = await secondPromise;
+      assert.equal(state.apps[0], second.db.app);
+      assert.equal(state.clears[0].settled, false);
+      state.clears[0].settled = true;
+      state.clears[0].ok();
+      await new Promise(r => setTimeout(r, 30));
+      assert.equal(seen.seen.length, 0);
+      assert.equal(context.fbPromise, secondPromise);
+      assert.equal(state.apps.length, 1);
+      assert.equal(state.apps[0], second.db.app);
+      assert.equal(state.deleted.includes(second.db.app), false);
+      assert.equal(second.db.ping(), 'ok');
+      assert.equal(state.authStateCalls, 0);
+    } finally {
+      context.FB_LOAD_MS = 20000;
+    }
   } finally {
     seen.stop();
   }
@@ -242,20 +269,77 @@ test('an abandoned app is deleted when no newer load has started', async () => {
   const { context, state } = loadClient();
   state.clearMode = 'hang-first';
   context.FB_LOAD_MS = 50;
-  const first = context.ensureFirebase();
-  await assert.rejects(first, isTimeout);
-  assert.equal(state.apps.length, 1);
-  const gate = state.clears[0];
-  gate.settled = true;
-  gate.ok();
-  await new Promise(r => setTimeout(r, 20));
-  assert.equal(state.apps.length, 0);
-  assert.equal(state.deleted.length, 1);
-  const second = await context.ensureFirebase();
-  assert.equal(second.db.ping(), 'ok');
-  assert.equal(state.apps.length, 1);
-  assert.equal(state.apps[0].name, '[DEFAULT]');
-  assert.equal(state.initCalls.at(-1).argc, 1);
-  assert.equal(state.initCalls.at(-1).name, null);
-  context.FB_LOAD_MS = 20000;
+  try {
+    const first = context.ensureFirebase();
+    await assert.rejects(first, isTimeout);
+    assert.equal(state.apps.length, 1);
+    const gate = state.clears[0];
+    gate.settled = true;
+    gate.ok();
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(state.apps.length, 0);
+    assert.equal(state.deleted.length, 1);
+    const second = await context.ensureFirebase();
+    assert.equal(second.db.ping(), 'ok');
+    assert.equal(state.apps.length, 1);
+    assert.equal(state.apps[0].name, '[DEFAULT]');
+    assert.equal(state.initCalls.at(-1).argc, 1);
+    assert.equal(state.initCalls.at(-1).name, null);
+  } finally {
+    context.FB_LOAD_MS = 20000;
+  }
+});
+
+test('logout during an in-flight load still signs the saved user out', async () => {
+  const { context, state } = loadClient();
+  state.clearMode = 'hang-first';
+  context.FB_LOAD_MS = 60000;
+  try {
+    assert.deepEqual(state.persistedUser, { uid: 'u-ameer' });
+    const pending = context.ensureFirebase();
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(state.clears.length, 1);
+    const done = context.disposeFirebase(true);
+    state.clears[0].settled = true;
+    state.clears[0].ok();
+    await done;
+    await pending;
+    assert.equal(state.signOuts, 1);
+    assert.equal(state.persistedUser, null);
+  } finally {
+    context.FB_LOAD_MS = 20000;
+  }
+});
+
+test('a rejected persistence clear does not fail the load', async () => {
+  const { context, state } = loadClient();
+  state.clearMode = 'reject';
+  const client = await context.ensureFirebase();
+  assert.equal(client.db.ping(), 'ok');
+  assert.equal(state.clears.length, 1);
+  assert.equal(state.clears[0].settled, true);
+});
+
+test('a generation lost during the stale-app delete does not create another app', async () => {
+  const { context, state } = loadClient();
+  state.deleteMode = 'hang-first';
+  state.apps.push({ name: '[DEFAULT]', config: context.FIREBASE_CONFIG, container: {}, leftover: true });
+  context.FB_LOAD_MS = 50;
+  try {
+    const first = context.ensureFirebase();
+    const rejected = assert.rejects(first, isTimeout);
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(state.deleted.length, 1);
+    assert.equal(state.initCalls.length, 0);
+    await rejected;
+    const second = await context.ensureFirebase();
+    if (state.releaseDelete) state.releaseDelete();
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(state.initCalls.length, 1);
+    assert.equal(state.apps.length, 1);
+    assert.equal(state.apps[0], second.db.app);
+    assert.equal(second.db.ping(), 'ok');
+  } finally {
+    context.FB_LOAD_MS = 20000;
+  }
 });

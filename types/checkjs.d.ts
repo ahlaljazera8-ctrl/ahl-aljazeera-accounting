@@ -849,6 +849,7 @@ declare var lastSyncAt: number;
 // App errors carry a timeout flag, a Firebase code, or ledger validation messages.
 interface Error {
   timeout?: boolean;
+  abandoned?: boolean;
   code?: string;
   errors?: string[];
 }

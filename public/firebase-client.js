@@ -34,10 +34,10 @@ function ensureFirebase() {
   if (fbPromise) return fbPromise;
   const generation = ++fbGeneration;
   const attempt = (async () => {
-    try { return await loadFirebase(generation); }
+    try { return await settledClient(generation); }
     catch (err1) {
       if (generation !== fbGeneration) throw err1;
-      try { return await loadFirebase(generation); }
+      try { return await settledClient(generation); }
       catch (err2) {
         if (generation !== fbGeneration) throw err2;
         if (isImportFailure(err2)) await recoverModuleOnce();
@@ -55,6 +55,26 @@ function ensureFirebase() {
   });
   fbPromise = guarded;
   return guarded;
+}
+/**
+ * A generation that lost the race must not resolve the shared promise with null.
+ * The sentence is the one withTimeout already builds for تحميل.
+ * @returns {Error}
+ */
+function abandonedLoad() {
+  const err = new Error('انتهت المهلة (تحميل). تحقق من الاتصال وأعد المحاولة');
+  err.timeout = true;
+  err.abandoned = true;
+  return err;
+}
+/**
+ * @param {number} generation
+ * @returns {Promise<any>}
+ */
+async function settledClient(generation) {
+  const client = await loadFirebase(generation);
+  if (!client) throw abandonedLoad();
+  return client;
 }
 /**
  * @param {number} generation
@@ -76,7 +96,7 @@ async function loadFirebase(generation) {
  */
 async function dropAbandonedApp(mods, app) {
   const registered = mods.getApps().find(a => a === app);
-  if (registered === app) await mods.deleteApp(app).catch(() => {});
+  if (registered) await mods.deleteApp(registered).catch(() => {});
 }
 /**
  * @param {{ initializeApp(config: any, name?: string): any, deleteApp(app: any): Promise<void>, getApps(): any[], authMod: any, fsMod: any }} mods
@@ -406,7 +426,6 @@ function isDeadAuth(err) { return !!(window.SyncStatus && SyncStatus.isDeadAuth(
 async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
   fbPromise = null;
-  fbGeneration += 1;
   flushing = null;
   if (!pending) return;
   const fb = await pending.catch(() => null);
