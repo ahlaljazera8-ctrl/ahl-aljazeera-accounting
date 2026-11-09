@@ -125,6 +125,8 @@ async function stopAndWait(chrome, detached) {
     if (rootGone && kidsGone) return;
     await sleep(20);
   }
+  const stuck = [pid].concat(descendants).filter(id => processAlive(id));
+  throw new Error('chrome-debug: process ' + stuck.join(',') + ' did not exit before relaunch');
 }
 
 async function waitForPage(port, child, attempts) {
@@ -250,4 +252,4 @@ async function openChrome(opts) {
   throw missError(misses);
 }
 
-module.exports = { waitForPage, openChrome, stopChrome, debugPort, ATTEMPTS, GAP_MS };
+module.exports = { waitForPage, openChrome, stopChrome, stopAndWait, debugPort, ATTEMPTS, GAP_MS };

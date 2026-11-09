@@ -2,9 +2,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const net = require('net');
+const { spawn } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { waitForPage, debugPort, openChrome } = require('./chrome-debug.js');
+const { waitForPage, debugPort, openChrome, stopAndWait } = require('./chrome-debug.js');
 
 function closedPort() {
   return new Promise((resolve, reject) => {
@@ -182,6 +183,52 @@ test('two hung chrome starts throw both logs and both last states', { timeout: 1
   } finally {
     stopOpened(dir, null);
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function assertHashLanded() {
+  const src = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
+  const start = src.indexOf('function assertHashLanded');
+  const end = src.indexOf('let chrome;', start);
+  if (start < 0 || end < 0) throw new Error('assertHashLanded missing from browser-check.js');
+  return new Function(src.slice(start, end) + '\nreturn assertHashLanded;')();
+}
+
+test('a hash navigation that misses its url throws both hrefs', () => {
+  const landed = assertHashLanded();
+  const expected = 'http://127.0.0.1:8765/index.html?role=owner#entry';
+  const actual = 'http://127.0.0.1:8765/index.html?role=owner#home';
+  assert.throws(
+    () => landed(expected, actual),
+    err => {
+      assert.equal(err.message, 'browser-check: location.href is ' + actual + ', expected ' + expected);
+      return true;
+    },
+  );
+  assert.doesNotThrow(() => landed(expected, expected));
+  const src = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
+  const go = src.slice(src.indexOf('const go = async url'), src.indexOf('const reload = async'));
+  assert.match(go, /if \(!\(await sameDocument\(url\)\)\)[\s\S]*assertHashLanded\(/);
+});
+
+test('stopAndWait throws when the process ignores the kill', { timeout: 10000 }, async () => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 500)'], { stdio: 'ignore' });
+  child.kill = () => true;
+  const orig = process.kill;
+  process.kill = (pid, sig) => {
+    if (pid === child.pid && sig) return true;
+    return orig.call(process, pid, sig);
+  };
+  try {
+    await assert.rejects(stopAndWait(child, false), err => {
+      assert.match(err.message, new RegExp('chrome-debug: process ' + child.pid + ' did not exit before relaunch'));
+      return true;
+    });
+  } finally {
+    process.kill = orig;
+    try {
+      orig.call(process, child.pid, 'SIGKILL');
+    } catch (e) {}
   }
 });
 

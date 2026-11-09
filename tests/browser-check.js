@@ -3,6 +3,11 @@ const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+function assertHashLanded(expected, actual) {
+  if (expected !== actual) {
+    throw new Error('browser-check: location.href is ' + actual + ', expected ' + expected);
+  }
+}
 let chrome;
 (async () => {
   const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
@@ -65,6 +70,23 @@ let chrome;
     if (!loaderId) {
       const deadline = Date.now() + 3000;
       while (Date.now() < deadline && !(await sameDocument(url))) await sleep(20);
+      if (!(await sameDocument(url))) {
+        let actual;
+        try {
+          actual = String((await ev('location.href')) || '');
+        } catch (e) {
+          actual = '';
+        }
+        let expectedHref = url;
+        let actualHref = actual;
+        try {
+          expectedHref = new URL(url).href;
+        } catch (e) {}
+        try {
+          if (actual) actualHref = new URL(actual).href;
+        } catch (e) {}
+        assertHashLanded(expectedHref, actualHref);
+      }
       await sleep(900);
       return;
     }
