@@ -837,6 +837,8 @@ declare function writeCache(next: any): void;
 declare function withTimeout<T>(p: T, ms: number, step: string): Promise<T>;
 declare function isPoison(err: any): boolean;
 declare var LOGIN_MS: number;
+declare var FB_LOAD_MS: number;
+declare var fbGeneration: number;
 declare var L: any;
 declare var POLICY: any;
 declare function paintBell(): void;
@@ -847,6 +849,7 @@ declare var lastSyncAt: number;
 // App errors carry a timeout flag, a Firebase code, or ledger validation messages.
 interface Error {
   timeout?: boolean;
+  abandoned?: boolean;
   code?: string;
   errors?: string[];
 }

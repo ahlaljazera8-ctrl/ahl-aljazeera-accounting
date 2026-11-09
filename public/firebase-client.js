@@ -5,6 +5,8 @@
 // still leaves the assertion reachable, so a newer FB_VER is not available to upgrade to.
 var FB_VER = '13.1.0';
 var fbPromise = null;
+var fbGeneration = 0;
+var FB_LOAD_MS = 20000;
 function isImportFailure(err) {
   const text = String((err && err.message) || err || '');
   return /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(text);
@@ -30,26 +32,87 @@ async function recoverModuleOnce() {
 }
 function ensureFirebase() {
   if (fbPromise) return fbPromise;
-  fbPromise = (async () => {
-    try { return await loadFirebase(); }
+  const generation = ++fbGeneration;
+  const attempt = (async () => {
+    try { return await settledClient(generation); }
     catch (err1) {
-      try { return await loadFirebase(); }
+      if (generation !== fbGeneration) throw err1;
+      try { return await settledClient(generation); }
       catch (err2) {
+        if (generation !== fbGeneration) throw err2;
         if (isImportFailure(err2)) await recoverModuleOnce();
         throw err2;
       }
     }
-  })().catch(err => { fbPromise = null; throw err; });
-  return fbPromise;
+  })();
+  const timed = withTimeout(attempt, FB_LOAD_MS, 'تحميل');
+  /** @type {Promise<any>} */
+  let guarded;
+  guarded = timed.catch(err => {
+    if (fbPromise === guarded) fbPromise = null;
+    if (generation === fbGeneration) fbGeneration += 1;
+    throw err;
+  });
+  fbPromise = guarded;
+  return guarded;
 }
-async function loadFirebase() {
+/**
+ * A generation that lost the race must not resolve the shared promise with null.
+ * The sentence is the one withTimeout already builds for تحميل.
+ * @returns {Error}
+ */
+function abandonedLoad() {
+  const err = new Error('انتهت المهلة (تحميل). تحقق من الاتصال وأعد المحاولة');
+  err.timeout = true;
+  err.abandoned = true;
+  return err;
+}
+/**
+ * @param {number} generation
+ * @returns {Promise<any>}
+ */
+async function settledClient(generation) {
+  const client = await loadFirebase(generation);
+  if (!client) throw abandonedLoad();
+  return client;
+}
+/**
+ * @param {number} generation
+ * @returns {Promise<any>}
+ */
+async function loadFirebase(generation) {
   const base = 'https://www.gstatic.com/firebasejs/' + FB_VER + '/';
   const [{ initializeApp, deleteApp, getApps }, authMod, fsMod] = await Promise.all([
     import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js'),
   ]);
+  return createFirebaseClient({ initializeApp, deleteApp, getApps, authMod, fsMod }, generation);
+}
+/**
+ * Drop this attempt's app only while it is still the registered object.
+ * deleteApp removes whichever app is stored under that name.
+ * @param {{ getApps(): any[], deleteApp(app: any): Promise<void> }} mods
+ * @param {any} app
+ */
+async function dropAbandonedApp(mods, app) {
+  const registered = mods.getApps().find(a => a === app);
+  if (registered) await mods.deleteApp(registered).catch(() => {});
+}
+/**
+ * @param {{ initializeApp(config: any, name?: string): any, deleteApp(app: any): Promise<void>, getApps(): any[], authMod: any, fsMod: any }} mods
+ * @param {number} generation
+ * @returns {Promise<any>}
+ */
+async function createFirebaseClient(mods, generation) {
+  if (generation !== fbGeneration) return null;
+  const { initializeApp, deleteApp, getApps, authMod, fsMod } = mods;
   const stale = getApps().find(a => a.name === '[DEFAULT]');
   if (stale) await deleteApp(stale).catch(() => {});
+  if (generation !== fbGeneration) return null;
   const app = initializeApp(window.FIREBASE_CONFIG);
+  if (generation !== fbGeneration) {
+    await dropAbandonedApp(mods, app);
+    return null;
+  }
   const auth = authMod.getAuth(app);
   const emulator = new URLSearchParams(location.search).get('emulator') === '1';
   if (emulator) authMod.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
@@ -61,9 +124,17 @@ async function loadFirebase() {
     fdb = fsMod.initializeFirestore(app, { localCache: fsMod.memoryLocalCache() });
   } catch (e) { fdb = fsMod.getFirestore(app); }
   if (emulator) fsMod.connectFirestoreEmulator(fdb, '127.0.0.1', 8080);
+  if (generation !== fbGeneration) {
+    await dropAbandonedApp(mods, app);
+    return null;
+  }
   // Drop IndexedDB left by the old persistent cache before any read. Memory cache
   // does not open it; deleting it is what unblocks a phone that already saved the bad state.
   await withTimeout(fsMod.clearIndexedDbPersistence(fdb), 5000, 'الذاكرة').catch(() => {});
+  if (generation !== fbGeneration) {
+    await dropAbandonedApp(mods, app);
+    return null;
+  }
   const S = window.Sync;
   return {
     auth, db: fdb,
