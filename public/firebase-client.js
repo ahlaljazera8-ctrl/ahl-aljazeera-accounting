@@ -85,7 +85,6 @@ async function loadFirebase(generation) {
   const [{ initializeApp, deleteApp, getApps }, authMod, fsMod] = await Promise.all([
     import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js'),
   ]);
-  if (generation !== fbGeneration) return null;
   return createFirebaseClient({ initializeApp, deleteApp, getApps, authMod, fsMod }, generation);
 }
 /**

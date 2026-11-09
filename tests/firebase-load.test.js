@@ -320,6 +320,17 @@ test('a rejected persistence clear does not fail the load', async () => {
   assert.equal(state.clears[0].settled, true);
 });
 
+test('a stale generation rejects the shared load instead of resolving null', async () => {
+  const { context, state } = loadClient();
+  context.fbGeneration = 5;
+  await assert.rejects(context.settledClient(1), (err) => {
+    const error = /** @type {Error} */ (err);
+    return error.abandoned === true && error.timeout === true && /انتهت المهلة/.test(error.message) && /تحميل/.test(error.message);
+  });
+  assert.equal(state.initCalls.length, 0);
+  assert.equal(state.deleted.length, 0);
+});
+
 test('a generation lost during the stale-app delete does not create another app', async () => {
   const { context, state } = loadClient();
   state.deleteMode = 'hang-first';
