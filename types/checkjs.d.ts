@@ -692,6 +692,81 @@ interface ForemenUiApi {
   syncLine(lastSyncMs: number, format?: (ms: number) => string): string;
 }
 
+interface PeopleRow {
+  uid?: string;
+  displayName?: string;
+  email?: string;
+  role?: string;
+  active?: boolean;
+  assignedProjectIds?: readonly string[];
+  [key: string]: unknown;
+}
+
+interface PeopleLoadState {
+  inflight?: boolean;
+  failedAt?: number;
+  syncedAt?: number;
+  online?: boolean;
+}
+
+interface PeopleApply {
+  stale: boolean;
+  next: PeopleRow[];
+  changed: boolean;
+}
+
+interface PeopleLoadResult {
+  skipped?: string;
+  changed: boolean;
+  stale?: boolean;
+}
+
+interface PeopleLoaderDeps {
+  now(): number;
+  online(): boolean;
+  timeoutMs?: number;
+  timeout(p: Promise<unknown>, ms: number): Promise<unknown>;
+  load(): Promise<unknown>;
+  read(): PeopleRow[];
+  write(rows: PeopleRow[]): void;
+  stamp(ms: number): void;
+}
+
+interface PeopleLoader {
+  run(reason?: string): Promise<PeopleLoadResult>;
+  failed(): boolean;
+  reset(): void;
+}
+
+interface PeopleDirApi {
+  TIMEOUT_MS: number;
+  COOLDOWN_MS: number;
+  SUCCESS_TTL_MS: number;
+  OFFLINE_LEAD: string;
+  UPDATE_LEAD: string;
+  LOAD_ERROR: string;
+  RETRY_LABEL: string;
+  RENDER_ERROR: string;
+  samePeople(a: readonly PeopleRow[] | null | undefined, b: readonly PeopleRow[] | null | undefined): boolean;
+  syncNoteLead(offline: boolean, failed: boolean): string;
+  syncNote(lead: string, time: string): string;
+  loadPlan(
+    state: PeopleLoadState | null | undefined,
+    now: number,
+    reason: string,
+  ): 'inflight' | 'offline' | 'cooldown' | 'fresh' | 'start';
+  directoryView(count: number, stamp: number, offline: boolean, failed: boolean): 'ready' | 'note' | 'retry' | 'error';
+  acceptGeneration(token: number, current: number): boolean;
+  applyPeople(
+    token: number,
+    current: number,
+    prev: readonly PeopleRow[] | null | undefined,
+    rows: readonly PeopleRow[] | null | undefined,
+  ): PeopleApply;
+  shouldRedraw(result: PeopleLoadResult | null | undefined, bannerShowing?: boolean): boolean;
+  createLoader(deps: PeopleLoaderDeps): PeopleLoader;
+}
+
 interface Window {
   Ledger: LedgerApi;
   AJ: any;
@@ -701,6 +776,7 @@ interface Window {
   DomSafe: DomSafeApi;
   AppCheck: AppCheckApi;
   ForemenUI: ForemenUiApi;
+  PeopleDir: PeopleDirApi;
   __loginSeen?: boolean;
   __forceOffline?: boolean;
   __unhandled?: string[];
@@ -713,6 +789,7 @@ declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
 declare const AppCheck: AppCheckApi;
 declare const ForemenUI: ForemenUiApi;
+declare const PeopleDir: PeopleDirApi;
 
 // session.js and app.js are classic scripts. checkJs treats each file as a module,
 // so the names they share are declared here. Nothing here is loaded by the app.
@@ -722,7 +799,6 @@ declare var db: IDBDatabase | null;
 declare var writing: Promise<unknown>;
 declare var sessionEpoch: number;
 declare var deviceId: string | undefined;
-declare var directoryPromise: Promise<unknown> | null;
 declare var syncNotice: string;
 declare var REPAIR_MSG: string;
 declare var SUSPENDED_MSG: string;

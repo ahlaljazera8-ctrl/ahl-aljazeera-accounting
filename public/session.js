@@ -2,7 +2,7 @@
 // IndexedDB "aj-p0" / "aj-u-<uid>" (stores: projects, entries, outbox, meta).
 // Loaded into memory at boot; every write is persisted (write-through, serialized).
 // Outbox = ids not sent yet (no syncState). Login and logout live here too.
-var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending' };
+var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending', peopleSynced:'peopleSynced' };
 /** @type {Record<string, 1>} */
 var LIST = { projects:1, entries:1, outbox:1 };
 /** @type {SessionCache} */
@@ -13,7 +13,6 @@ var writing = Promise.resolve();
 var sessionEpoch = 0;
 /** @type {unknown} */
 var deviceId;
-var directoryPromise = null;
 var syncNotice = '';
 var REPAIR_MSG = 'تعذر الدخول بعد إصلاح الذاكرة المحلية. تحقق من الاتصال وأعد المحاولة';
 var SUSPENDED_MSG = 'هذا الحساب موقوف';
@@ -164,7 +163,6 @@ async function holdSession(message) {
   showLoginMessage(message);
 }
 function releaseDb() {
-  directoryPromise = null;
   if (db) { try { db.close(); } catch (e) { /* the handle is dropped on the next line either way */ } db = null; }
   for (const k of Object.keys(cache)) delete cache[k];
 }
@@ -195,7 +193,6 @@ async function localSession() {
   return null;
 }
 async function closeUserDb() {
-  directoryPromise = null;
   if (db) {
     set(K.sessionUser, null);
     await writing.catch(() => {});
@@ -324,7 +321,7 @@ async function enterSession(fb, uid, data) {
 // Classic-script globals app.js calls. The var and function bindings are already
 // the same window properties; naming them here keeps the cross-file use visible.
 Object.assign(window, {
-  K, cache, db, writing, sessionEpoch, deviceId, directoryPromise, syncNotice,
+  K, cache, db, writing, sessionEpoch, deviceId, syncNotice,
   REPAIR_MSG, SUSPENDED_MSG, SESSION_DEAD_MSG, MISSING_PROFILE_MSG,
   get, set, openDB, loadAll, uuid, today, demoRole, me, $,
   showLogin, showApp, markReady, profileFrom, loginError, showLoginMessage,
