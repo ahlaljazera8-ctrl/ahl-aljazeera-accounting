@@ -11,6 +11,8 @@ npm run format:check     # Prettier. public/ and tests/ are excluded; see .prett
 npm run typecheck        # tsc --noEmit, allowJs and checkJs
 ```
 
+What each screen does is in the [feature map](docs/feature-map.md).
+
 `index.html?role=owner` or `?role=site` opens the local demo (no Firebase). A normal visit shows the login screen. `?emulator=1` points that login at the local emulators.
 
 The first `users/{uid}` document is created by an admin (the rules cannot bootstrap the owner). After that, only an owner can write `users/`. The app does not create Auth accounts: an admin adds the email and password in the Firebase console, and the owner pastes that User UID on the الأشخاص screen. Do not commit service-account keys or passwords.
