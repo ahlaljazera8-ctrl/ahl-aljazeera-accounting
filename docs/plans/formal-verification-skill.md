@@ -139,7 +139,7 @@ For every other case:
 - `docs[0]` is `{ collection: 'projects', id: 'p' }`.
 - `batches[0]` deep-equals `[docs[0]]`.
 - No later batch contains a row whose collection is `projects`.
-- The concatenation of `batches` deep-equals `docs`. That is the partition: nothing lost, nothing duplicated.
+- The partition counts how many times each document appears. `partitionHolds` at `scripts/formal-delete-order.js` lines 157-165 sets `left` to `countsOf(docs)` and `right` to `countsOf(flatten(batches))`, and passes only when `left.size` equals `right.size` and `right.get(key)` equals `count` for every key. Nothing in the list is missing, and nothing is repeated.
 - For `seven-terms` and `rest-401`, the batch lengths are the ones named above. A change of the literal 6 or the literal 400 fails here even when the concatenation still matches.
 
 The expected lengths are written in the script. They are not arguments to `projectDeleteBatches`. The function signature stays `(docs)`.
