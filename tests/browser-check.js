@@ -1386,12 +1386,20 @@ let chrome;
     const email = document.querySelector('#person-email');
     if (email && !email.value) email.value = 'ahmed@example.invalid';
     const save = document.querySelector('#save-person');
+    let lastDisabled = true;
+    if (save) {
+      const proto = Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype, 'disabled');
+      Object.defineProperty(save, 'disabled', {
+        configurable: true,
+        get() { return proto.get.call(this); },
+        set(v) { lastDisabled = !!v; proto.set.call(this, v); },
+      });
+    }
     if (save) save.click();
     await new Promise(r => setTimeout(r, 80));
     window.get = orig;
-    const btn = document.querySelector('#save-person');
     const msg = document.querySelector('#person-msg');
-    return { hash: location.hash, msg: msg ? msg.textContent : '', disabled: btn ? btn.disabled===true : false, threw, reads, onLine: navigator.onLine };
+    return { hash: location.hash, msg: msg ? msg.textContent : '', disabled: lastDisabled, threw, reads, onLine: navigator.onLine };
   })()`);
   check('a save that already succeeded still opens the people list', savedThenThrow && savedThenThrow.onLine===false && savedThenThrow.threw===true && savedThenThrow.reads===2 && savedThenThrow.hash==='#people' && savedThenThrow.msg!=='تعذر حفظ الشخص' && savedThenThrow.disabled===false);
   const saveFailed = await ev(`(async()=>{
