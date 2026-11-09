@@ -29,8 +29,8 @@ Preconditions:
 - **Save.** Click `#save` once. `#msg` includes `حُفظ على الهاتف`. Screenshot `saved.png`.
 - **Server row.** Exactly one `ledgerEntries` document matches that description. `amount` is `1500000`, `entryType` is `materials`, `direction` is `expense`, `createdByName` is `مالك التحقق`. `firestore.json` is that document.
 - **Project card.** Click `a[data-tab="projects"]`, then `a[href="#project/p-verify"]`. `#title` is `مشروع التحقق`. المصروف is `1,500,000 د.ع` and not `3,000,000`. الربح is `−1,500,000 د.ع` (U+2212). المقبوض is `0 د.ع`. The description appears once, with `مواد` and the stored date. Screenshot `project.png`.
-- **Home.** Click `a[data-tab="home"]`. إجمالي المقبوض is `0 د.ع`. إجمالي المصروف is `1,500,000 د.ع`. صافي الربح includes `−1,500,000`.
-- **Reload.** Reload the page. The shell stays up. Open the project card again. The same amount, `مواد`, and date are still there, still once. Firestore still has one row. Screenshot `project-reload.png`.
+- **Home.** Click `a[data-tab="home"]`. إجمالي المقبوض is `0 د.ع`. إجمالي المصروف is `1,500,000 د.ع`. صافي الربح includes `−1,500,000`. `#main` does not contain `قيد تحقق مواد`.
+- **Reload.** Reload the page. The shell stays up, `emulator=1` is still the only mode, and home still does not list `قيد تحقق مواد`. Open the project card again. The same amount, `مواد`, and date are still there, still once. Firestore still has one row. Screenshot `project-reload.png`.
 - **Command.** `node scripts/verify-aj.js drive ledger-entry` runs the steps above. It writes `network.txt` and exits 1 if a request hostname is a production Auth or Firestore host.
 
 ## Gotchas

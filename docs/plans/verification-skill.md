@@ -1,8 +1,8 @@
 # Plan: project-local verification skill
 
-PLAN ONLY. Nothing in this run writes `.cursor/skills/`, changes app code, commits, pushes, or opens a pull request.
+Reviewed plan. The skill and helper are on this branch (draft PR #61). This file is no longer a plan-only draft. Line references below are as of f718c8d9.
 
-- **Repo.** `ahl-aljazeera-accounting`, read at `main` = `f718c8d995c7bae378a7380b802e90aa02afabaa`.
+- **Repo.** `ahl-aljazeera-accounting`, read at `main` = `f718c8d995c7bae378a7380b802e90aa02afabaa`. Line references below are as of f718c8d9.
 - **Product.** Offline-first Arabic RTL ledger PWA. Firebase project `ahl-aljazeera-accounting`. Screens live in `public/`. The phone database is `aj-u-<uid>` (`public/session.js:296-299`). The demo database is `aj-p0` (`public/app.js:163`). Service worker cache name is the `VERSION` string in `public/sw.js:1` (`aj-p0-v53` at this SHA). This stream does not bump it.
 - **Gates** (`AGENTS.md:5-12`). Ameer approves every merge and every behaviour or rules change. All 4 CI checks stay green. No spending. This plan is the architect sketch. Code waits until AgentLab Architect and EA have reviewed it. `arena` is banned (`AGENTS.md:35`), so the two shapes below were written by hand, not spawned.
 - **This run did not ask محاسب أهل الجزيرة.** The accounting questions are listed in §8 so that quote can be added before the implementation run treats a balance as a house rule. The journey still asserts the screen the code already paints. It does not change `public/ledger.js`.

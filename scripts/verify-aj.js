@@ -40,6 +40,9 @@ const PRODUCTION_HOSTS = ['firestore.googleapis.com', 'identitytoolkit.googleapi
  * @property {string} projectId
  * @property {string} projectName
  * @property {string} logPath
+ * @property {string} configPath
+ * @property {string} firebaseStart
+ * @property {string} chromeStart
  */
 
 /**
@@ -94,19 +97,57 @@ class VerifyError extends Error {
 
 /**
  * @param {string} raw
+ * @returns {boolean}
+ */
+function hostPortOk(raw) {
+  if (typeof raw !== 'string') return false;
+  const match = /^(127\.0\.0\.1|localhost):(\d+)$/.exec(raw);
+  if (!match) return false;
+  const port = Number(match[2]);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || port === 8765) return false;
+  return true;
+}
+
+/**
+ * @param {string} raw
  * @returns {Loopback}
  */
 function localHost(raw) {
-  if (typeof raw !== 'string' || !/^(127\.0\.0\.1|localhost):\d+$/.test(raw)) {
-    throw new Error('emulator host must be loopback. Got: ' + raw);
-  }
+  if (!hostPortOk(raw)) throw new Error('emulator host must be loopback. Got: ' + raw);
   const parts = raw.split(':');
-  const host = parts[0] || '';
-  const port = Number(parts[1]);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error('emulator host must be loopback. Got: ' + raw);
+  return { host: parts[0] || '', port: Number(parts[1]) };
+}
+
+/**
+ * @param {string} href
+ * @returns {boolean}
+ */
+function urlModeOk(href) {
+  let url;
+  try {
+    url = new URL(href);
+  } catch (err) {
+    return false;
   }
-  return { host, port };
+  return url.searchParams.get('emulator') === '1' && !url.searchParams.has('role');
+}
+
+/**
+ * @param {string} csp
+ * @returns {boolean}
+ */
+function cspOk(csp) {
+  return typeof csp === 'string' && csp.includes('http://127.0.0.1:9099') && csp.includes('http://127.0.0.1:8080');
+}
+
+/**
+ * @param {{ alreadyRunning: boolean, browserPortOpen: boolean, emulatorPortOpen: boolean, hostingPort: number }} state
+ * @returns {number}
+ */
+function launchBlock(state) {
+  if (state.alreadyRunning || state.browserPortOpen || state.emulatorPortOpen) return 2;
+  if (!hostPortOk('127.0.0.1:' + String(state.hostingPort))) return 1;
+  return 0;
 }
 
 /**
@@ -116,12 +157,29 @@ function localHost(raw) {
 function assertNoProductionUrl(raw) {
   let host = '';
   try {
-    host = new URL(raw).hostname;
+    host = new URL(raw).hostname.toLowerCase().replace(/\.+$/, '');
   } catch (err) {
     throw new Error('not a URL: ' + raw);
   }
   const blocked = PRODUCTION_HOSTS.some(name => host === name || host.endsWith('.' + name));
   if (blocked) throw new Error('refusing production Firebase host: ' + host);
+}
+
+/**
+ * @param {string[]} urls
+ * @returns {string[]}
+ */
+function networkVerdict(urls) {
+  /** @type {string[]} */
+  const blocked = [];
+  for (const url of urls) {
+    try {
+      assertNoProductionUrl(url);
+    } catch (err) {
+      blocked.push(url);
+    }
+  }
+  return blocked;
 }
 
 /**
@@ -309,13 +367,59 @@ function portOpen(port) {
  * @param {RunRecord} run
  * @returns {Promise<void>}
  */
+/**
+ * @param {number} pid
+ * @returns {{ start: string, cmdline: string }}
+ */
+function processStamp(pid) {
+  const stat = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
+  const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  const cmdline = fs
+    .readFileSync('/proc/' + pid + '/cmdline')
+    .toString('utf8')
+    .replace(/\0/g, ' ');
+  return { start: rest[19] || '', cmdline };
+}
+
+/**
+ * @param {number} pid
+ * @param {string} start
+ * @param {string} marker
+ * @returns {boolean}
+ */
+function sameProcess(pid, start, marker) {
+  if (!pid || !start || !alive(pid)) return false;
+  let stamp;
+  try {
+    stamp = processStamp(pid);
+  } catch (err) {
+    return false;
+  }
+  return stamp.start === start && stamp.cmdline.includes(marker);
+}
+
+/**
+ * @param {number} pid
+ * @param {string} start
+ * @param {string} marker
+ * @param {NodeJS.Signals} signal
+ * @returns {void}
+ */
+function signalIfOurs(pid, start, marker, signal) {
+  if (!sameProcess(pid, start, marker)) {
+    if (pid && alive(pid)) console.error('leaving pid ' + pid + '; it is not the process this run started');
+    return;
+  }
+  signalGroup(pid, signal);
+}
+
 async function stopRecorded(run) {
-  signalGroup(run.chromePid, 'SIGKILL');
-  signalGroup(run.firebasePid, 'SIGTERM');
+  signalIfOurs(run.chromePid, run.chromeStart, 'chrome', 'SIGKILL');
+  signalIfOurs(run.firebasePid, run.firebaseStart, 'firebase', 'SIGTERM');
   await sleep(400);
-  signalGroup(run.firebasePid, 'SIGKILL');
+  signalIfOurs(run.firebasePid, run.firebaseStart, 'firebase', 'SIGKILL');
   if (run.userDataDir) fs.rmSync(run.userDataDir, { recursive: true, force: true });
-  fs.rmSync(path.join(ROOT, 'firebase.emulator.json'), { force: true });
+  if (run.configPath) fs.rmSync(run.configPath, { force: true });
   fs.rmSync(path.join(RUNS, run.runId), { recursive: true, force: true });
   const pointer = path.join(RUNS, 'current');
   if (fs.existsSync(pointer) && fs.readFileSync(pointer, 'utf8').trim() === run.runId)
@@ -357,16 +461,15 @@ async function readHub(hubPort) {
   if (!auth || !firestore || !hosting) throw new VerifyError('hub is missing auth, firestore, or hosting');
   const authHost = localHost(String(auth.host || '127.0.0.1') + ':' + String(auth.port));
   const firestoreHost = localHost(String(firestore.host || '127.0.0.1') + ':' + String(firestore.port));
-  const hostingHost = String(hosting.host || '127.0.0.1');
+  const hostingHost = String(hosting.host || '');
   const hostingPort = Number(hosting.port);
-  if (hostingHost !== '127.0.0.1' && hostingHost !== 'localhost' && hostingHost !== '0.0.0.0') {
-    throw new VerifyError('hosting emulator is not loopback: ' + hostingHost);
+  if (!hostPortOk(hostingHost + ':' + String(hostingPort))) {
+    throw new VerifyError('hosting emulator is not a loopback verification port: ' + hostingHost + ':' + hostingPort);
   }
   if (authHost.port !== 9099) throw new VerifyError('auth emulator port is ' + authHost.port + ', expected 9099');
   if (firestoreHost.port !== 8080)
     throw new VerifyError('firestore emulator port is ' + firestoreHost.port + ', expected 8080');
-  if (!Number.isInteger(hostingPort) || hostingPort <= 0) throw new VerifyError('hosting emulator has no port');
-  return { authPort: authHost.port, firestorePort: firestoreHost.port, hostingPort, hostingHost: '127.0.0.1' };
+  return { authPort: authHost.port, firestorePort: firestoreHost.port, hostingPort, hostingHost };
 }
 
 /**
@@ -377,9 +480,26 @@ async function assertEmulatorCsp(origin) {
   const res = await fetch(origin + '/index.html');
   if (!res.ok) throw new VerifyError('index.html status ' + res.status);
   const csp = res.headers.get('content-security-policy') || '';
-  if (!csp.includes('http://127.0.0.1:9099') || !csp.includes('http://127.0.0.1:8080')) {
-    throw new VerifyError('hosting CSP is missing the emulator origins');
+  if (!cspOk(csp)) throw new VerifyError('hosting CSP is missing the emulator origins');
+}
+
+/**
+ * @param {string} name
+ * @param {string} host
+ * @param {number} port
+ * @returns {void}
+ */
+function adoptEmulatorHost(name, host, port) {
+  const wanted = host + ':' + port;
+  const current = process.env[name];
+  if (typeof current === 'string' && current.length > 0) {
+    const parsed = localHost(current);
+    if (parsed.host !== host || parsed.port !== port) {
+      throw new VerifyError(name + ' is ' + current + ', refusing to overwrite it');
+    }
+    return;
   }
+  process.env[name] = wanted;
 }
 
 /**
@@ -390,8 +510,8 @@ async function assertEmulatorCsp(origin) {
 async function seed(authPort, firestorePort) {
   const authEnv = localHost('127.0.0.1:' + authPort);
   const firestoreEnv = localHost('127.0.0.1:' + firestorePort);
-  process.env.FIREBASE_AUTH_EMULATOR_HOST = authEnv.host + ':' + authEnv.port;
-  process.env.FIRESTORE_EMULATOR_HOST = firestoreEnv.host + ':' + firestoreEnv.port;
+  adoptEmulatorHost('FIREBASE_AUTH_EMULATOR_HOST', authEnv.host, authEnv.port);
+  adoptEmulatorHost('FIRESTORE_EMULATOR_HOST', firestoreEnv.host, firestoreEnv.port);
   const { initializeApp, deleteApp } = require('firebase/app');
   const { getAuth, connectAuthEmulator, createUserWithEmailAndPassword } = require('firebase/auth');
   const { doc, setDoc } = require('firebase/firestore');
@@ -448,6 +568,8 @@ async function seed(authPort, firestorePort) {
 async function readEntries(authPort, firestorePort) {
   const authEnv = localHost('127.0.0.1:' + authPort);
   const firestoreEnv = localHost('127.0.0.1:' + firestorePort);
+  adoptEmulatorHost('FIREBASE_AUTH_EMULATOR_HOST', authEnv.host, authEnv.port);
+  adoptEmulatorHost('FIRESTORE_EMULATOR_HOST', firestoreEnv.host, firestoreEnv.port);
   const { initializeApp, deleteApp } = require('firebase/app');
   const { getAuth, connectAuthEmulator, signInWithEmailAndPassword } = require('firebase/auth');
   const { getFirestore, connectFirestoreEmulator, collection, getDocs } = require('firebase/firestore');
@@ -594,17 +716,55 @@ async function shoot(session, file) {
  * @returns {void}
  */
 function writeNetwork(urls, file) {
-  const lines = urls.map(url => {
-    try {
-      assertNoProductionUrl(url);
-      return 'ok ' + url;
-    } catch (err) {
-      return 'BLOCKED ' + url;
-    }
-  });
-  fs.writeFileSync(file, lines.join('\n') + '\n');
-  const blocked = lines.find(line => line.startsWith('BLOCKED '));
-  if (blocked) throw new VerifyError(blocked);
+  const blocked = networkVerdict(urls);
+  const lines = urls.map(url => (blocked.includes(url) ? 'BLOCKED ' + url : 'ok ' + url));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, lines.length ? lines.join('\n') + '\n' : '');
+  if (blocked.length) throw new VerifyError('BLOCKED ' + blocked[0]);
+}
+
+/**
+ * @param {string} file
+ * @returns {string[]}
+ */
+function urlsFromLog(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(line => line.startsWith('ok ') || line.startsWith('BLOCKED '))
+    .map(line => line.slice(line.indexOf(' ') + 1));
+}
+
+/**
+ * @param {string} evidenceDir
+ * @param {string[]} urls
+ * @returns {void}
+ */
+function flushNetwork(evidenceDir, urls) {
+  const file = path.join(evidenceDir, 'network.txt');
+  writeNetwork(urlsFromLog(file).concat(urls), file);
+}
+
+/**
+ * @param {string} evidenceDir
+ * @param {CdpSession} session
+ * @param {unknown} failure
+ * @returns {void}
+ */
+function finishSession(evidenceDir, session, failure) {
+  let networkError = null;
+  try {
+    flushNetwork(evidenceDir, session.urls);
+  } catch (err) {
+    networkError = err;
+  }
+  session.close();
+  if (networkError && failure instanceof Error) {
+    throw new VerifyError(networkError.message + '\n' + failure.message);
+  }
+  if (networkError) throw networkError;
+  if (failure) throw failure;
 }
 
 /**
@@ -633,23 +793,29 @@ async function accountListed(authPort) {
 async function launch() {
   fs.mkdirSync(RUNS, { recursive: true });
   const pointer = path.join(RUNS, 'current');
+  let alreadyRunning = false;
   if (fs.existsSync(pointer)) {
     const previousId = fs.readFileSync(pointer, 'utf8').trim();
     const previousFile = runPath(previousId);
     if (fs.existsSync(previousFile)) {
       const previous = /** @type {RunRecord} */ (JSON.parse(fs.readFileSync(previousFile, 'utf8')));
-      if (alive(previous.firebasePid)) throw new VerifyError('an emulator is already running for ' + previousId, 2);
+      alreadyRunning = alive(previous.firebasePid);
     }
   }
-  if (portOpen(9099) || portOpen(8080)) {
-    throw new VerifyError('refusing to start a second emulator; 9099 or 8080 is already in use', 2);
-  }
+  const blocked = launchBlock({
+    alreadyRunning,
+    browserPortOpen: portOpen(8765),
+    emulatorPortOpen: portOpen(9099) || portOpen(8080),
+    hostingPort: 5000,
+  });
+  if (blocked === 2) throw new VerifyError('refusing to start a second emulator or to use port 8765', 2);
   const runId = Date.now().toString(36) + '-' + Math.random().toString(16).slice(2, 8);
   const runDir = path.join(RUNS, runId);
   const evidenceDir = path.join(EVIDENCE_ROOT, runId);
   fs.mkdirSync(runDir, { recursive: true });
   fs.mkdirSync(path.join(evidenceDir, 'ledger-entry'), { recursive: true });
-  const logPath = path.join(runDir, 'firebase.log');
+  const logPath = path.join(evidenceDir, 'firebase.log');
+  const configPath = path.join(ROOT, 'firebase.verify.json');
   /** @type {RunRecord} */
   const run = {
     runId,
@@ -668,10 +834,13 @@ async function launch() {
     projectId: PROJECT_ID,
     projectName: PROJECT_NAME,
     logPath,
+    configPath,
+    firebaseStart: '',
+    chromeStart: '',
   };
   saveRun(run);
   try {
-    fs.writeFileSync(path.join(ROOT, 'firebase.emulator.json'), fromFile());
+    fs.writeFileSync(configPath, fromFile());
     const fd = fs.openSync(logPath, 'w');
     const child = spawn(
       'npx',
@@ -679,7 +848,7 @@ async function launch() {
         '--no-install',
         'firebase',
         '--config',
-        'firebase.emulator.json',
+        configPath,
         'emulators:start',
         '--only',
         'auth,firestore,hosting',
@@ -691,6 +860,7 @@ async function launch() {
     fs.closeSync(fd);
     child.unref();
     run.firebasePid = child.pid || 0;
+    run.firebaseStart = run.firebasePid ? processStamp(run.firebasePid).start : '';
     saveRun(run);
     const ready = await waitForEmulators(logPath, run.firebasePid);
     run.hubPort = ready.hubPort;
@@ -698,7 +868,16 @@ async function launch() {
     run.authPort = hub.authPort;
     run.firestorePort = hub.firestorePort;
     run.hostingPort = hub.hostingPort;
-    run.origin = 'http://127.0.0.1:' + hub.hostingPort;
+    const hostingBlock = launchBlock({
+      alreadyRunning: false,
+      browserPortOpen: false,
+      emulatorPortOpen: false,
+      hostingPort: hub.hostingPort,
+    });
+    if (hostingBlock !== 0) {
+      throw new VerifyError('hosting emulator port ' + hub.hostingPort + ' is refused', hostingBlock);
+    }
+    run.origin = 'http://' + hub.hostingHost + ':' + hub.hostingPort;
     saveRun(run);
     if (!(await portOwnedByTree(run.firebasePid, run.authPort)))
       throw new VerifyError('auth port is not owned by this emulator');
@@ -713,9 +892,11 @@ async function launch() {
     const opened = await openChrome({ userDataDir: run.userDataDir, detached: true });
     opened.chrome.unref();
     run.chromePid = opened.chrome.pid || 0;
+    run.chromeStart = run.chromePid ? processStamp(run.chromePid).start : '';
     run.debugPort = opened.port;
     saveRun(run);
     const session = await connectCdp(run.debugPort);
+    let failure = null;
     try {
       await session.send('Page.enable');
       await session.send('Runtime.enable');
@@ -732,10 +913,14 @@ async function launch() {
         `document.body && document.body.dataset.ready === '1' && document.querySelector('#login') && document.querySelector('#login').hidden === false && document.querySelector('#shell') && document.querySelector('#shell').hidden === true && ((document.querySelector('#login-btn') || {}).textContent || '').includes('دخول')`,
         30000,
       );
-      writeNetwork(session.urls, path.join(evidenceDir, 'launch-network.txt'));
-    } finally {
-      session.close();
+      const href = await evaluate(session, 'location.href');
+      if (typeof href !== 'string' || !urlModeOk(href)) {
+        throw new VerifyError('page URL is not emulator=1 without a role param: ' + String(href));
+      }
+    } catch (err) {
+      failure = err;
     }
+    finishSession(evidenceDir, session, failure);
     fs.writeFileSync(
       path.join(evidenceDir, 'launch.txt'),
       [
@@ -788,17 +973,23 @@ async function doctor(run) {
   if (!(await accountListed(run.authPort))) throw new VerifyError('seeded auth account is missing');
   lines.push('auth account listed');
   const session = await connectCdp(run.debugPort);
+  let failure = null;
   try {
     await session.send('Runtime.enable');
+    await session.send('Network.enable');
     const ready = await evaluate(
       session,
       `document.body && document.body.dataset.ready === '1' && ((document.querySelector('#login') && document.querySelector('#login').hidden === false) || (document.querySelector('#shell') && document.querySelector('#shell').hidden === false))`,
     );
     if (ready !== true) throw new VerifyError('page is not ready');
-    writeNetwork(session.urls, path.join(run.evidenceDir, 'doctor-network.txt'));
-  } finally {
-    session.close();
+    const href = await evaluate(session, 'location.href');
+    if (typeof href !== 'string' || !urlModeOk(href)) {
+      throw new VerifyError('page URL is not emulator=1 without a role param: ' + String(href));
+    }
+  } catch (err) {
+    failure = err;
   }
+  finishSession(run.evidenceDir, session, failure);
   lines.push('page ready');
   fs.writeFileSync(path.join(run.evidenceDir, 'doctor.txt'), lines.join('\n') + '\n');
   console.log(lines.join('\n'));
@@ -867,6 +1058,7 @@ async function driveLedgerEntry(run) {
   const notes = path.join(dir, 'assertions.txt');
   fs.writeFileSync(notes, '');
   const session = await connectCdp(run.debugPort);
+  let failure = null;
   try {
     await session.send('Page.enable');
     await session.send('Runtime.enable');
@@ -1011,6 +1203,11 @@ async function driveLedgerEntry(run) {
     if (!profit.includes(MINUS_AMOUNT) || profit.includes('-' + AMOUNT_TEXT)) {
       throw new VerifyError('STOP: صافي الربح was ' + JSON.stringify(profit));
     }
+    const homeBody = await evaluate(session, `(document.querySelector('#main') || {}).innerText || ''`);
+    if (typeof homeBody === 'string' && homeBody.includes(DESCRIPTION)) {
+      throw new VerifyError('STOP: home lists the row text');
+    }
+    fs.appendFileSync(notes, 'home-omits-row\n');
     await shoot(session, path.join(dir, 'home.png'));
     await session.send('Page.reload', { ignoreCache: true });
     await waitUntil(
@@ -1018,24 +1215,36 @@ async function driveLedgerEntry(run) {
       `document.body && document.body.dataset.ready === '1' && document.querySelector('#shell') && document.querySelector('#shell').hidden === false`,
       30000,
     );
-    const onProject = await evaluate(session, `location.hash === ${JSON.stringify('#project/' + PROJECT_ID)}`);
-    if (onProject !== true) {
-      const back = await evaluate(
-        session,
-        `(() => { const tab = document.querySelector('a[data-tab="projects"]'); if (!tab) return false; tab.click(); return true; })()`,
-      );
-      if (back !== true) throw new VerifyError('STOP: المشاريع tab missing after reload');
-      await waitUntil(
-        session,
-        `!!document.querySelector(${JSON.stringify('a[href="#project/' + PROJECT_ID + '"]')})`,
-        20000,
-      );
-      const card = await evaluate(
-        session,
-        `(() => { const link = document.querySelector(${JSON.stringify('a[href="#project/' + PROJECT_ID + '"]')}); if (!link) return false; link.click(); return true; })()`,
-      );
-      if (card !== true) throw new VerifyError('STOP: project card missing after reload');
+    const reloaded = await evaluate(session, 'location.href');
+    if (typeof reloaded !== 'string' || !urlModeOk(reloaded)) {
+      throw new VerifyError('STOP: reload URL is not emulator=1 without a role param: ' + String(reloaded));
     }
+    const homeAgain = await evaluate(
+      session,
+      `(() => { const tab = document.querySelector('a[data-tab="home"]'); if (!tab) return false; tab.click(); return true; })()`,
+    );
+    if (homeAgain !== true) throw new VerifyError('STOP: الرئيسية tab missing after reload');
+    await waitUntil(session, `(document.querySelector('#title') || {}).textContent === 'الرئيسية'`, 10000);
+    const homeAfter = await evaluate(session, `(document.querySelector('#main') || {}).innerText || ''`);
+    if (typeof homeAfter !== 'string' || homeAfter.includes(DESCRIPTION)) {
+      throw new VerifyError('STOP: home lists the row text');
+    }
+    fs.appendFileSync(notes, 'home-after-reload-omits-row\n');
+    const back = await evaluate(
+      session,
+      `(() => { const tab = document.querySelector('a[data-tab="projects"]'); if (!tab) return false; tab.click(); return true; })()`,
+    );
+    if (back !== true) throw new VerifyError('STOP: المشاريع tab missing after reload');
+    await waitUntil(
+      session,
+      `!!document.querySelector(${JSON.stringify('a[href="#project/' + PROJECT_ID + '"]')})`,
+      20000,
+    );
+    const card = await evaluate(
+      session,
+      `(() => { const link = document.querySelector(${JSON.stringify('a[href="#project/' + PROJECT_ID + '"]')}); if (!link) return false; link.click(); return true; })()`,
+    );
+    if (card !== true) throw new VerifyError('STOP: project card missing after reload');
     await waitUntil(
       session,
       `(document.querySelector('#title') || {}).textContent === ${JSON.stringify(PROJECT_NAME)} && (((document.querySelector('#main') || {}).innerText) || '').includes(${JSON.stringify(DESCRIPTION)}) && (((document.querySelector('#main') || {}).innerText) || '').includes('مواد')`,
@@ -1052,11 +1261,16 @@ async function driveLedgerEntry(run) {
     if (again.length !== 1) throw new VerifyError('STOP: after reload Firestore has ' + again.length + ' rows');
     if (again[0] && again[0].amount !== AMOUNT)
       throw new VerifyError('STOP: after reload amount was ' + String(again[0].amount));
-    writeNetwork(session.urls, path.join(dir, 'network.txt'));
     console.log('ledger-entry proved');
     console.log('evidenceDir=' + run.evidenceDir);
+  } catch (err) {
+    failure = err;
+  }
+  try {
+    finishSession(run.evidenceDir, session, failure);
   } finally {
-    session.close();
+    const recorded = path.join(run.evidenceDir, 'network.txt');
+    if (fs.existsSync(recorded)) fs.copyFileSync(recorded, path.join(dir, 'network.txt'));
   }
 }
 
@@ -1124,7 +1338,17 @@ async function main(argv) {
   }
 }
 
-module.exports = { localHost, assertNoProductionUrl, main };
+module.exports = {
+  localHost,
+  assertNoProductionUrl,
+  cspOk,
+  networkVerdict,
+  hostPortOk,
+  urlModeOk,
+  writeNetwork,
+  launchBlock,
+  main,
+};
 
 if (require.main === module) {
   main(process.argv).then(code => {
