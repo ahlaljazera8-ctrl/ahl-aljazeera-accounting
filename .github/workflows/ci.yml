@@ -3,6 +3,11 @@ name: CI
 permissions:
   contents: read
 
+# One version string for the WebKit archive. runs-on cannot read env, so the
+# four jobs pin ubuntu-24.04 themselves and the install step checks they match.
+env:
+  WEBKIT_UBUNTU: '24.04'
+
 on:
   pull_request:
   push:
@@ -12,7 +17,7 @@ on:
 jobs:
   quality:
     name: lint, format, types
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -41,7 +46,7 @@ jobs:
 
   ledger:
     name: ledger tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -72,7 +77,7 @@ jobs:
 
   browser:
     name: browser checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -117,7 +122,7 @@ jobs:
 
   emulator:
     name: emulator rules and sync
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -140,9 +145,19 @@ jobs:
           # Playwright's own unzip of this archive does not finish on the runner.
           # curl + system unzip lands the same tree Playwright expects, including
           # the empty INSTALLATION_COMPLETE marker that marks a finished install.
+          # runs-on cannot read WEBKIT_UBUNTU, so this step is the check that the
+          # runner image and the archive name are the same Ubuntu version.
+          os_id="$(. /etc/os-release && printf '%s' "$VERSION_ID")"
+          zip_name="webkit-ubuntu-${WEBKIT_UBUNTU}.zip"
+          if [[ "$os_id" != "$WEBKIT_UBUNTU" || "$zip_name" != "webkit-ubuntu-${os_id}.zip" ]]; then
+            echo "install webkit refused: /etc/os-release VERSION_ID is '${os_id}', WEBKIT_UBUNTU is '${WEBKIT_UBUNTU}', archive is '${zip_name}'." >&2
+            echo "The WebKit dependency script installs the libraries for that Ubuntu. webkit-ubuntu-24.04.zip needs libicu74 and libvpx9. On Ubuntu 26.04 apt exits 100, which is how emulator job 129341047932 failed after ubuntu-latest moved to 26.04." >&2
+            echo "Follow-up: when Playwright ships webkit-ubuntu-26.04.zip, bump WEBKIT_UBUNTU and the four runs-on labels together. Do not change one without the other. https://github.com/actions/runner-images#image-deprecation-policy" >&2
+            exit 1
+          fi
           REV=2215
           DEST="${HOME}/.cache/ms-playwright/webkit-${REV}"
-          URL="https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit/${REV}/webkit-ubuntu-24.04.zip"
+          URL="https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit/${REV}/${zip_name}"
           rm -rf "$DEST"
           mkdir -p "$DEST"
           curl -fsSL --retry 3 --retry-delay 2 -o /tmp/webkit.zip "$URL"
