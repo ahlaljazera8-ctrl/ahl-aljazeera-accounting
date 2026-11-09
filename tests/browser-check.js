@@ -1330,21 +1330,70 @@ let chrome;
       saveUser() { return Promise.resolve(); },
       listUsers() { calls += 1; return Promise.reject(new Error('down')); },
     });
-    location.hash = '#person/u-ahmed';
+    location.hash = '#person/u-ameer';
     dispatchEvent(new HashChangeEvent('hashchange'));
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise(r => setTimeout(r, 40));
+    const name = document.querySelector('#person-name');
     const email = document.querySelector('#person-email');
-    const boxes = [...document.querySelectorAll('[data-assign]')];
-    if (email) email.value = 'ahmed@example.invalid';
-    if (boxes.length && !boxes.some(b => b.checked)) boxes[0].checked = true;
+    if (name) name.value = 'أمير المحفوظ';
+    if (email) email.value = 'owner@example.invalid';
     const save = document.querySelector('#save-person');
     if (save) save.click();
     await new Promise(r => setTimeout(r, 80));
     const msg = document.querySelector('#person-msg');
     const note = (document.querySelector('#people-sync')||{}).innerText || '';
-    return { hash: location.hash, msg: msg ? msg.textContent : '', note, calls, onLine: navigator.onLine, hasSave: !!save };
+    const row = (get(K.users)||[]).find(u => u && u.uid==='u-ameer');
+    const session = get(K.sessionUser, null);
+    return {
+      hash: location.hash,
+      msg: msg ? msg.textContent : '',
+      note,
+      calls,
+      onLine: navigator.onLine,
+      name: row && row.displayName,
+      sessionName: session && session.uid==='u-ameer' ? session.displayName : '',
+      count: (get(K.users)||[]).filter(u => u && u.uid==='u-ameer').length,
+    };
   })()`);
-  check('an offline save does not say the person failed to save', savedOffline && savedOffline.onLine===false && savedOffline.hash==='#people' && savedOffline.msg!=='تعذر حفظ الشخص' && savedOffline.note.includes('غير متصل') && savedOffline.calls===0);
+  check('an offline save keeps the new name and does not say the save failed', savedOffline && savedOffline.onLine===false && savedOffline.hash==='#people' && savedOffline.msg!=='تعذر حفظ الشخص' && savedOffline.note.includes('غير متصل') && savedOffline.calls===0 && savedOffline.name==='أمير المحفوظ' && savedOffline.sessionName==='أمير المحفوظ' && savedOffline.count===1);
+  const savedThenThrow = await ev(`(async()=>{
+    const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };
+    const ahmed = { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] };
+    set(K.users, [owner, ahmed]);
+    set(K.sessionUser, owner);
+    const orig = window.get;
+    let armed = false;
+    let reads = 0;
+    let threw = false;
+    window.get = function(k, d) {
+      if (armed && k==='users') {
+        reads += 1;
+        if (reads===2) {
+          threw = true;
+          window.get = orig;
+          throw new Error('after-save');
+        }
+      }
+      return orig(k, d);
+    };
+    window.ensureFirebase = () => Promise.resolve({
+      saveUser() { armed = true; return Promise.resolve(); },
+      listUsers() { return Promise.resolve([owner, ahmed]); },
+    });
+    location.hash = '#person/u-ahmed';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    await new Promise(r => setTimeout(r, 40));
+    const email = document.querySelector('#person-email');
+    if (email && !email.value) email.value = 'ahmed@example.invalid';
+    const save = document.querySelector('#save-person');
+    if (save) save.click();
+    await new Promise(r => setTimeout(r, 80));
+    window.get = orig;
+    const btn = document.querySelector('#save-person');
+    const msg = document.querySelector('#person-msg');
+    return { hash: location.hash, msg: msg ? msg.textContent : '', disabled: btn ? btn.disabled===true : false, threw, reads, onLine: navigator.onLine };
+  })()`);
+  check('a save that already succeeded still opens the people list', savedThenThrow && savedThenThrow.onLine===false && savedThenThrow.threw===true && savedThenThrow.reads===2 && savedThenThrow.hash==='#people' && savedThenThrow.msg!=='تعذر حفظ الشخص' && savedThenThrow.disabled===false);
   const saveFailed = await ev(`(async()=>{
     history.replaceState(null, '', location.pathname);
     const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };

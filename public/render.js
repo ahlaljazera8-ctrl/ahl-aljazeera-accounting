@@ -188,19 +188,26 @@ async function savePerson(u) {
       const fb = await ensureFirebase();
       await fb.saveUser(built.value.uid, built.value, existing);
       saved = true;
+      /** @type {PeopleLoadResult | null} */
+      let directory = null;
       try {
-        await ensureDirectory('save');
+        directory = await ensureDirectory('save');
       } catch {
         storePerson(built.value, existing, u);
         location.hash = '#people';
         return;
       }
-      const fresh = get(K.users, []).find(x => x.uid === built.value.uid) || storePerson(built.value, existing, u);
+      const listed = get(K.users, []).find(x => x.uid === built.value.uid);
+      const fresh = !listed || (directory && (directory.skipped || directory.stale)) ? storePerson(built.value, existing, u) : listed;
       if (get(K.sessionUser, null) && get(K.sessionUser).uid === built.value.uid) set(K.sessionUser, Object.assign({}, get(K.sessionUser), fresh));
     }
     location.hash = '#people';
   } catch {
-    if (saved) return;
+    if (saved) {
+      if (btn) btn.disabled = false;
+      location.hash = '#people';
+      return;
+    }
     if (btn) btn.disabled = false;
     if (msg) msg.textContent = 'تعذر حفظ الشخص';
   }
