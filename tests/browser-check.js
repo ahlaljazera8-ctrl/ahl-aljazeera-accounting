@@ -1,4 +1,3 @@
-// Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
 const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
@@ -9,12 +8,65 @@ let chrome;
   chrome = opened.chrome;
   const tgt = opened.page;
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
-  let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
+  let id = 0; const pend = {}; const navLoaders = [];
+  ws.onmessage = m => {
+    const d = JSON.parse(m.data);
+    if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
+    if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; }
+  };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
   const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  const go = async url => { await send('Page.navigate', { url }); await sleep(900); for (let i = 0; i < 30 && !(await ev('document.body&&document.body.dataset.ready')); i++) await sleep(100); };
+  const LOGIN_MS = 20000;
+  const roleDemo = url => {
+    try {
+      const role = new URL(url).searchParams.get('role');
+      return role === 'owner' || role === 'site';
+    } catch (e) { return false; }
+  };
+  const loaderOf = message => {
+    const loaderId = message && message.result && message.result.loaderId;
+    return typeof loaderId === 'string' ? loaderId : '';
+  };
+  const waitReady = async (url, loaderId, origin) => {
+    if (!loaderId) return;
+    const ready = async () => {
+      try {
+        const now = await ev(`({o:performance.timeOrigin,r:document.body&&document.body.dataset.ready==='1'})`);
+        return !!(now && now.o !== origin && now.r);
+      } catch (e) { return false; }
+    };
+    if (roleDemo(url)) {
+      await sleep(900);
+      for (let i = 0; i < 30 && !(await ready()); i++) await sleep(100);
+    } else {
+      const deadline = Date.now() + 2 * LOGIN_MS;
+      while (Date.now() < deadline) {
+        if (await ready()) return;
+        await sleep(100);
+      }
+    }
+    if (!(await ready())) throw new Error('browser-check: document was not ready');
+  };
+  const go = async url => {
+    const origin = await ev('performance.timeOrigin');
+    const message = await send('Page.navigate', { url });
+    await waitReady(url, loaderOf(message), origin);
+  };
+  const reload = async params => {
+    const origin = await ev('performance.timeOrigin');
+    const url = await ev('location.href');
+    const before = navLoaders.length;
+    const message = await send('Page.reload', params || {});
+    let loaderId = loaderOf(message);
+    const heard = Date.now() + 1000;
+    while (!loaderId && Date.now() < heard) {
+      if (navLoaders.length > before) loaderId = navLoaders[navLoaders.length - 1];
+      if (!loaderId) await sleep(20);
+    }
+    await waitReady(url, loaderId || 'reload', origin);
+  };
   const results = [];
   const check = (name, ok) => { results.push([name, !!ok]); console.log((ok ? 'PASS ' : 'FAIL ') + name); };
   const screens = [['o1-home','owner','home'],['o2-entry','owner','entry'],['o3-projects','owner','projects'],['o4-profit','owner','project/p-school'],
@@ -226,7 +278,6 @@ let chrome;
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   check('subcontracts: site detail does not show the amount', await ev(`(()=>{const text=document.querySelector('#main').innerText; return text.includes('هذه الشاشة للمالك') && !text.includes('3,000,000') && !text.includes('3,200,000') && !document.querySelector('.warnbox');})()`));
-  // functional: save expense as site -> outbox +1; send now drains
   await go(`${BASE}index.html?role=site#entry`);
   const before = await ev(`AJ.get('outbox').length`);
   await ev(`document.querySelector('[data-add="1000"]').click(); document.querySelector('#save').click(); 1`);
@@ -237,16 +288,15 @@ let chrome;
   const ls = await ev('localStorage.length');
   const i1 = await idb();
   check(`data in IndexedDB (entries ${i1.entries}, outbox ${i1.outbox}, projects ${i1.projects}), localStorage empty (${ls})`, i1.entries > 10 && i1.outbox === after && i1.projects === 3 && ls === 0);
-  await send('Page.reload', {}); await sleep(1200);
+  await reload({});
   const i2 = await idb(); const after2 = await ev(`AJ.get('outbox').length`);
   check('IndexedDB data survives reload', i2.entries === i1.entries && i2.outbox === i1.outbox && after2 === after);
   check('navigator.storage.persist called (result: ' + (await ev('String(AJ.persisted)')) + ')', (await ev('typeof navigator.storage.persist')) === 'function');
   check('header bell shows the unsent count', await ev(`(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const panel=document.querySelector('#bell-panel');const n=AJ.get('outbox').length;const label=(btn&&btn.getAttribute('aria-label'))||'';const text=panel?panel.innerText:'';return btn&&btn.tagName==='BUTTON'&&n===${after}&&label.includes('لم يُرسل بعد: '+n)&&badge&&badge.hidden===false&&badge.textContent===String(n)&&text.includes('لم يُرسل بعد')&&text.includes('آخر مزامنة')&&text.includes('إرسال الآن')&&text.includes(String(n))&&!document.querySelector('#send')})()`));
-  // offline reload: SW must control page, then block network
   await ev(`navigator.serviceWorker.ready.then(()=>1)`); await go(`${BASE}index.html?role=owner#home`);
   check('service worker controls page', await ev('!!navigator.serviceWorker.controller'));
   await send('Network.enable'); await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-  await send('Page.reload', { ignoreCache: false }); await sleep(1500);
+  await reload({ ignoreCache: false });
   const off = await ev(`(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const n=String((AJ.get('outbox')||[]).length);return {t:document.querySelector('main')?.innerText||'', label:(btn&&btn.getAttribute('aria-label'))||'', badge:badge?badge.textContent:'', hidden:!(badge&&badge.hidden===false), on:navigator.onLine, n}})()`);
   check('offline reload renders app with data', off.t.includes('صافي الربح') && off.n === String(after) && off.label.includes('لم يُرسل بعد: ' + off.n) && off.label.includes('بدون إنترنت') && off.badge === off.n && off.hidden === false && off.on === false);
   await send('Page.captureScreenshot', { format: 'png' }).then(s => fs.writeFileSync(path.join(SHOTS, 'offline-reload-owner-home.png'), Buffer.from(s.result.data, 'base64')));

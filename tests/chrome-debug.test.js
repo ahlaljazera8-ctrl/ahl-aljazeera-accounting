@@ -11,7 +11,8 @@ function closedPort() {
     const s = net.createServer();
     s.once('error', reject);
     s.listen(0, '127.0.0.1', () => {
-      const { port } = /** @type {import('net').AddressInfo} */ (s.address());
+      const address = s.address();
+      const port = address && typeof address === 'object' ? address.port : 0;
       s.close(() => resolve(port));
     });
   });
@@ -87,15 +88,15 @@ function writeFake(dir, mode) {
 function stopOpened(dir, opened) {
   const api = require('./chrome-debug.js');
   if (opened && opened.chrome && typeof api.stopChrome === 'function') api.stopChrome(opened.chrome, false);
-  let names = [];
+  let names;
   try {
     names = fs.readdirSync('/proc');
   } catch (e) {
-    names = [];
+    return;
   }
   for (const name of names) {
     if (!/^[0-9]+$/.test(name)) continue;
-    let cmd = '';
+    let cmd;
     try {
       cmd = fs.readFileSync('/proc/' + name + '/cmdline', 'utf8');
     } catch (e) {
@@ -112,9 +113,9 @@ function stopOpened(dir, opened) {
 async function withStderr(fn) {
   const chunks = [];
   const orig = process.stderr.write;
-  process.stderr.write = function (chunk, enc, cb) {
+  process.stderr.write = (chunk, ...rest) => {
     chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
-    return orig.call(process.stderr, chunk, enc, cb);
+    return orig.call(process.stderr, chunk, ...rest);
   };
   try {
     const value = await fn();
