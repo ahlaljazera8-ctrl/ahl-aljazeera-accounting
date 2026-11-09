@@ -161,6 +161,23 @@ test('demo logout writes no marker', async () => {
   assert.equal(box.getItem('aj-signout-pending'), null);
 });
 
+test('closeSession writes marker A from aj-u-A before closeUserDb when Firebase times out', async () => {
+  const { context, box } = loadSession({
+    dbName: 'aj-u-A',
+    sessionUser: { uid: 'not-the-name', role: 'owner', active: true },
+    ensureFirebase: () => Promise.reject(Object.assign(new Error('انتهت المهلة (تحميل). تحقق من الاتصال وأعد المحاولة'), { timeout: true })),
+    meta: { name: 'aj-u-A', listed: false },
+  });
+  const orig = context.closeUserDb;
+  context.closeUserDb = async () => {
+    assert.equal(box.getItem('aj-signout-pending'), 'A');
+    return orig();
+  };
+  const closed = await context.closeSession();
+  assert.equal(closed, true);
+  assert.equal(box.getItem('aj-signout-pending'), 'A');
+});
+
 test('a throwing setItem still finishes logout', async () => {
   const { context, box } = loadSession({ dbName: 'aj-u-A', meta: { name: 'aj-u-A', listed: false } });
   box._data.throwSet = true;
@@ -206,6 +223,7 @@ function clientMods(context, state) {
       signOut() {
         state.signOuts += 1;
         state.initOrder.push('signOut');
+        if (state.signOutHangs) return new Promise(() => {});
         if (state.signOutRejects) return Promise.reject(new Error('no'));
         if (state.signOutStale) context.fbGeneration += 1;
         return Promise.resolve();
@@ -230,7 +248,7 @@ function loadClient(opts) {
   context.sessionStorage = { getItem() { return null; }, setItem() {} };
   context.FIREBASE_CONFIG = { apiKey: 'test-key', projectId: 'ahl' };
   context.Sync = {};
-  const state = { apps: [], initOrder: [], signOuts: 0, signOutRejects: false, signOutStale: false };
+  const state = { apps: [], initOrder: [], signOuts: 0, signOutRejects: false, signOutStale: false, signOutHangs: false };
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/firebase-client.js'), 'utf8'), context);
   return { context, box: session.box, state, mods: clientMods(context, state) };
 }
@@ -268,6 +286,34 @@ test('a stale sign-out does not clear the marker', async () => {
   const client = await context.createFirebaseClient(mods, 1);
   assert.equal(client, null);
   assert.equal(box.getItem('aj-signout-pending'), 'u-A');
+});
+
+test('dispose(true) keeps the marker when signOut rejects or times out', async () => {
+  const { context, box, state, mods } = loadClient({});
+  context.fbGeneration = 1;
+  const client = await context.createFirebaseClient(mods, 1);
+  state.signOutRejects = true;
+  box.setItem('aj-signout-pending', 'A');
+  context.fbPromise = Promise.resolve(client);
+  assert.equal(await context.disposeFirebase(true), false);
+  assert.equal(box.getItem('aj-signout-pending'), 'A');
+
+  state.signOutRejects = false;
+  state.signOutHangs = true;
+  box.setItem('aj-signout-pending', 'A');
+  context.fbPromise = Promise.resolve(client);
+  assert.equal(await context.disposeFirebase(true), false);
+  assert.equal(box.getItem('aj-signout-pending'), 'A');
+});
+
+test('dispose(true) clears marker A when signOut resolves', async () => {
+  const { context, box, mods } = loadClient({});
+  context.fbGeneration = 1;
+  const client = await context.createFirebaseClient(mods, 1);
+  box.setItem('aj-signout-pending', 'A');
+  context.fbPromise = Promise.resolve(client);
+  assert.equal(await context.disposeFirebase(true), true);
+  assert.equal(box.getItem('aj-signout-pending'), null);
 });
 
 test('disposeFirebase(false) keeps the marker', async () => {
