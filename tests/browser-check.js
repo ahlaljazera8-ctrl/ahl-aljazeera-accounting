@@ -3,18 +3,108 @@ const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+function assertHashLanded(expected, actual) {
+  if (expected !== actual) {
+    throw new Error('browser-check: location.href is ' + actual + ', expected ' + expected);
+  }
+}
 let chrome;
 (async () => {
   const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
   chrome = opened.chrome;
   const tgt = opened.page;
   const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
-  let id = 0; const pend = {}; ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; } };
+  let id = 0; const pend = {}; const navLoaders = [];
+  ws.onmessage = m => {
+    const d = JSON.parse(m.data);
+    if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
+    if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; }
+  };
   const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
   const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  const go = async url => { await send('Page.navigate', { url }); await sleep(900); for (let i = 0; i < 30 && !(await ev('document.body&&document.body.dataset.ready')); i++) await sleep(100); };
+  const LOGIN_MS = 20000;
+  const roleDemo = url => {
+    try {
+      const role = new URL(url).searchParams.get('role');
+      return role === 'owner' || role === 'site';
+    } catch (e) { return false; }
+  };
+  const loaderOf = message => {
+    const loaderId = message && message.result && message.result.loaderId;
+    return typeof loaderId === 'string' ? loaderId : '';
+  };
+  const waitReady = async (url, loaderId, origin) => {
+    if (!loaderId) return;
+    const ready = async () => {
+      try {
+        const now = await ev(`({o:performance.timeOrigin,r:document.body&&document.body.dataset.ready==='1'})`);
+        return !!(now && now.o !== origin && now.r);
+      } catch (e) { return false; }
+    };
+    if (roleDemo(url)) {
+      await sleep(900);
+      for (let i = 0; i < 30 && !(await ready()); i++) await sleep(100);
+    } else {
+      const deadline = Date.now() + 2 * LOGIN_MS;
+      while (Date.now() < deadline) {
+        if (await ready()) return;
+        await sleep(100);
+      }
+    }
+    if (!(await ready())) throw new Error('browser-check: document was not ready');
+  };
+  const sameDocument = async target => {
+    try {
+      const href = await ev('location.href');
+      return !!href && new URL(href).href === new URL(target).href;
+    } catch (e) {
+      return false;
+    }
+  };
+  const go = async url => {
+    const origin = await ev('performance.timeOrigin');
+    const message = await send('Page.navigate', { url });
+    const loaderId = loaderOf(message);
+    if (!loaderId) {
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline && !(await sameDocument(url))) await sleep(20);
+      if (!(await sameDocument(url))) {
+        let actual;
+        try {
+          actual = String((await ev('location.href')) || '');
+        } catch (e) {
+          actual = '';
+        }
+        let expectedHref = url;
+        let actualHref = actual;
+        try {
+          expectedHref = new URL(url).href;
+        } catch (e) {}
+        try {
+          if (actual) actualHref = new URL(actual).href;
+        } catch (e) {}
+        assertHashLanded(expectedHref, actualHref);
+      }
+      await sleep(900);
+      return;
+    }
+    await waitReady(url, loaderId, origin);
+  };
+  const reload = async params => {
+    const origin = await ev('performance.timeOrigin');
+    const url = await ev('location.href');
+    const before = navLoaders.length;
+    const message = await send('Page.reload', params || {});
+    let loaderId = loaderOf(message);
+    const heard = Date.now() + 1000;
+    while (!loaderId && Date.now() < heard) {
+      if (navLoaders.length > before) loaderId = navLoaders[navLoaders.length - 1];
+      if (!loaderId) await sleep(20);
+    }
+    await waitReady(url, loaderId || 'reload', origin);
+  };
   const results = [];
   const check = (name, ok) => { results.push([name, !!ok]); console.log((ok ? 'PASS ' : 'FAIL ') + name); };
   const screens = [['o1-home','owner','home'],['o2-entry','owner','entry'],['o3-projects','owner','projects'],['o4-profit','owner','project/p-school'],
@@ -237,7 +327,7 @@ let chrome;
   const ls = await ev('localStorage.length');
   const i1 = await idb();
   check(`data in IndexedDB (entries ${i1.entries}, outbox ${i1.outbox}, projects ${i1.projects}), localStorage empty (${ls})`, i1.entries > 10 && i1.outbox === after && i1.projects === 3 && ls === 0);
-  await send('Page.reload', {}); await sleep(1200);
+  await reload({});
   const i2 = await idb(); const after2 = await ev(`AJ.get('outbox').length`);
   check('IndexedDB data survives reload', i2.entries === i1.entries && i2.outbox === i1.outbox && after2 === after);
   check('navigator.storage.persist called (result: ' + (await ev('String(AJ.persisted)')) + ')', (await ev('typeof navigator.storage.persist')) === 'function');
@@ -246,7 +336,7 @@ let chrome;
   await ev(`navigator.serviceWorker.ready.then(()=>1)`); await go(`${BASE}index.html?role=owner#home`);
   check('service worker controls page', await ev('!!navigator.serviceWorker.controller'));
   await send('Network.enable'); await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-  await send('Page.reload', { ignoreCache: false }); await sleep(1500);
+  await reload({ ignoreCache: false });
   const off = await ev(`(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const n=String((AJ.get('outbox')||[]).length);return {t:document.querySelector('main')?.innerText||'', label:(btn&&btn.getAttribute('aria-label'))||'', badge:badge?badge.textContent:'', hidden:!(badge&&badge.hidden===false), on:navigator.onLine, n}})()`);
   check('offline reload renders app with data', off.t.includes('صافي الربح') && off.n === String(after) && off.label.includes('لم يُرسل بعد: ' + off.n) && off.label.includes('بدون إنترنت') && off.badge === off.n && off.hidden === false && off.on === false);
   await send('Page.captureScreenshot', { format: 'png' }).then(s => fs.writeFileSync(path.join(SHOTS, 'offline-reload-owner-home.png'), Buffer.from(s.result.data, 'base64')));

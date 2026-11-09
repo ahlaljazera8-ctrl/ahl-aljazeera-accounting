@@ -22,8 +22,17 @@ function debuggerText(port, pathname) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+const devtoolsLogs = new WeakMap();
+
+function chromeLog(chrome) {
+  const held = chrome && devtoolsLogs.get(chrome);
+  if (held) return String(held.text || '');
+  if (chrome && typeof chrome.devtoolsLog === 'function') return String(chrome.devtoolsLog() || '');
+  return '';
+}
+
 function logged(message, child) {
-  const extra = child && typeof child.devtoolsLog === 'function' ? String(child.devtoolsLog() || '').trim() : '';
+  const extra = chromeLog(child).trim();
   return extra ? message + '\n' + extra : message;
 }
 
@@ -39,12 +48,85 @@ function debugPort(dir, log) {
   return Number.isInteger(fromLog) && fromLog > 0 ? fromLog : null;
 }
 
+function descendantPids(root) {
+  const children = new Map();
+  let names;
+  try {
+    names = fs.readdirSync('/proc');
+  } catch (e) {
+    return [];
+  }
+  for (const name of names) {
+    if (!/^[0-9]+$/.test(name)) continue;
+    let stat;
+    try {
+      stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
+    } catch (e) {
+      continue;
+    }
+    const close = stat.lastIndexOf(')');
+    if (close < 0) continue;
+    const ppid = Number(stat.slice(close + 2).split(' ')[1]);
+    if (!Number.isInteger(ppid)) continue;
+    const pid = Number(name);
+    if (!children.has(ppid)) children.set(ppid, []);
+    children.get(ppid).push(pid);
+  }
+  const out = [];
+  const stack = (children.get(root) || []).slice();
+  const seen = new Set();
+  while (stack.length) {
+    const pid = stack.pop();
+    if (pid == null || seen.has(pid)) continue;
+    seen.add(pid);
+    out.push(pid);
+    for (const kid of children.get(pid) || []) stack.push(kid);
+  }
+  return out;
+}
+
+function processAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function stopChrome(chrome, detached) {
   if (!chrome || !chrome.pid) return;
+  const pid = chrome.pid;
+  const descendants = descendantPids(pid);
   if (detached) {
-    try { process.kill(-chrome.pid, 'SIGKILL'); return; } catch (e) {}
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch (e) {}
   }
-  try { chrome.kill('SIGKILL'); } catch (e) {}
+  for (const child of descendants) {
+    try {
+      process.kill(child, 'SIGKILL');
+    } catch (e) {}
+  }
+  try {
+    chrome.kill('SIGKILL');
+  } catch (e) {}
+}
+
+async function stopAndWait(chrome, detached) {
+  const pid = chrome && chrome.pid;
+  const descendants = pid ? descendantPids(pid) : [];
+  stopChrome(chrome, detached);
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    const rootGone = !processAlive(pid);
+    const kidsGone = descendants.every(child => !processAlive(child));
+    if (rootGone && kidsGone) return;
+    await sleep(20);
+  }
+  const stuck = [pid].concat(descendants).filter(id => processAlive(id));
+  throw new Error('chrome-debug: process ' + stuck.join(',') + ' did not exit before relaunch');
 }
 
 async function waitForPage(port, child, attempts) {
@@ -68,48 +150,106 @@ async function waitForPage(port, child, attempts) {
   throw new Error(logged('Chrome did not open a page (' + last + gone + ')', child));
 }
 
+function clearProfileLocks(dir) {
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort']) {
+    fs.rmSync(path.join(dir, name), { force: true });
+  }
+}
+
+function missError(misses) {
+  const states = misses.map((miss, i) => 'attempt ' + (i + 1) + ': ' + miss.last).join('; ');
+  let message = 'Chrome did not open a debug port (' + states + ')';
+  for (let i = 0; i < misses.length; i++) {
+    const extra = String(misses[i].log || '').trim();
+    if (extra) message += '\nattempt ' + (i + 1) + ' log:\n' + extra;
+  }
+  return new Error(message);
+}
+
+const CHROME_ARGS = [
+  '--headless=new',
+  '--no-sandbox',
+  '--disable-gpu',
+  '--disable-dev-shm-usage',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--remote-debugging-address=127.0.0.1',
+  '--remote-allow-origins=*',
+  '--remote-debugging-port=0',
+];
+
+function launchChrome(command, dir, detached) {
+  const chrome = spawn(command, CHROME_ARGS.concat(['--user-data-dir=' + dir, 'about:blank']), {
+    detached,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const held = { text: '' };
+  devtoolsLogs.set(chrome, held);
+  const keep = chunk => {
+    held.text = (held.text + chunk).slice(-8000);
+  };
+  chrome.on('error', err => {
+    held.text = (held.text + '\n' + String((err && err.message) || err)).slice(-8000);
+  });
+  if (chrome.stdout) chrome.stdout.on('data', keep);
+  if (chrome.stderr) chrome.stderr.on('data', keep);
+  return chrome;
+}
+
+async function waitForDebugPort(chrome, dir, attempts) {
+  let last = '';
+  for (let i = 0; i < attempts; i++) {
+    if (chrome.exitCode != null) return { early: true };
+    const port = debugPort(dir, chromeLog(chrome));
+    if (port) return { early: false, port };
+    last = 'no DevToolsActivePort';
+    await sleep(GAP_MS);
+    if (chrome.exitCode != null) return { early: true };
+  }
+  if (chrome.exitCode != null) return { early: true };
+  return { early: false, port: null, last: last || 'no DevToolsActivePort' };
+}
+
 async function openChrome(opts) {
   const dir = opts && opts.userDataDir;
   if (!dir) throw new Error('openChrome needs a userDataDir');
   const detached = !!(opts && opts.detached);
-  fs.mkdirSync(dir, { recursive: true });
-  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort']) {
-    fs.rmSync(path.join(dir, name), { force: true });
-  }
-  const chrome = /** @type {import('child_process').ChildProcess & { devtoolsLog?: () => string }} */ (spawn('google-chrome', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--no-first-run', '--no-default-browser-check',
-    '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
-    '--remote-debugging-port=0', '--user-data-dir=' + dir, 'about:blank',
-  ], { detached, stdio: ['ignore', 'pipe', 'pipe'] }));
-  let log = '';
-  const keep = chunk => { log = (log + chunk).slice(-8000); };
-  chrome.stdout.on('data', keep);
-  chrome.stderr.on('data', keep);
-  chrome.devtoolsLog = () => log;
+  const command = (opts && opts.command) || 'google-chrome';
   const attempts = opts.attempts == null ? ATTEMPTS : opts.attempts;
-  let port = null;
-  let last = 'no DevToolsActivePort';
-  for (let i = 0; i < attempts; i++) {
-    if (chrome.exitCode != null) {
+  fs.mkdirSync(dir, { recursive: true });
+  const misses = [];
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    clearProfileLocks(dir);
+    const chrome = launchChrome(command, dir, detached);
+    const waited = await waitForDebugPort(chrome, dir, attempts);
+    if (waited.early) {
+      const code = chrome.exitCode;
+      let message = logged('Chrome exited before opening a debug port (code ' + code + ')', chrome);
+      for (let i = 0; i < misses.length; i++) {
+        const extra = String(misses[i].log || '').trim();
+        if (extra) message += '\nattempt ' + (i + 1) + ' log:\n' + extra;
+      }
       stopChrome(chrome, detached);
-      throw new Error(logged('Chrome exited before opening a debug port (code ' + chrome.exitCode + ')', chrome));
+      throw new Error(message);
     }
-    port = debugPort(dir, log);
-    if (port) break;
-    await sleep(GAP_MS);
+    if (!waited.port) {
+      misses.push({ last: waited.last || 'no DevToolsActivePort', log: chromeLog(chrome) });
+      await stopAndWait(chrome, detached);
+      if (attempt === 1) {
+        process.stderr.write('chrome-debug: retry 1/1 ' + misses[0].last + '\n');
+        continue;
+      }
+      throw missError(misses);
+    }
+    try {
+      const page = await waitForPage(waited.port, chrome, attempts);
+      return { chrome, port: waited.port, page };
+    } catch (err) {
+      stopChrome(chrome, detached);
+      throw err;
+    }
   }
-  if (!port) {
-    stopChrome(chrome, detached);
-    throw new Error(logged('Chrome did not open a debug port (' + last + ')', chrome));
-  }
-  try {
-    const page = await waitForPage(port, chrome, attempts);
-    return { chrome, port, page };
-  } catch (err) {
-    stopChrome(chrome, detached);
-    throw err;
-  }
+  throw missError(misses);
 }
 
-module.exports = { waitForPage, openChrome, debugPort, ATTEMPTS, GAP_MS };
+module.exports = { waitForPage, openChrome, stopChrome, stopAndWait, debugPort, ATTEMPTS, GAP_MS };
