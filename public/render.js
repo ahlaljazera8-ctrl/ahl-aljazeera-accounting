@@ -1202,7 +1202,12 @@ $('#login-form').addEventListener('submit', async ev => {
     token = ++sessionEpoch;
     let fb = await withTimeout(ensureFirebase(), LOGIN_MS, 'تحميل');
     if (token !== sessionEpoch) return;
+    const marked = signOutPending();
+    if (marked) {
+      try { await withTimeout(fb.signOut(), 3000, 'خروج'); } catch (e) { /* a failed sign-out does not block login */ }
+    }
     let cred = await withTimeout(fb.signIn(email, password), LOGIN_MS, 'تسجيل الدخول');
+    if (marked) clearSignOutPending(marked);
     if (token !== sessionEpoch) return;
     let data;
     try {

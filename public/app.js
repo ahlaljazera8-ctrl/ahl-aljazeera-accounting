@@ -101,6 +101,7 @@ function seed() {
     try {
       let fb = await withTimeout(ensureFirebase(), LOGIN_MS, 'تحميل');
       if (token !== sessionEpoch) return;
+      if (signOutPending()) { showLogin(); return; }
       let user = await withTimeout(fb.currentUser(), LOGIN_MS, 'الجلسة');
       if (token !== sessionEpoch) return;
       if (!user) {

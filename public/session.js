@@ -174,7 +174,39 @@ function releaseDb() {
 function usableProfile(profile, uid) {
   return !!(profile && profile.uid === uid && profile.active !== false && (Ledger.can(profile, 'owner') || profile.role === 'site'));
 }
+var SIGNOUT_PENDING = 'aj-signout-pending';
+function signOutPending() {
+  try {
+    const value = localStorage.getItem(SIGNOUT_PENDING);
+    return typeof value === 'string' ? value : '';
+  } catch (e) { return ''; }
+}
+/**
+ * @param {string} uid
+ */
+function markSignOutPending(uid) {
+  if (!uid) return;
+  try { localStorage.setItem(SIGNOUT_PENDING, uid); } catch (e) { /* logout still continues when storage throws */ }
+}
+/**
+ * @param {string} expected
+ */
+function clearSignOutPending(expected) {
+  try {
+    if (localStorage.getItem(SIGNOUT_PENDING) === expected) localStorage.removeItem(SIGNOUT_PENDING);
+  } catch (e) { /* a failed clear leaves the marker in place */ }
+}
+function logoutUid() {
+  const name = db && db.name;
+  if (typeof name === 'string' && name.indexOf('aj-u-') === 0) return name.slice('aj-u-'.length);
+  if (!db) {
+    const user = /** @type {{ uid?: string } | null} */ (get(K.sessionUser, null));
+    if (user && typeof user.uid === 'string') return user.uid;
+  }
+  return '';
+}
 async function localSession() {
+  if (signOutPending()) return null;
   if (!indexedDB.databases) return null;
   let listed;
   try { listed = await indexedDB.databases(); } catch (e) { return null; }
@@ -280,6 +312,7 @@ async function closeSession() {
     return false;
   }
   const name = db && db.name;
+  markSignOutPending(logoutUid());
   sessionEpoch += 1;
   try {
     await closeUserDb();
@@ -326,4 +359,5 @@ Object.assign(window, {
   get, set, openDB, loadAll, uuid, today, demoRole, me, $,
   showLogin, showApp, markReady, profileFrom, loginError, showLoginMessage,
   holdSession, localSession, openUserDb, enterSession, closeSession,
+  SIGNOUT_PENDING, signOutPending, markSignOutPending, clearSignOutPending, logoutUid,
 });
