@@ -165,19 +165,41 @@ function assertNoProductionUrl(raw) {
   if (blocked) throw new Error('refusing production Firebase host: ' + host);
 }
 
+const DEFAULT_EMULATOR_PORTS = [9099, 8080, 5000];
+
 /**
+ * @param {string} raw
+ * @param {readonly number[]} [ports]
+ * @returns {boolean}
+ */
+function urlAllowed(raw, ports) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch (err) {
+    return false;
+  }
+  if (url.protocol === 'https:' && url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    return true;
+  }
+  const host = url.hostname.toLowerCase().replace(/\.+$/, '');
+  if (host !== '127.0.0.1' && host !== 'localhost') return false;
+  const port = Number(url.port || (url.protocol === 'https:' ? '443' : '80'));
+  const allowed = ports && ports.length ? ports : DEFAULT_EMULATOR_PORTS;
+  return allowed.indexOf(port) !== -1 && port !== 8765;
+}
+
+/**
+ * Allow only loopback emulator ports and https://www.gstatic.com/firebasejs/.
  * @param {string[]} urls
+ * @param {readonly number[]} [ports]
  * @returns {string[]}
  */
-function networkVerdict(urls) {
+function networkVerdict(urls, ports) {
   /** @type {string[]} */
   const blocked = [];
   for (const url of urls) {
-    try {
-      assertNoProductionUrl(url);
-    } catch (err) {
-      blocked.push(url);
-    }
+    if (!urlAllowed(url, ports)) blocked.push(url);
   }
   return blocked;
 }
@@ -713,10 +735,11 @@ async function shoot(session, file) {
 /**
  * @param {string[]} urls
  * @param {string} file
+ * @param {readonly number[]} [ports]
  * @returns {void}
  */
-function writeNetwork(urls, file) {
-  const blocked = networkVerdict(urls);
+function writeNetwork(urls, file, ports) {
+  const blocked = networkVerdict(urls, ports);
   const lines = urls.map(url => (blocked.includes(url) ? 'BLOCKED ' + url : 'ok ' + url));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, lines.length ? lines.join('\n') + '\n' : '');
@@ -739,23 +762,25 @@ function urlsFromLog(file) {
 /**
  * @param {string} evidenceDir
  * @param {string[]} urls
+ * @param {readonly number[]} [ports]
  * @returns {void}
  */
-function flushNetwork(evidenceDir, urls) {
+function flushNetwork(evidenceDir, urls, ports) {
   const file = path.join(evidenceDir, 'network.txt');
-  writeNetwork(urlsFromLog(file).concat(urls), file);
+  writeNetwork(urlsFromLog(file).concat(urls), file, ports);
 }
 
 /**
  * @param {string} evidenceDir
  * @param {CdpSession} session
  * @param {unknown} failure
+ * @param {readonly number[]} [ports]
  * @returns {void}
  */
-function finishSession(evidenceDir, session, failure) {
+function finishSession(evidenceDir, session, failure, ports) {
   let networkError = null;
   try {
-    flushNetwork(evidenceDir, session.urls);
+    flushNetwork(evidenceDir, session.urls, ports);
   } catch (err) {
     networkError = err;
   }
@@ -920,7 +945,7 @@ async function launch() {
     } catch (err) {
       failure = err;
     }
-    finishSession(evidenceDir, session, failure);
+    finishSession(evidenceDir, session, failure, [run.authPort, run.firestorePort, run.hostingPort]);
     fs.writeFileSync(
       path.join(evidenceDir, 'launch.txt'),
       [
@@ -989,7 +1014,7 @@ async function doctor(run) {
   } catch (err) {
     failure = err;
   }
-  finishSession(run.evidenceDir, session, failure);
+  finishSession(run.evidenceDir, session, failure, [run.authPort, run.firestorePort, run.hostingPort]);
   lines.push('page ready');
   fs.writeFileSync(path.join(run.evidenceDir, 'doctor.txt'), lines.join('\n') + '\n');
   console.log(lines.join('\n'));
@@ -1267,7 +1292,7 @@ async function driveLedgerEntry(run) {
     failure = err;
   }
   try {
-    finishSession(run.evidenceDir, session, failure);
+    finishSession(run.evidenceDir, session, failure, [run.authPort, run.firestorePort, run.hostingPort]);
   } finally {
     const recorded = path.join(run.evidenceDir, 'network.txt');
     if (fs.existsSync(recorded)) fs.copyFileSync(recorded, path.join(dir, 'network.txt'));

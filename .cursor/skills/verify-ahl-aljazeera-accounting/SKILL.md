@@ -36,7 +36,7 @@ node scripts/verify-aj.js launch
 5. `GET {origin}/index.html` must be 200 and the Content-Security-Policy must contain `http://127.0.0.1:9099` and `http://127.0.0.1:8080`.
 6. Seed one Auth user `verify.entry@example.invalid` / `emulator-only-pass`, display name `مالك التحقق`, `users/{uid}` role `owner`, and `projects/p-verify` named `مشروع التحقق`. The app cannot create that first user. The seed uses the rules-disabled client. The proof itself starts at the login form.
 7. Open Chrome at `390×844` on `{origin}/index.html?emulator=1`.
-8. Wait until `document.body.dataset.ready === '1'`, `#login` is shown, `#shell` is hidden, and `#login-btn` includes `دخول`. `healWindows` in `public/sw.js` may add a `sw` query param. The URL must still have `emulator=1` and must not have a `role` param. A `finally` block appends the request URLs to `evidenceDir/network.txt` and fails the run if any hostname is a production Auth or Firestore host, including when an earlier step already failed.
+8. Wait until `document.body.dataset.ready === '1'`, `#login` is shown, `#shell` is hidden, and `#login-btn` includes `دخول`. `healWindows` in `public/sw.js` may add a `sw` query param. The URL must still have `emulator=1` and must not have a `role` param. `launch` catches a failure and then calls `finishSession`. That call writes `evidenceDir/network.txt` and fails the run if any request is outside the allowlist, including when an earlier step already failed. It is not a `finally` block.
 
 Ready means step 8, not step 5. The command prints `runId`, `origin`, and `evidenceDir=/tmp/aj-verify-evidence/<runId>`.
 
@@ -54,7 +54,7 @@ It passes only when all of these hold:
 - Auth, Firestore, and hosting ports are owned by the emulator pid's process tree. The debug port is owned by the Chrome pid's tree. A listener outside that tree is a failure.
 - `GET {origin}/sw.js` and the working tree `public/sw.js` contain the same `const VERSION = '…'` assignment. Do not hardcode the cache name. A mismatch means this Chrome is not serving this tree.
 - A POST to `http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/ahl-aljazeera-accounting/accounts:query` lists `verify.entry@example.invalid`. The hostname is `127.0.0.1`. The path name is the emulator's local route, not a call to `identitytoolkit.googleapis.com`.
-- The debug port still has a page target, and the page is ready on either the login form or the shell. Doctor does not click.
+- The debug port still has a page target, and the page is ready on either the login form or the shell. The URL has `emulator=1` and no `role` param. Doctor does not click. It catches a session error and then calls `finishSession`. That is not a `finally` block.
 
 Exit 1 with the failed line. Do not launch a replacement from inside doctor.
 
@@ -76,7 +76,7 @@ After a successful doctor, `drive ledger-entry` does this:
 6. Click `a[data-tab="projects"]`, then the card `a[href="#project/p-verify"]`. `#title` is `مشروع التحقق` (the name is the heading, not a line in `#main`). The المصروف line shows `1,500,000 د.ع` and not `3,000,000`. The الربح line shows `−1,500,000 د.ع` (U+2212, not a hyphen). The المقبوض line shows `0 د.ع`. The description appears once. The row shows `مواد` and the `entryDate` from the Firestore document. Screenshot `evidenceDir/ledger-entry/project.png`.
 7. Open `a[data-tab="home"]`. إجمالي المقبوض is `0 د.ع`. إجمالي المصروف is `1,500,000 د.ع`. صافي الربح includes `−1,500,000`. `#main` does not contain `قيد تحقق مواد`.
 8. Reload the page. The shell returns without the login form, the URL still has `emulator=1` and no `role` param, and home still does not list `قيد تحقق مواد`. Open `a[data-tab="projects"]` and the same card again. `#title` is `مشروع التحقق`. The same amount, `مواد`, and date are still there, still once. Firestore still has one row. Screenshot `evidenceDir/ledger-entry/project-reload.png`.
-9. `evidenceDir/network.txt` is rewritten in a `finally` block from the first Chrome session in `launch` through `doctor` and `drive`. A copy is `evidenceDir/ledger-entry/network.txt`. The run exits 1 if any request hostname is `firestore.googleapis.com`, `identitytoolkit.googleapis.com`, or `securetoken.googleapis.com`, including a trailing dot or a subdomain. A path on `127.0.0.1` that contains those names is the emulator and is allowed. `www.gstatic.com` is allowed by the page CSP.
+9. `launch` and `doctor` each catch a session error and then call `finishSession`, which rewrites `evidenceDir/network.txt`. `drive` does the same, and a `finally` only copies that file to `evidenceDir/ledger-entry/network.txt`. `networkVerdict` allows loopback on the emulator ports (auth `9099`, Firestore `8080`, and the hosting port) and `https://www.gstatic.com/firebasejs/`. Every other URL is blocked, including `firebaseinstallations.googleapis.com`, App Check hosts, and other `googleapis.com` hosts. A path on `127.0.0.1:9099` that contains `identitytoolkit` is the emulator and is allowed.
 
 Setting an input's `value` and clicking the real button is the same drive the emulator app-entry test uses. The login submit listener reads those values. The save listener reads `#amt` and `#desc`. Do not call `commit`, `flushRemote`, or `AJ.set`.
 

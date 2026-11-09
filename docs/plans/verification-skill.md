@@ -620,3 +620,15 @@ CLI logs from `scripts/verify-aj.js` are terminal text. They are not shown in th
 7. Commit, push, open the PR. Body sections follow `.github/pull_request_template.md`: Why, Plan, What changed, Scope, Blast Radius, Verification, 4/4 CI, Awaiting Ameer. Do not merge.
 
 Quote §8 in that PR, including Ameer's decline of the product suggestions. Do not change ledger behaviour.
+
+## Draft PR body (not posted)
+
+Paste this when the branch is pushed with the post-#59 test-list appends. These seven wiring mutations still survive the unit tests, because each one needs a live emulator, a Chrome page, or a real pid. The pure-function tests do not reach the call site.
+
+1. **Drive-failure network check.** Delete the `catch` in `driveLedgerEntry` that stores the error and the following `finishSession` call. A drive that throws before the end never writes `network.txt`, so a production request during a failed drive is not recorded.
+2. **adoptEmulatorHost, Auth.** Make `adoptEmulatorHost` assign `FIREBASE_AUTH_EMULATOR_HOST` even when the caller already set a non-loopback value. `seed` then overwrites it instead of refusing.
+3. **adoptEmulatorHost, Firestore.** The same overwrite for `FIRESTORE_EMULATOR_HOST`.
+4. **Pid identity check.** Make `signalIfOurs` call `signalGroup` without comparing `/proc/<pid>` start time and command line. Cleanup can signal a recycled pid.
+5. **Home omits the row.** Remove both checks that throw when `#main` contains `قيد تحقق مواد`. Home can list the saved row and the drive still exits 0.
+6. **Launch call site, launchBlock.** Skip the `launchBlock` call that exits 2 when an emulator or port `8765` is already up. A second `launch` no longer refuses.
+7. **Launch call sites, page and CSP.** Remove the `urlModeOk(location.href)` check after navigation and the `cspOk` call on the hosting response. A page with `?role=owner`, or a hosting response without the emulator CSP, is treated as ready.

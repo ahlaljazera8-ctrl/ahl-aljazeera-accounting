@@ -76,6 +76,27 @@ test('networkVerdict flags a subdomain and a trailing dot', () => {
   assert.throws(() => assertNoProductionUrl('https://firestore.googleapis.com./v1'), /production Firebase host/);
 });
 
+test('networkVerdict allows only loopback emulator ports and the Firebase JS SDK', () => {
+  const ports = [9099, 8080, 5000];
+  const allowed = [
+    'https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js',
+    'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword',
+    'http://127.0.0.1:8080/google.firestore.v1.Firestore/Listen/channel',
+    'http://127.0.0.1:5000/index.html?emulator=1',
+    'http://localhost:5000/sw.js',
+  ];
+  assert.deepEqual(networkVerdict(allowed, ports), []);
+  const blocked = [
+    'https://firebaseinstallations.googleapis.com/v1/projects/ahl-aljazeera-accounting/installations',
+    'https://content-firebaseappcheck.googleapis.com/v1/projects/ahl-aljazeera-accounting:exchangeDebugToken',
+    'https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig',
+    'https://www.gstatic.com/firebasejs-compat/13.1.0/firebase-app.js',
+    'http://127.0.0.1:8765/index.html',
+    'http://127.0.0.1:443/v1',
+  ];
+  assert.deepEqual(networkVerdict(blocked, ports), blocked);
+});
+
 test('writeNetwork records a production URL and then throws', () => {
   const file = path.join(os.tmpdir(), 'aj-verify-network-' + process.pid + '.txt');
   assert.throws(() => writeNetwork([FIRESTORE], file), /BLOCKED/);
