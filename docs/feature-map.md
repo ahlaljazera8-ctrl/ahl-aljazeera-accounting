@@ -140,9 +140,9 @@ Layout A, from that commit:
 
 Layout B, from that commit:
 
-> `app.js` becomes `type=module` and imports ledger, sync, and the Firebase SDK. The UMD wrappers can stay so Node tests keep `require('../public/ledger.js')`, or the tests move to `import`.
+> `app.js` becomes `type=module` and imports ledger, sync, and the Firebase SDK. The UMD wrappers can stay so Node tests keep `require('../public/ledger.js')`, or the tests move to `import`. `window.AJ` remains only if the browser checks still need it.
 >
-> The precache list can shrink if the module graph is bundled into one file, or grow if each module is its own URL. Either way `ASSETS` changes and `VERSION` bumps. The browser checks that eval `Ledger` and `AJ` as globals break until those names are still published. This is the larger blast radius and the cleaner long-term import graph. It should not be the first cut.
+> The precache list can shrink if the module graph is bundled into one file, or grow if each module is its own URL. Either way `ASSETS` changes and `VERSION` bumps. The browser checks that eval `Ledger` and `AJ` as globals break until those names are still published. The demo URL and the heal redirect (`?sw=`) stay. This is the larger blast radius and the cleaner long-term import graph. It should not be the first cut.
 
 Same commit, "What not to do in the same change":
 
