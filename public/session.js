@@ -82,7 +82,15 @@ function set(k, v) {
   return writing;
 }
 window.AJ = { get, flush: () => writing };
-function uuid() { return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2); }
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (crypto.getRandomValues) crypto.getRandomValues(bytes);
+  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  let hex = '';
+  for (let i = 0; i < 16; i++) hex += bytes[i].toString(16).padStart(2, '0');
+  return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+}
 function today() { return new Date().toISOString().slice(0, 10); }
 function demoRole() { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; }
 function me() {
@@ -260,7 +268,7 @@ async function outboxEmpty() {
   } catch (e) { return false; }
 }
 /** @type {Record<string, 1>} */
-var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
 /**
  * @param {string} raw
  * @returns {boolean}

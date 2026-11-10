@@ -245,6 +245,18 @@ test('set writes outbox ids and project rows, and a non-array throws on forEach'
   await assert.rejects(() => s.set('projects', null), err => isTypeError(err, /forEach/));
 });
 
+test('uuid fallback is 36 lowercase hex characters when randomUUID is missing', () => {
+  const s = loadSession();
+  s.crypto.randomUUID = undefined;
+  const id = s.uuid();
+  assert.equal(id.length, 36);
+  assert.match(id, /^[0-9a-f-]{36}$/);
+  s.crypto.getRandomValues = undefined;
+  const fromMath = s.uuid();
+  assert.equal(fromMath.length, 36);
+  assert.match(fromMath, /^[0-9a-f-]{36}$/);
+});
+
 test('String(id) matches id < id for uuid, fallback, reversal, and seed ids', async () => {
   const ids = [];
   for (let i = 0; i < 6; i++) ids.push(crypto.randomUUID());
