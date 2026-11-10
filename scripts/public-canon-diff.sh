@@ -86,20 +86,33 @@ emit_tree "$work/head" "$work/head-emit"
 reprint() {
   local src=$1
   local out
+  local status
   out=$(mktemp)
   cp "$src" "$out"
   # stdin is the caller's file list when this runs inside while-read.
+  # set -e is off for the prettier call so its status can be returned.
+  set +e
   node "$prettier" --no-config --parser babel --write "$out" < /dev/null >/dev/null
+  status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    rm -f "$out"
+    return "$status"
+  fi
   cat "$out"
   rm -f "$out"
 }
 
 while IFS= read -r path; do
   [[ "$path" == *.js ]] || continue
-  if ! base_print=$(reprint "$work/base-emit/$path"); then
+  base_print=$(reprint "$work/base-emit/$path")
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
     fail "$path"
   fi
-  if ! head_print=$(reprint "$work/head-emit/$path"); then
+  head_print=$(reprint "$work/head-emit/$path")
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
     fail "$path"
   fi
   if [[ "$path" == public/sw.js ]]; then

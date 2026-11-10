@@ -162,3 +162,34 @@ test('an added public file fails', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /public\/extra\.js/);
 });
+
+test('a removed use strict fails', () => {
+  const headApp = app.replace("'use strict';\n", '');
+  const { dir, base, head } = pair(withVersion(app, 'aj-p0-v55'), withVersion(headApp, 'aj-p0-v56'));
+  const result = run(dir, base, head);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /public\/app\.js/);
+});
+
+test('a missing service worker version bump fails', () => {
+  const headApp = app.replace('let begin;', 'let begin; // note');
+  const { dir, base, head } = pair(withVersion(app, 'aj-p0-v55'), withVersion(headApp, 'aj-p0-v55'));
+  const result = run(dir, base, head);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /public\/sw\.js/);
+});
+
+test('a wrong service worker version bump fails', () => {
+  const { dir, base, head } = pair(withVersion(app, 'aj-p0-v55'), withVersion(app, 'aj-p0-v57'));
+  const result = run(dir, base, head);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /public\/sw\.js/);
+});
+
+test('a tsc syntax error fails', () => {
+  const headApp = "'use strict';\nfunction (\n";
+  const { dir, base, head } = pair(withVersion(app, 'aj-p0-v55'), withVersion(headApp, 'aj-p0-v56'));
+  const result = run(dir, base, head);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /public\/app\.js/);
+});
