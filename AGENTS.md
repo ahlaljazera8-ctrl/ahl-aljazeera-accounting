@@ -10,6 +10,7 @@ Ameer's gates override every skill.
 - No spending.
 - Plan before code (architect skill): for every addition or update, sketch the files, types and functions first, send the plan to AgentLab Architect and EA for review, and write code only after the review.
 - Accounting advisor: when a plan or PR raises an accounting question (balances, advances, ledger rules, exports), ask محاسب أهل الجزيرة for its opinion and quote it in the plan or PR. It only advises; Ameer's gates and Architect's review stay the same.
+- A diff under `public/`, including a comment-only diff, bumps `const VERSION` in `public/sw.js`.
 
 ### Yes
 
