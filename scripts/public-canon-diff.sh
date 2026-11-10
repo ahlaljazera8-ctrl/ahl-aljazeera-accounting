@@ -68,7 +68,8 @@ emit_tree() {
       fail "$path"
     fi
     local emitted
-    emitted=$(find "$one" -name '*.js' -print)
+    # tsc follows require() and emits those files too. Keep the one that matches this path.
+    emitted=$(find "$one" -name "$(basename "$path")" -print)
     if [[ -z "$emitted" || "$(printf '%s\n' "$emitted" | wc -l | tr -d ' ')" != 1 ]]; then
       rm -rf "$one"
       fail "$path"
@@ -83,7 +84,14 @@ emit_tree "$work/base" "$work/base-emit"
 emit_tree "$work/head" "$work/head-emit"
 
 reprint() {
-  node "$prettier" --no-config --parser babel "$1"
+  local src=$1
+  local out
+  out=$(mktemp)
+  cp "$src" "$out"
+  # stdin is the caller's file list when this runs inside while-read.
+  node "$prettier" --no-config --parser babel --write "$out" < /dev/null >/dev/null
+  cat "$out"
+  rm -f "$out"
 }
 
 while IFS= read -r path; do
