@@ -3,7 +3,15 @@
 // Firebase is firebase-client.js. The device database and login are session.js.
 // L and POLICY are the bindings render.js declares.
 const LOGIN_MS = 20000;
+/**
+ * @template T
+ * @param {T} p
+ * @param {number} ms
+ * @param {string} step
+ * @returns {Promise<Awaited<T>>}
+ */
 function withTimeout(p, ms, step) {
+  /** @type {ReturnType<typeof setTimeout>} */
   let t;
   const err = new Error('انتهت المهلة (' + step + '). تحقق من الاتصال وأعد المحاولة');
   err.timeout = true;
@@ -12,6 +20,7 @@ function withTimeout(p, ms, step) {
     new Promise((_, no) => { t = setTimeout(() => no(err), ms); }),
   ]).finally(() => clearTimeout(t));
 }
+/** @param {any} err */
 function isPoison(err) {
   if (!err) return false;
   if (err.timeout) return true;
@@ -25,9 +34,18 @@ function seed() {
     { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[], createdAtServer:t, createdBy:'u-ameer' },
     { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'], createdAtServer:t, createdBy:'u-ameer' },
   ];
+  /** @param {string} id @param {string} name @param {string} clientName */
   const P = (id, name, clientName) => ({ id, name, clientName, location:'مثال', currency:'IQD', status:'active', createdAtDevice:t, createdAtServer:t, createdBy:'u-ameer', deviceId:'seed', isExample:true });
   const projects = [P('p-school','مشروع المدرسة','زبون مثال 1'), P('p-road','مشروع الطريق','زبون مثال 2'), P('p-market','بناية السوق','زبون مثال 3')];
   let n = 0;
+  /**
+   * @param {string} projectId
+   * @param {string} entryType
+   * @param {number} amount
+   * @param {string} description
+   * @param {string} by
+   * @param {{ createdByName?: string | null, [key: string]: unknown }} [extra]
+   */
   const E = (projectId, entryType, amount, description, by, extra = {}) => {
     /** @type {Record<string, any>} */
     const row = { id:'seed-' + (++n), projectId, direction:L.ENTRY_TYPES[entryType].direction, entryType, amount, currency:'IQD', entryDate:'2026-10-' + String(n).padStart(2,'0'), description: description + ' (مثال)', partyName:'', isReversal:false, createdAtDevice:t + n*1000, createdAtServer:t + n*1000, createdBy:by, deviceId:'seed', ...extra };
@@ -64,8 +82,14 @@ function seed() {
     { id:'am-noor-1', subcontractId:'sc-noor', projectId:'p-school', amount:500000, date:'2026-10-12', note:'أعمال السور', createdAtServer:t, createdBy:'u-ameer' },
     { id:'am-kahraba-1', subcontractId:'sc-kahraba', projectId:'p-school', amount:500000, date:'2026-10-18', note:'نقطة إنارة إضافية', createdAtServer:t, createdBy:'u-ameer' },
   ];
+  /**
+   * @param {string} subId
+   * @param {number} amount
+   * @param {string} description
+   * @param {string} date
+   */
   const linkedPay = (subId, amount, description, date) => {
-    const sub = subs.find(s => s.id === subId);
+    const sub = /** @type {{ name: string }} */ (subs.find(s => s.id === subId));
     return E('p-school', 'subcontractor', amount, description, 'u-ameer', { entryDate:date, partyName:sub.name, subcontractId:subId, createdAtDevice:t - 80000 });
   };
   [
@@ -74,7 +98,7 @@ function seed() {
     linkedPay('sc-kahraba', 2000000, 'دفعة كهرباء أولى', '2026-10-08'),
     linkedPay('sc-kahraba', 1200000, 'دفعة كهرباء ثانية', '2026-10-22'),
   ].forEach(row => lg.append(row, { user:users[0], projects, policy:POLICY }));
-  const seededRows = lg.all().slice().sort((a, b) => a.createdAtDevice - b.createdAtDevice || (a.id < b.id ? -1 : 1));
+  const seededRows = lg.all().slice().sort(/** @param {{ createdAtDevice: number, id: string }} a @param {{ createdAtDevice: number, id: string }} b */ (a, b) => a.createdAtDevice - b.createdAtDevice || (a.id < b.id ? -1 : 1));
   set(K.users, users); set(K.projects, projects); set(K.entries, seededRows); set(K.outbox, [pend1.id, pend2.id]);
   set(K.finance, { 'p-school': { contractAmount: 60000000 }, 'p-road': { contractAmount: 20000000 }, 'p-market': { contractAmount: 15000000 } });
   set(K.subcontracts, subs);
@@ -113,6 +137,7 @@ function seed() {
       await openUserDb(user.uid);
       if (token !== sessionEpoch) return;
       let profile = get(K.sessionUser, null);
+      /** @param {any} data */
       const adopt = data => { if (data) { profile = profileFrom(user.uid, data); set(K.sessionUser, profile); } };
       try {
         if (navigator.onLine !== false) adopt(await withTimeout(fb.profile(user.uid), LOGIN_MS, 'ملف المستخدم'));
@@ -155,7 +180,7 @@ function seed() {
       showLogin();
       const m = $('#login-msg');
       if (m && isDeadAuth(e)) m.textContent = SESSION_DEAD_MSG;
-      else if (m && e && (isPoison(e) || isImportFailure(e))) m.textContent = e.message || REPAIR_MSG;
+      else if (m && e && (isPoison(e) || isImportFailure(e))) m.textContent = /** @type {{ message?: string }} */ (e).message || REPAIR_MSG;
       if (isDeadAuth(e)) { try { await disposeFirebase(true); } catch (e2) { /* the login message is already set */ } }
     }
     return;
