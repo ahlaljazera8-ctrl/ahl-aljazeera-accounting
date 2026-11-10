@@ -24,6 +24,8 @@ let chrome;
   const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  fs.mkdirSync('/tmp/aj-dl', { recursive: true });
+  await send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: '/tmp/aj-dl' });
   const LOGIN_MS = 20000;
   const roleDemo = url => {
     try {
@@ -1545,9 +1547,10 @@ let chrome;
   const ownerScreen = await ev(`(() => {
     const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
     const btn = document.querySelector('#rejected-csv');
-    return { text, button: btn ? btn.textContent : '', count: (document.querySelector('#rejected-count') || {}).textContent || '' };
+    const sums = [...document.querySelectorAll('#main .kv')].map(el => el.innerText);
+    return { text, button: btn ? btn.textContent : '', count: (document.querySelector('#rejected-count') || {}).textContent || '', sums };
   })()`);
-  check('the rejected screen shows the Arabic reason, the button, and 150,000 د.ع', ownerScreen && ownerScreen.text.includes('رُفض الإرسال لأن المشروع محذوف') && ownerScreen.button === 'تصدير القيود المرفوضة' && ownerScreen.count === '2' && ownerScreen.text.includes('150,000 د.ع') && ownerScreen.text.includes('هذه المبالغ غير محسوبة بأرصدة المشاريع') && ownerScreen.text.includes('مشروع الطريق') && ownerScreen.text.includes('رفض قديم') === false && ownerScreen.text.includes('IQD 150000') === false);
+  check('the rejected screen shows the Arabic reason, the button, and 150,000 د.ع', ownerScreen && ownerScreen.text.includes('رُفض الإرسال لأن المشروع محذوف') && ownerScreen.button === 'تصدير القيود المرفوضة' && ownerScreen.count === '2' && ownerScreen.text.includes('150,000 د.ع') && ownerScreen.text.includes('هذه المبالغ غير محسوبة بأرصدة المشاريع') && ownerScreen.text.includes('مشروع الطريق') && ownerScreen.text.includes('رفض قديم') === false && ownerScreen.text.includes('IQD 150000') === false && ownerScreen.sums.length === 1 && ownerScreen.sums[0].includes('مصروف') && ownerScreen.sums[0].includes('300,000') && ownerScreen.sums[0].includes('150,000') === false);
   const shareNow = await ev(`(() => {
     let shared = false;
     navigator.canShare = () => true;
@@ -1623,10 +1626,9 @@ let chrome;
     button.hidden = false;
     button.click();
     await new Promise(r => setTimeout(r, 40));
-    const names = (await indexedDB.databases()).map(d => d.name);
-    return { alerts, names, hidden: document.querySelector('#shell').hidden };
+    return { alerts, name: db && db.name, hidden: document.querySelector('#shell').hidden };
   })()`);
-  check('logout is blocked while a deleted-project row is unexported', blockedLogout && blockedLogout.alerts[0] === 'يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.' && blockedLogout.names.includes('aj-u-u-logout') && blockedLogout.hidden === false);
+  check('logout is blocked while a deleted-project row is unexported', blockedLogout && blockedLogout.alerts[0] === 'يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.' && blockedLogout.name === 'aj-u-u-logout' && blockedLogout.hidden === false);
   const again = await ev(`(async () => {
     navigator.canShare = () => true;
     navigator.share = () => Promise.resolve();
@@ -1642,22 +1644,23 @@ let chrome;
     window.alert = message => alerts.push(message);
     document.querySelector('#logout').click();
     await new Promise(r => setTimeout(r, 40));
-    const names = (await indexedDB.databases()).map(d => d.name);
-    return { alerts, names, exported: AJ.get('rejectedExportedIds') || [] };
+    return { alerts, name: db && db.name, exported: AJ.get('rejectedExportedIds') || [] };
   })()`);
-  check('a new deleted-project row blocks logout again', again && again.exported.includes('rej-del') && again.exported.includes('rej-new') === false && again.alerts[0] === 'يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.' && again.names.includes('aj-u-u-logout'));
+  check('a new deleted-project row blocks logout again', again && again.exported.includes('rej-del') && again.exported.includes('rej-new') === false && again.alerts[0] === 'يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.' && again.name === 'aj-u-u-logout');
   const allowed = await ev(`(async () => {
     navigator.canShare = () => false;
     document.querySelector('#rejected-csv').click();
     await new Promise(r => setTimeout(r, 30));
     const alerts = [];
+    const deleted = [];
+    const origDelete = indexedDB.deleteDatabase.bind(indexedDB);
+    indexedDB.deleteDatabase = function (name) { deleted.push(name); return origDelete(name); };
     window.alert = message => alerts.push(message);
     document.querySelector('#logout').click();
     await new Promise(r => setTimeout(r, 80));
-    const names = (await indexedDB.databases()).map(d => d.name);
-    return { alerts, names, login: document.querySelector('#login').hidden === false };
+    return { alerts, deleted, open: db && db.name, login: document.querySelector('#login').hidden === false };
   })()`);
-  check('logout proceeds after the plain download', allowed && allowed.alerts.length === 0 && allowed.names.includes('aj-u-u-logout') === false && allowed.login === true);
+  check('logout proceeds after the plain download', allowed && allowed.alerts.length === 0 && allowed.deleted.includes('aj-u-u-logout') && allowed.open === null && allowed.login === true);
   await go(`${BASE}index.html?role=site&fresh=rejected-site#home`);
   await sleep(300);
   await ev(`(async () => {

@@ -533,7 +533,10 @@ function rejectedHomeLink(u) {
   return `<a class="btn ghost" id="rejected-link" href="#rejected">${esc(SyncStatus.PROJECT_DELETED)} ${rows.length}</a>`;
 }
 function rejectedLogoutBlock() {
-  return L.rejectedLogoutBlocked(rejectedRows(me()), get(K.rejectedExportedIds, []) || []);
+  /** @type {{ id: string }[]} */
+  const listed = [];
+  rejectedRows(me()).forEach(row => { if (typeof row.id === 'string' && row.id) listed.push({ id: row.id }); });
+  return L.rejectedLogoutBlocked(listed, get(K.rejectedExportedIds, []) || []);
 }
 const views = {
   home() {

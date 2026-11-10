@@ -370,7 +370,7 @@
   }
 
   /**
-   * @param {readonly { id?: string }[] | null | undefined} listed
+   * @param {readonly { id: string }[]} listed
    * @param {readonly string[] | null | undefined} exportedIds
    * @returns {boolean}
    */

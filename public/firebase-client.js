@@ -484,13 +484,14 @@ var projectDocRead = null;
  * permission-denied, a timeout, and any other non-dead error are null.
  * Dead auth still throws so the flush can abort.
  * @param {string} projectId
+ * @param {{ readProjectDoc: (id: string) => Promise<{ exists: () => boolean }> }} client
  * @returns {Promise<ProjectProbe | null>}
  */
-async function readProjectProbe(projectId) {
+async function readProjectProbe(projectId, client) {
   try {
     const snap = projectDocRead
       ? await projectDocRead(projectId)
-      : await (await ensureFirebase()).readProjectDoc(projectId);
+      : await client.readProjectDoc(projectId);
     return { exists: snap.exists() };
   } catch (err) {
     const failure = /** @type {SyncFailure} */ (err);
@@ -665,7 +666,7 @@ async function performFlush(token, run) {
         load: id => get(K.entries, []).find(/** @param {{ id?: string }} e */ e => e.id === id) || get(K.projects, []).find(/** @param {{ id?: string }} p */ p => p.id === id) || get(K.subcontracts, []).find(/** @param {{ id?: string }} s */ s => s.id === id) || get(K.amendments, []).find(/** @param {{ id?: string }} a */ a => a.id === id) || get(K.foremen, []).find(/** @param {{ id?: string }} f */ f => f.id === id) || get(K.foremanMoves, []).find(/** @param {{ id?: string }} m */ m => m.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
-        projectProbe: local => readProjectProbe(/** @type {string} */ (local && local.projectId)),
+        projectProbe: local => readProjectProbe(String((local && local.projectId) || ''), fb),
         readServer: async local => {
           try {
             if (typeof fb.readServer === 'function') return await fb.readServer(local);

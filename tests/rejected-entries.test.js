@@ -8,6 +8,33 @@ const Status = require('../public/sync-status.js');
 const Ledger = require('../public/ledger.js');
 
 const ROOT = path.join(__dirname, '..');
+
+/**
+ * @typedef {Record<string, unknown> & {
+ *   closeSession: (stillBlocked?: () => boolean) => Promise<boolean>,
+ *   localStorage: { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void, removeItem: (key: string) => void },
+ *   sessionEpoch: number,
+ *   db: { name?: string } | null,
+ *   navigator: { onLine: boolean },
+ *   cache: Record<string, unknown>,
+ *   K: Record<string, string>,
+ *   set: (key: string, value: unknown) => Promise<unknown>,
+ *   get: (key: string, fallback?: unknown) => unknown,
+ *   cacheSnapshot: () => Record<string, unknown>,
+ *   writeCache: (next: unknown) => void,
+ *   loadAll: () => Promise<void>,
+ *   ensureFirebase: () => Promise<unknown>,
+ * }} RejectedVm
+ */
+
+function memoryStorage() {
+  const data = new Map();
+  return {
+    getItem(key) { return data.has(key) ? data.get(key) : null; },
+    setItem(key, value) { data.set(String(key), String(value)); },
+    removeItem(key) { data.delete(key); },
+  };
+}
 const DELETED = 'رُفض الإرسال لأن المشروع محذوف';
 const BLOCK = 'يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.';
 const OUTBOX = 'يوجد تغييرات لم تُرسل. أرسلها أولاً ثم اخرج';
@@ -276,7 +303,7 @@ test('a second project drop keeps the first name and does not touch exported ids
   const context = {
     console, URL, URLSearchParams, Promise, queueMicrotask, setTimeout, clearTimeout,
     crypto: { randomUUID: () => 'uuid-test' },
-    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    localStorage: memoryStorage(),
     indexedDB: { open() { return request(db); }, deleteDatabase(name) { deleted.push(name); return request(null); } },
     location: { search: '', href: 'http://127.0.0.1/index.html' },
     navigator: { onLine: false },
@@ -292,7 +319,7 @@ test('a second project drop keeps the first name and does not touch exported ids
     isDeadAuth() { return false; },
     isImportFailure() { return false; },
   };
-  const session = /** @type {any} */ (context);
+  const session = /** @type {RejectedVm} */ (/** @type {unknown} */ (context));
   session.window = session;
   vm.createContext(session);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/session.js'), 'utf8'), session);
@@ -311,7 +338,7 @@ test('a second project drop keeps the first name and does not touch exported ids
   session.writeCache(Sync.dropProjectLocal(snap, 'A', { dropPending: false }));
   snap = session.cacheSnapshot();
   session.writeCache(Sync.dropProjectLocal(snap, 'B', { dropPending: false }));
-  const names = session.get(session.K.goneProjectNames, {});
+  const names = /** @type {Record<string, string>} */ (session.get(session.K.goneProjectNames, {}));
   assert.equal(names.A, 'مشروع أ');
   assert.equal(names.B, 'مشروع ب');
   await session.loadAll();
@@ -356,6 +383,88 @@ test('a second project drop keeps the first name and does not touch exported ids
   assert.equal(suspended, true);
   assert.deepEqual(alerts, []);
   assert.deepEqual(deleted, []);
+});
+
+test('an inactive profile offline is blocked at logout and has no export button', async () => {
+  const inactive = { uid: 'u-off', role: 'owner', active: false, displayName: 'موقوف' };
+  const row = entry({ id: 'e-off', createdBy: 'u-off' });
+  const errors = { 'e-off': DELETED };
+  const found = Ledger.deletedProjectEntries(inactive, [row], errors, DELETED);
+  /** @type {{ id: string }[]} */
+  const listed = [];
+  found.forEach(item => { if (typeof item.id === 'string' && item.id) listed.push({ id: item.id }); });
+  assert.equal(Ledger.canExportRejected(inactive), false);
+  assert.equal(found.length, 1);
+  assert.equal(listed.length, 1);
+  assert.equal(Ledger.rejectedLogoutBlocked(listed, []), true);
+  const alerts = [];
+  const deleted = [];
+  function request(result) {
+    const req = { result };
+    queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
+    return req;
+  }
+  const db = { name: 'aj-u-u-off', close() {}, transaction() {
+    const tx = { objectStore() { return { count: () => request(0), get: () => request(null), getAll: () => request([]), getAllKeys: () => request([]) }; } };
+    queueMicrotask(() => { if (tx.oncomplete) tx.oncomplete(); });
+    return tx;
+  } };
+  const session = /** @type {RejectedVm} */ (/** @type {unknown} */ ({
+    console, URL, URLSearchParams, Promise, queueMicrotask, setTimeout, clearTimeout,
+    crypto: { randomUUID: () => 'uuid-off' },
+    localStorage: memoryStorage(),
+    indexedDB: { deleteDatabase(name) { deleted.push(name); return request(null); } },
+    location: { search: '', href: 'http://127.0.0.1/index.html' },
+    navigator: { onLine: false },
+    document: { body: { dataset: {} }, querySelector() { return { hidden: true, textContent: '', value: '', reset() {} }; } },
+    HTMLFormElement: function HTMLFormElement() {},
+    HTMLInputElement: function HTMLInputElement() {},
+    alert(message) { alerts.push(message); },
+    ensureFirebase: () => Promise.reject(new Error('offline')),
+    disposeFirebase: () => Promise.resolve(false),
+    flushRemote() { return Promise.resolve(); },
+    render() {},
+    isDeadAuth() { return false; },
+    isImportFailure() { return false; },
+  }));
+  session.window = session;
+  vm.createContext(session);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/session.js'), 'utf8'), session);
+  session.db = db;
+  session.cache[session.K.sessionUser] = inactive;
+  const epoch = session.sessionEpoch;
+  const closed = await session.closeSession(() => Ledger.rejectedLogoutBlocked(listed, []));
+  assert.equal(closed, false);
+  assert.deepEqual(alerts, [BLOCK]);
+  assert.equal(session.sessionEpoch, epoch);
+  assert.deepEqual(deleted, []);
+  assert.equal(session.db, db);
+});
+
+test('a subcontract or amendment refusal does not read the project', async () => {
+  let probes = 0;
+  const denyWrite = async () => { throw deny('permission-denied', 'Missing or insufficient permissions.'); };
+  const probe = async () => { probes += 1; return { exists: false }; };
+  const sub = { id: 'sc-1', projectId: 'p-school', name: 'عقد', work: '', agreedOn: '2026-11-01', createdBy: 'u' };
+  const subcontract = await Sync.flushOutbox({
+    ids: [sub.id],
+    load: () => sub,
+    write: denyWrite,
+    readServer: async () => null,
+    projectProbe: probe,
+  });
+  assert.equal(probes, 0);
+  assert.equal(subcontract.failed[0].message, Status.REJECTED);
+  const amend = { id: 'am-1', projectId: 'p-school', subcontractId: 'sc-1', date: '2026-11-02', amount: 10, createdBy: 'u' };
+  const amendment = await Sync.flushOutbox({
+    ids: [amend.id],
+    load: () => amend,
+    write: denyWrite,
+    readServer: async () => null,
+    projectProbe: probe,
+  });
+  assert.equal(probes, 0);
+  assert.equal(amendment.failed[0].message, Status.REJECTED);
 });
 
 test('countedEntries drops both refusal sentences and keeps a pending id', () => {

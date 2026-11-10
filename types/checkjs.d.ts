@@ -467,10 +467,7 @@ interface LedgerApi {
     message: string,
   ): LedgerEntry[];
   canExportRejected(user: LedgerUser | null | undefined): boolean;
-  rejectedLogoutBlocked(
-    listed: readonly { id?: string }[] | null | undefined,
-    exportedIds: readonly string[] | null | undefined,
-  ): boolean;
+  rejectedLogoutBlocked(listed: readonly { id: string }[], exportedIds: readonly string[] | null | undefined): boolean;
   rejectedEntriesToCSV(
     entries: readonly LedgerEntry[],
     projects: readonly LedgerProject[] | null | undefined,
@@ -564,6 +561,7 @@ interface LocalStore {
   foremen?: readonly SyncDoc[] | null;
   foremanMoves?: readonly SyncDoc[] | null;
   goneProjectNames?: GoneProjectNames | null;
+  rejectedExportedIds?: readonly string[] | null;
   [key: string]: unknown;
 }
 
