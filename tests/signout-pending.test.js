@@ -137,7 +137,7 @@ test('compare-and-clear leaves marker B when asked to clear A', () => {
 
 test('an empty uid does not write the marker', async () => {
   const { context, box } = loadSession({ dbName: 'aj-u-', meta: { name: 'aj-u-', listed: false } });
-  const closed = await context.closeSession();
+  const closed = await context.closeSession(() => false);
   assert.equal(closed, true);
   assert.equal(box.getItem('aj-signout-pending'), null);
 });
@@ -146,7 +146,7 @@ test('a null database falls back to the cached session user', async () => {
   const user = { uid: 'u-A', role: 'owner', active: true, displayName: 'A' };
   const { context, box } = loadSession({ sessionUser: user, meta: { name: 'aj-u-A', listed: false } });
   context.db = null;
-  const closed = await context.closeSession();
+  const closed = await context.closeSession(() => false);
   assert.equal(closed, true);
   assert.equal(box.getItem('aj-signout-pending'), 'u-A');
 });
@@ -157,7 +157,7 @@ test('demo logout writes no marker', async () => {
     sessionUser: { uid: 'u-demo', role: 'owner', active: true },
     meta: { name: 'aj-p0', listed: false },
   });
-  await context.closeSession();
+  await context.closeSession(() => false);
   assert.equal(box.getItem('aj-signout-pending'), null);
 });
 
@@ -173,7 +173,7 @@ test('closeSession writes marker A from aj-u-A before closeUserDb when Firebase 
     assert.equal(box.getItem('aj-signout-pending'), 'A');
     return orig();
   };
-  const closed = await context.closeSession();
+  const closed = await context.closeSession(() => false);
   assert.equal(closed, true);
   assert.equal(box.getItem('aj-signout-pending'), 'A');
 });
@@ -181,7 +181,7 @@ test('closeSession writes marker A from aj-u-A before closeUserDb when Firebase 
 test('a throwing setItem still finishes logout', async () => {
   const { context, box } = loadSession({ dbName: 'aj-u-A', meta: { name: 'aj-u-A', listed: false } });
   box._data.throwSet = true;
-  const closed = await context.closeSession();
+  const closed = await context.closeSession(() => false);
   assert.equal(closed, true);
   assert.equal(box.getItem('aj-signout-pending'), null);
 });

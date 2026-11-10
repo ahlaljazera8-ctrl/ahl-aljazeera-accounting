@@ -82,6 +82,14 @@ interface SyncErrorMap {
   [id: string]: string | undefined;
 }
 
+interface ProjectProbe {
+  exists: boolean;
+}
+
+interface GoneProjectNames {
+  [projectId: string]: string;
+}
+
 interface FirestoreSnap {
   exists(): boolean;
   data(): unknown;
@@ -98,6 +106,7 @@ interface SyncStatusApi {
   REJECTED: string;
   CONFLICT: string;
   UNVERIFIED: string;
+  PROJECT_DELETED: string;
   sameContent(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
   sameReversal(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
   isTransient(err: SyncFailure | null | undefined): boolean;
@@ -109,6 +118,7 @@ interface SyncStatusApi {
     remote: SyncRow | null | undefined,
     unverified?: boolean,
   ): string;
+  messageAfterProjectProbe(baseMessage: string, probe: ProjectProbe | null | undefined, neverSent?: boolean): string;
   applyFlush(
     outbox: readonly string[] | null | undefined,
     errors: SyncErrorMap | null | undefined,
@@ -445,6 +455,29 @@ interface LedgerApi {
     foremen: readonly Foreman[] | null | undefined,
     errors: Record<string, unknown> | null | undefined,
   ): string;
+  rememberedProjectName(
+    projectId: string,
+    projects: readonly LedgerProject[] | null | undefined,
+    goneNames: GoneProjectNames | null | undefined,
+  ): string;
+  deletedProjectEntries(
+    user: LedgerUser | null | undefined,
+    entries: readonly LedgerEntry[] | null | undefined,
+    errors: Record<string, unknown> | null | undefined,
+    message: string,
+  ): LedgerEntry[];
+  canExportRejected(user: LedgerUser | null | undefined): boolean;
+  rejectedLogoutBlocked(
+    listed: readonly { id?: string }[] | null | undefined,
+    exportedIds: readonly string[] | null | undefined,
+  ): boolean;
+  rejectedEntriesToCSV(
+    entries: readonly LedgerEntry[],
+    projects: readonly LedgerProject[] | null | undefined,
+    goneNames: GoneProjectNames | null | undefined,
+    errors: Record<string, unknown> | null | undefined,
+  ): string;
+  REJECTED_HEADERS: readonly string[];
 }
 
 interface ServerStamp {
@@ -530,6 +563,7 @@ interface LocalStore {
   statusPending?: readonly string[] | null;
   foremen?: readonly SyncDoc[] | null;
   foremanMoves?: readonly SyncDoc[] | null;
+  goneProjectNames?: GoneProjectNames | null;
   [key: string]: unknown;
 }
 
@@ -539,6 +573,7 @@ interface FlushCall {
   write: (local: SyncDoc) => unknown;
   exists?: (local: SyncDoc) => unknown;
   readServer?: (local: SyncDoc) => unknown;
+  projectProbe?: (local: SyncDoc) => Promise<ProjectProbe | null> | ProjectProbe | null;
 }
 
 interface PullCall {
@@ -584,6 +619,7 @@ interface DroppedProject {
   statusPending: string[];
   foremen: SyncDoc[];
   foremanMoves: SyncDoc[];
+  goneProjectNames: GoneProjectNames;
 }
 
 interface SyncApi {
@@ -823,7 +859,7 @@ declare function holdSession(message: string): Promise<void>;
 declare function localSession(): Promise<any>;
 declare function openUserDb(uid: string): Promise<void>;
 declare function enterSession(fb: any, uid: string, data: any): Promise<void>;
-declare function closeSession(): Promise<boolean>;
+declare function closeSession(stillBlocked: () => boolean): Promise<boolean>;
 declare function ensureFirebase(): Promise<any>;
 declare function disposeFirebase(signOutUser?: boolean): Promise<boolean>;
 declare var SIGNOUT_PENDING: string;

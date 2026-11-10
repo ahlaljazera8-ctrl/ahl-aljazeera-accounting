@@ -276,7 +276,9 @@
   /** @param {unknown} v */
   function csvCell(v) {
     let s = v == null ? '' : String(v);
-    if (/^[=+\-@\t\r]/.test(s) && isNaN(Number(s))) s = "'" + s; // formula-injection guard
+    // A space, U+200F, or U+202B before = + - @ is the same formula prefix as a leading mark.
+    const formula = /^[=+\-@\t\r]/.test(s) || /^[ \u200F\u202B]+[=+\-@]/.test(s);
+    if (formula && isNaN(Number(s))) s = "'" + s;
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   /**
@@ -305,6 +307,142 @@
   function countedEntries(entries, errors) {
     const err = errors || {};
     return (entries || []).filter(e => e && e.id && !err[/** @type {string} */ (e.id)]);
+  }
+
+  const REJECTED_HEADERS = [
+    'رقم القيد المحلي',
+    'تاريخ القيد',
+    'اسم المشروع كما كان على الهاتف',
+    'معرّف المشروع',
+    'النوع',
+    'البند أو الفئة',
+    'البيان',
+    'الطرف',
+    'المبلغ',
+    'العملة',
+    'أدخله',
+    'وقت إنشاء القيد',
+    'سبب الرفض',
+    'الحالة',
+  ];
+  const REJECTED_STATE = 'مرفوض - غير محسوب بالأرصدة';
+
+  /**
+   * @param {string} projectId
+   * @param {readonly LedgerProject[] | null | undefined} projects
+   * @param {GoneProjectNames | null | undefined} goneNames
+   * @returns {string}
+   */
+  function rememberedProjectName(projectId, projects, goneNames) {
+    const live = (projects || []).find(p => p && p.id === projectId);
+    if (live && typeof live.name === 'string' && live.name) return live.name;
+    const copied = goneNames && goneNames[projectId];
+    if (typeof copied === 'string' && copied) return copied;
+    return '—';
+  }
+
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {Record<string, unknown> | null | undefined} errors
+   * @param {string} message
+   * @returns {LedgerEntry[]}
+   */
+  function deletedProjectEntries(user, entries, errors, message) {
+    if (!user || (user.role !== 'owner' && user.role !== 'site')) return [];
+    const err = errors || {};
+    return (entries || []).filter(e => {
+      if (!e || typeof e.id !== 'string' || !e.id) return false;
+      if (err[e.id] !== message) return false;
+      if (user.role === 'owner') return true;
+      const by = e.createdBy;
+      if (by == null || by === '') return true;
+      return by === user.uid;
+    });
+  }
+
+  /**
+   * @param {LedgerUser | null | undefined} user
+   * @returns {boolean}
+   */
+  function canExportRejected(user) {
+    return !!(user && user.active === true && (user.role === 'owner' || user.role === 'site'));
+  }
+
+  /**
+   * @param {readonly { id?: string }[] | null | undefined} listed
+   * @param {readonly string[] | null | undefined} exportedIds
+   * @returns {boolean}
+   */
+  function rejectedLogoutBlocked(listed, exportedIds) {
+    const ids = exportedIds || [];
+    return (listed || []).some(row => !!(row && row.id && ids.indexOf(row.id) === -1));
+  }
+
+  /**
+   * @param {unknown} ms
+   * @returns {string}
+   */
+  function baghdadStamp(ms) {
+    const n = typeof ms === 'number' ? ms : Number(ms);
+    if (!Number.isFinite(n)) return '';
+    const d = new Date(n);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Baghdad',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(d);
+    /** @param {string} type */
+    const g = type => {
+      const part = parts.find(p => p.type === type);
+      return part ? part.value : '';
+    };
+    const date = g('year') + '-' + g('month') + '-' + g('day');
+    const clock = g('hour') + ':' + g('minute') + ':' + g('second');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}:\d{2}$/.test(clock)) return '';
+    return date + 'T' + clock + '+03:00';
+  }
+
+  /**
+   * @param {readonly LedgerEntry[]} entries
+   * @param {readonly LedgerProject[] | null | undefined} projects
+   * @param {GoneProjectNames | null | undefined} goneNames
+   * @param {Record<string, unknown> | null | undefined} errors
+   * @returns {string}
+   */
+  function rejectedEntriesToCSV(entries, projects, goneNames, errors) {
+    const err = errors || {};
+    const lines = [REJECTED_HEADERS.join(',')];
+    for (const entry of entries || []) {
+      const id = entry && typeof entry.id === 'string' ? entry.id : '';
+      const entryDate = entry && /^\d{4}-\d{2}-\d{2}$/.test(String(entry.entryDate || '')) ? String(entry.entryDate) : '';
+      const direction = entry && entry.direction === 'income' ? 'مقبوض' : (entry && entry.direction === 'expense' ? 'مصروف' : '');
+      const typeInfo = entry && entry.entryType ? ENTRY_TYPES[entry.entryType] : null;
+      const name = entry && entry.createdByName;
+      const entered = typeof name === 'string' && name ? name : (entry && entry.createdBy ? String(entry.createdBy) : '');
+      const amount = entry && typeof entry.amount === 'number' && Number.isFinite(entry.amount) ? String(entry.amount) : '';
+      const reason = typeof err[id] === 'string' ? String(err[id]) : '';
+      const cells = [
+        id,
+        entryDate,
+        rememberedProjectName(entry && entry.projectId ? String(entry.projectId) : '', projects, goneNames),
+        entry && entry.projectId ? String(entry.projectId) : '',
+        direction,
+        typeInfo ? typeInfo.label : '',
+        entry && entry.description ? String(entry.description) : '',
+        entry && entry.partyName ? String(entry.partyName) : '',
+        amount,
+        entry && entry.currency ? String(entry.currency) : '',
+        entered,
+        baghdadStamp(entry && entry.createdAtDevice),
+        reason,
+        REJECTED_STATE,
+      ];
+      lines.push(cells.map(cell => csvCell(cell)).join(','));
+    }
+    return '\uFEFF' + lines.join('\r\n') + '\r\n';
   }
   /** @param {LedgerUser} user */
   function canCreateProject(user) { return user.role === 'owner' && user.active; }
@@ -646,5 +784,6 @@
 
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
-    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete };
+    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete,
+    rememberedProjectName, deletedProjectEntries, canExportRejected, rejectedLogoutBlocked, rejectedEntriesToCSV, REJECTED_HEADERS };
 });

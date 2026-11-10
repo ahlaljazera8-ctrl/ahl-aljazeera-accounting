@@ -293,6 +293,10 @@ async function createFirebaseClient(mods, generation) {
       const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, S.collectionFor(local), local.id));
       return snap.exists();
     },
+    /** @param {string} projectId */
+    async readProjectDoc(projectId) {
+      return fsMod.getDocFromServer(fsMod.doc(fdb, 'projects', projectId));
+    },
     /** @param {LedgerUser | null | undefined} user */
     async pull(user) {
       /** @param {ReadSpec} spec */
@@ -432,6 +436,7 @@ function cacheSnapshot() {
     outbox: get(K.outbox, []),
     syncErrors: get(K.syncErrors, {}) || {},
     statusPending: get(K.statusPending, []),
+    goneProjectNames: get(K.goneProjectNames, {}) || {},
   };
 }
 /** @param {DroppedProject} next */
@@ -447,6 +452,7 @@ function writeCache(next) {
   set(K.outbox, next.outbox);
   set(K.syncErrors, next.syncErrors);
   set(K.statusPending, next.statusPending);
+  set(K.goneProjectNames, next.goneProjectNames || {});
 }
 /**
  * @param {LedgerUser | null | undefined} user
@@ -471,6 +477,29 @@ async function forgetGoneProjects(user, missingIds, readSpec) {
 }
 /** @param {any} err */
 function isDeadAuth(err) { return !!(window.SyncStatus && SyncStatus.isDeadAuth(err)); }
+/** @type {((projectId: string) => Promise<{ exists: () => boolean }>) | null} */
+var projectDocRead = null;
+/**
+ * One server read of projects/{projectId}. Missing is { exists: false }.
+ * permission-denied, a timeout, and any other non-dead error are null.
+ * Dead auth still throws so the flush can abort.
+ * @param {string} projectId
+ * @returns {Promise<ProjectProbe | null>}
+ */
+async function readProjectProbe(projectId) {
+  try {
+    const snap = projectDocRead
+      ? await projectDocRead(projectId)
+      : await (await ensureFirebase()).readProjectDoc(projectId);
+    return { exists: snap.exists() };
+  } catch (err) {
+    const failure = /** @type {SyncFailure} */ (err);
+    if (isDeadAuth(failure)) throw failure;
+    if (String(failure && failure.code) === 'permission-denied') return null;
+    if (failure && (failure.timeout || (window.SyncStatus && SyncStatus.isTransient(failure)))) return null;
+    return null;
+  }
+}
 /** @param {boolean | undefined} signOutUser */
 async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
@@ -636,6 +665,7 @@ async function performFlush(token, run) {
         load: id => get(K.entries, []).find(/** @param {{ id?: string }} e */ e => e.id === id) || get(K.projects, []).find(/** @param {{ id?: string }} p */ p => p.id === id) || get(K.subcontracts, []).find(/** @param {{ id?: string }} s */ s => s.id === id) || get(K.amendments, []).find(/** @param {{ id?: string }} a */ a => a.id === id) || get(K.foremen, []).find(/** @param {{ id?: string }} f */ f => f.id === id) || get(K.foremanMoves, []).find(/** @param {{ id?: string }} m */ m => m.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
+        projectProbe: local => readProjectProbe(/** @type {string} */ (local && local.projectId)),
         readServer: async local => {
           try {
             if (typeof fb.readServer === 'function') return await fb.readServer(local);
