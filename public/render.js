@@ -1,27 +1,70 @@
 'use strict';
 // Screens and click handlers. Boot, seed, and the login timeout stay in app.js.
 const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
-const state = { type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', foremanId: '', fmGone: '', fmCarry: false, entrySeen: false, dropForeman: false, formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' };
+/**
+ * @typedef {{
+ *   type: string,
+ *   amount: number,
+ *   amountDraft: string,
+ *   desc: string,
+ *   party: string,
+ *   subcontractId: string,
+ *   foremanId: string,
+ *   fmGone: string,
+ *   fmCarry: boolean,
+ *   entrySeen: boolean,
+ *   dropForeman: boolean,
+ *   formId: string,
+ *   backStack: string[],
+ *   listProject: string,
+ *   listShown: number,
+ *   formMsg: string,
+ *   formMsgKind: string,
+ *   personMsg: string,
+ *   projectList: string,
+ *   confirm: null | { id: string, action: string, step?: number, typed?: string, name?: string },
+ *   deleteMsg: string,
+ *   subName: string,
+ *   subAmount: string,
+ *   subWork: string,
+ *   subMsg: string,
+ *   subFormId: string,
+ *   amDate: string,
+ *   amAmount: string,
+ *   amNote: string,
+ *   amMsg: string,
+ *   amFormId: string,
+ *   projectId?: string,
+ * }} ScreenState
+ */
+const state = /** @type {ScreenState} */ ({ type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', foremanId: '', fmGone: '', fmCarry: false, entrySeen: false, dropForeman: false, formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' });
 let bellOpen = false;
 const ledger = () => L.createLedger(get(K.entries, []));
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/** @param {any} s */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => /** @type {string} */ (({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+/** @param {any} n @param {any} [cls] */
 const money = (n, cls) => `<b class="num${cls ? ' ' + cls : ''}">${L.fmt(n)} د.ع</b>`;
+/** @param {any} kind @param {any} id */
 function subHref(kind, id) {
   if (!window.DomSafe || !DomSafe.isSafeId(id)) return '#projects';
   if (kind !== 'sub' && kind !== 'subnew' && kind !== 'amend') return '#projects';
   return '#' + kind + '/' + DomSafe.projectAttr(id);
 }
+/** @param {any} projectId */
 function subcontractsOf(projectId) {
-  return get(K.subcontracts, []).filter(s => s.projectId === projectId);
+  return get(K.subcontracts, []).filter(/** @param {any} s */ s => s.projectId === projectId);
 }
+/** @param {any} subId */
 function amendmentsOf(subId) {
-  return get(K.amendments, []).filter(a => a.subcontractId === subId).slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : 1));
+  return get(K.amendments, []).filter(/** @param {any} a */ a => a.subcontractId === subId).slice().sort(/** @param {any} a @param {any} b */ (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : 1));
 }
+/** @param {any} sub @param {any} entries */
 function subFigures(sub, entries) {
   const terms = (get(K.terms, {}) || {})[sub.id];
   if (!terms || !Number.isInteger(terms.originalAmount)) return null;
   return L.subcontractBalance(terms.originalAmount, get(K.amendments, []), entries, sub.id);
 }
+/** @param {any} sub @param {any} entries */
 function subcontractCard(sub, entries) {
   const fig = subFigures(sub, entries);
   if (!fig) return `<a class="card proj" href="${subHref('sub', sub.id)}"><h2>${esc(sub.name)}</h2><div class="note">${esc(sub.work)}</div><div class="note">المبلغ غير متاح</div></a>`;
@@ -36,20 +79,23 @@ function subcontractCard(sub, entries) {
     <div class="bar${fig.over ? ' over' : ''}" data-bar="${esc(sub.id)}"><i style="width:${fig.width}%"></i></div>
   </a>`;
 }
+/** @param {any} project @param {any} entries */
 function subcontractSection(project, entries) {
-  const cards = subcontractsOf(project.id).map(sub => subcontractCard(sub, entries)).join('');
+  const cards = subcontractsOf(project.id).map(/** @param {any} sub */ sub => subcontractCard(sub, entries)).join('');
   return `<div class="card" id="subcontracts"><h2>المقاولون</h2></div>${cards || '<div class="card"><div class="note">لا توجد عقود.</div></div>'}
     <a class="btn ghost" href="${subHref('subnew', project.id)}">+ عقد مقاول</a>`;
 }
+/** @param {any} id */
 function queueDoc(id) {
   const out = get(K.outbox, []);
   if (!out.includes(id)) set(K.outbox, out.concat([id]));
   if (!demoRole()) flushRemote();
 }
+/** @param {any} u @param {any} | null | undefined} button */
 function saveSubcontract(u, button) {
   if (!L.can(u, 'owner')) return;
   const projectId = (location.hash.slice(1).split('/')[1]) || '';
-  const project = get(K.projects, []).find(p => p.id === projectId);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === projectId);
   if (!project) return;
   if (button) button.disabled = true;
   const name = ($('#sub-name') && $('#sub-name').value || '').trim();
@@ -57,10 +103,10 @@ function saveSubcontract(u, button) {
   const parsed = L.parseAmount($('#sub-amount') && $('#sub-amount').value);
   if (!name || name.length > 100) { state.subMsg = 'أدخل اسم المقاول'; if (button) button.disabled = false; render(); return; }
   if (work.length > 500) { state.subMsg = 'وصف العمل بحد أقصى 500 حرفاً'; if (button) button.disabled = false; render(); return; }
-  if (!parsed.ok) { state.subMsg = parsed.error; if (button) button.disabled = false; render(); return; }
+  if (!parsed.ok) { state.subMsg = /** @type {string} */ (parsed.error); if (button) button.disabled = false; render(); return; }
   const id = state.subFormId || uuid();
   const all = get(K.subcontracts, []);
-  if (!all.some(s => s.id === id)) {
+  if (!all.some(/** @param {any} s */ s => s.id === id)) {
     set(K.subcontracts, [...all, { id, projectId, name, work, agreedOn: today(), createdAtServer: null, createdBy: u.uid }]);
     const terms = get(K.terms, {});
     terms[id] = { originalAmount: parsed.amount, pending: true };
@@ -71,6 +117,7 @@ function saveSubcontract(u, button) {
   state.subName = ''; state.subAmount = ''; state.subWork = ''; state.subMsg = '';
   location.hash = subHref('sub', id);
 }
+/** @param {any} s */
 function dateOk(s) {
   return typeof s === 'string'
     && /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(s)
@@ -78,10 +125,11 @@ function dateOk(s) {
     && !/^[0-9]{4}-02-3[01]$/.test(s)
     && !/^[0-9]{4}-(04|06|09|11)-31$/.test(s);
 }
+/** @param {any} u @param {any} | null | undefined} button */
 function saveAmendment(u, button) {
   if (!L.can(u, 'owner')) return;
   const subcontractId = (location.hash.slice(1).split('/')[1]) || '';
-  const sub = get(K.subcontracts, []).find(s => s.id === subcontractId);
+  const sub = get(K.subcontracts, []).find(/** @param {any} s */ s => s.id === subcontractId);
   if (!sub) return;
   if (button) button.disabled = true;
   const date = ($('#am-date') && $('#am-date').value || '').trim();
@@ -89,10 +137,10 @@ function saveAmendment(u, button) {
   const parsed = L.parseAmount($('#am-amount') && $('#am-amount').value);
   if (!dateOk(date)) { state.amMsg = 'التاريخ بصيغة YYYY-MM-DD'; if (button) button.disabled = false; render(); return; }
   if (!note || note.length > 200) { state.amMsg = 'أدخل البيان'; if (button) button.disabled = false; render(); return; }
-  if (!parsed.ok) { state.amMsg = parsed.error; if (button) button.disabled = false; render(); return; }
+  if (!parsed.ok) { state.amMsg = /** @type {string} */ (parsed.error); if (button) button.disabled = false; render(); return; }
   const id = state.amFormId || uuid();
   const all = get(K.amendments, []);
-  if (!all.some(a => a.id === id)) {
+  if (!all.some(/** @param {any} a */ a => a.id === id)) {
     set(K.amendments, [...all, { id, subcontractId, projectId: sub.projectId, amount: parsed.amount, date, note, createdAtServer: null, createdBy: u.uid }]);
     queueDoc(id);
   }
@@ -100,17 +148,21 @@ function saveAmendment(u, button) {
   state.amDate = ''; state.amAmount = ''; state.amNote = ''; state.amMsg = '';
   location.hash = subHref('sub', subcontractId);
 }
+/** @param {any} role */
 const roleLabel = role => (L.can({ role: role }, 'owner') ? 'مالك' : 'مستخدم موقع');
+/** @param {any} id @param {any} project */
 function shownContract(id, project) {
   const fin = (get(K.finance, {}) || {})[id];
   if (fin && Number.isInteger(fin.contractAmount)) return fin.contractAmount;
   return window.Sync.contractAmountOf(project);
 }
+/** @param {any} project @param {any} on */
 function assignBox(project, on) {
   const attr = window.DomSafe && DomSafe.projectAttr(project.id);
   if (!attr) return '';
   return '<label class="check"><input type="checkbox" data-assign="' + attr + '"' + (on ? ' checked' : '') + '>' + esc(project.name) + '</label>';
 }
+/** @param {any} person */
 function personLink(person) {
   const attr = window.DomSafe && DomSafe.projectAttr(person.uid);
   const name = esc(person.displayName || person.uid);
@@ -119,6 +171,7 @@ function personLink(person) {
   return '<a class="card proj" href="#person/' + attr + '"><div class="kv"><h2>' + name + '</h2><span>‹</span></div><span>' + meta + '</span></a>';
 }
 const UID_HELP = 'الحساب يُنشأ في وحدة تحكم Firebase، لا من هذا التطبيق. المسار: Authentication ثم Users ثم عمود User UID. انسخ المعرّف والصقه هنا.';
+/** @param {any} project */
 function contractFields(project) {
   const amount = shownContract(project.id, project);
   const value = amount === null ? '' : String(amount);
@@ -128,10 +181,11 @@ function contractFields(project) {
     <div id="contract-msg" class="msg"></div>
     <div class="note">قيمة العقد لا تظهر لمستخدم الموقع. الحفظ ينقلها إلى سجل المالك ويمسحها من المشروع.</div>`;
 }
+/** @param {any} u */
 function saveContract(u) {
   if (!L.can(u, 'owner')) return;
   const id = (location.hash.slice(1).split('/')[1]) || '';
-  const project = get(K.projects, []).find(p => p.id === id);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
   const msg = $('#contract-msg');
   if (!project) return;
   const raw = ($('#contract') && $('#contract').value || '').trim();
@@ -140,7 +194,7 @@ function saveContract(u) {
   if (!parsed.ok) { if (msg) msg.textContent = parsed.error; return; }
   const amount = parsed.amount;
   const saved = window.Sync.splitProjectSave(project, amount);
-  set(K.projects, get(K.projects, []).map(p => p.id === id ? saved.project : p));
+  set(K.projects, get(K.projects, []).map(/** @param {any} p */ p => p.id === id ? saved.project : p));
   const fin = get(K.finance, {});
   fin[id] = { contractAmount: amount, pending: true };
   set(K.finance, fin);
@@ -157,9 +211,10 @@ function readPersonForm() {
     email: ($('#person-email') && $('#person-email').value) || '',
     role: ($('#person-role') && $('#person-role').value) || '',
     active: !!($('#person-active') && $('#person-active').checked),
-    assignedProjectIds: boxes,
+    assignedProjectIds: /** @type {readonly string[]} */ (boxes),
   });
 }
+/** @param {any} value @param {any} | null | undefined} existing @param {any} editor */
 function storePerson(value, existing, editor) {
   const row = {
     uid: value.uid, displayName: value.displayName, email: value.email, role: value.role, active: value.active,
@@ -167,39 +222,40 @@ function storePerson(value, existing, editor) {
     createdAtServer: existing && existing.createdAtServer ? existing.createdAtServer : Date.now(),
     createdBy: existing && existing.createdBy ? existing.createdBy : editor.uid,
   };
-  set(K.users, get(K.users, []).filter(x => x.uid !== row.uid).concat([row]));
+  set(K.users, get(K.users, []).filter(/** @param {any} x */ x => x.uid !== row.uid).concat([row]));
   if (!demoRole() && get(K.sessionUser, null) && get(K.sessionUser).uid === row.uid) {
     set(K.sessionUser, Object.assign({}, get(K.sessionUser), row));
   }
   return row;
 }
+/** @param {any} u */
 async function savePerson(u) {
   if (!L.can(u, 'owner')) return;
   const btn = $('#save-person');
   const msg = $('#person-msg');
   const built = readPersonForm();
-  if (!built.ok) { if (msg) msg.textContent = built.errors[0]; return; }
+  if (!built.ok) { if (msg) msg.textContent = /** @type {string[]} */ (built.errors)[0]; return; }
   if (btn) btn.disabled = true;
-  const existing = get(K.users, []).find(x => x.uid === built.value.uid);
+  const existing = get(K.users, []).find(/** @param {any} x */ x => x.uid === /** @type {PersonValue} */ (built.value).uid);
   let saved = false;
   try {
-    if (demoRole()) storePerson(built.value, existing, u);
+    if (demoRole()) storePerson(/** @type {PersonValue} */ (built.value), existing, u);
     else {
       const fb = await ensureFirebase();
-      await fb.saveUser(built.value.uid, built.value, existing);
+      await fb.saveUser(/** @type {PersonValue} */ (built.value).uid, /** @type {PersonValue} */ (built.value), existing);
       saved = true;
       /** @type {PeopleLoadResult | null} */
       let directory = null;
       try {
         directory = await ensureDirectory('save');
       } catch {
-        storePerson(built.value, existing, u);
+        storePerson(/** @type {PersonValue} */ (built.value), existing, u);
         location.hash = '#people';
         return;
       }
-      const listed = get(K.users, []).find(x => x.uid === built.value.uid);
-      const fresh = !listed || (directory && (directory.skipped || directory.stale)) ? storePerson(built.value, existing, u) : listed;
-      if (get(K.sessionUser, null) && get(K.sessionUser).uid === built.value.uid) set(K.sessionUser, Object.assign({}, get(K.sessionUser), fresh));
+      const listed = get(K.users, []).find(/** @param {any} x */ x => x.uid === /** @type {PersonValue} */ (built.value).uid);
+      const fresh = !listed || (directory && (directory.skipped || directory.stale)) ? storePerson(/** @type {PersonValue} */ (built.value), existing, u) : listed;
+      if (get(K.sessionUser, null) && get(K.sessionUser).uid === /** @type {PersonValue} */ (built.value).uid) set(K.sessionUser, Object.assign({}, get(K.sessionUser), fresh));
     }
     location.hash = '#people';
   } catch {
@@ -227,6 +283,7 @@ const peopleLoader = PeopleDir.createLoader({
   stamp: ms => { set(K.peopleSynced, ms); },
 });
 let peopleUid = '';
+/** @param {any} [reason] */
 function ensureDirectory(reason) {
   if (demoRole()) return Promise.resolve({ skipped: 'demo', changed: false });
   const session = /** @type {{ uid?: string } | null} */ (get(K.sessionUser, null));
@@ -247,6 +304,7 @@ function peopleNote() {
   const lead = PeopleDir.syncNoteLead(navigator.onLine === false, peopleLoader.failed());
   return '<p class="note" id="people-sync">' + esc(lead) + ' · آخر تحديث: <bdi class="num">' + esc(when) + '</bdi></p>';
 }
+/** @param {any} inner */
 function peopleFrame(inner) {
   const list = userRows();
   const stamp = Number(get(K.peopleSynced, 0));
@@ -257,6 +315,7 @@ function peopleFrame(inner) {
   if (view === 'note') return peopleNote() + inner;
   return inner;
 }
+/** @param {any} reason */
 function refreshDirectory(reason) {
   if (demoRole()) return;
   const u = me();
@@ -269,6 +328,7 @@ function refreshDirectory(reason) {
   });
 }
 
+/** @param {any} entry */
 function commit(entry) {
   const lg = ledger();
   lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY, subcontracts: get(K.subcontracts, []), foremen: get(K.foremen, []) });
@@ -278,12 +338,12 @@ function commit(entry) {
 function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending the same id is a no-op.
   const out = new Set(get(K.outbox, [])); if (!out.size) return;
   const now = Date.now();
-  set(K.entries, get(K.entries, []).map(e => out.has(e.id) && !e.createdAtServer ? { ...e, createdAtServer: now } : e));
-  set(K.projects, get(K.projects, []).map(p => out.has(p.id) && !p.createdAtServer ? { ...p, createdAtServer: now } : p));
-  set(K.subcontracts, get(K.subcontracts, []).map(s => out.has(s.id) && !s.createdAtServer ? Object.assign({}, s, { createdAtServer: now }) : s));
-  set(K.amendments, get(K.amendments, []).map(a => out.has(a.id) && !a.createdAtServer ? Object.assign({}, a, { createdAtServer: now }) : a));
-  set(K.foremen, get(K.foremen, []).map(f => out.has(f.id) && !f.createdAtServer ? Object.assign({}, f, { createdAtServer: now }) : f));
-  set(K.foremanMoves, get(K.foremanMoves, []).map(m => out.has(m.id) && !m.createdAtServer ? Object.assign({}, m, { createdAtServer: now }) : m));
+  set(K.entries, get(K.entries, []).map(/** @param {any} e */ e => out.has(e.id) && !e.createdAtServer ? { ...e, createdAtServer: now } : e));
+  set(K.projects, get(K.projects, []).map(/** @param {any} p */ p => out.has(p.id) && !p.createdAtServer ? { ...p, createdAtServer: now } : p));
+  set(K.subcontracts, get(K.subcontracts, []).map(/** @param {any} s */ s => out.has(s.id) && !s.createdAtServer ? Object.assign({}, s, { createdAtServer: now }) : s));
+  set(K.amendments, get(K.amendments, []).map(/** @param {any} a */ a => out.has(a.id) && !a.createdAtServer ? Object.assign({}, a, { createdAtServer: now }) : a));
+  set(K.foremen, get(K.foremen, []).map(/** @param {any} f */ f => out.has(f.id) && !f.createdAtServer ? Object.assign({}, f, { createdAtServer: now }) : f));
+  set(K.foremanMoves, get(K.foremanMoves, []).map(/** @param {any} m */ m => out.has(m.id) && !m.createdAtServer ? Object.assign({}, m, { createdAtServer: now }) : m));
   const terms = get(K.terms, {});
   let termsChanged = false;
   Object.keys(terms).forEach(id => {
@@ -296,6 +356,7 @@ function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending t
   set(K.outbox, []); render();
 }
 
+/** @param {any} entries */
 function counts(entries) {
   return L.countedEntries(entries, get(K.syncErrors, {}) || {});
 }
@@ -303,8 +364,11 @@ function data() {
   const u = me(), projects = get(K.projects, []), entries = get(K.entries, []);
   return { u, projects: L.visibleProjects(u, projects, POLICY), entries: L.visibleEntries(u, entries, projects, POLICY), allProjects: projects };
 }
+/** @param {any} e */
 const typeLabel = e => (e.isReversal ? 'تصحيح (قيد عكسي) · ' : '') + L.ENTRY_TYPES[e.entryType].label;
+/** @param {any} id */
 const entryHref = id => (window.DomSafe ? DomSafe.entryHref(id) : '#home');
+/** @param {any} id */
 function syncText(id) {
   const err = (get(K.syncErrors, {}) || {})[id];
   if (err) return err;
@@ -319,7 +383,7 @@ function currentEntryExport() {
   const u = me();
   const id = detailId();
   if (!u || !id) return null;
-  const entry = get(K.entries, []).find(e => e.id === id);
+  const entry = get(K.entries, []).find(/** @param {any} e */ e => e.id === id);
   if (!entry) return null;
   const ctx = { projects: get(K.projects, []), entries: get(K.entries, []), finance: get(K.finance, {}), policy: POLICY, syncErrors: get(K.syncErrors, {}) || {} };
   const fields = L.entryExportFields(u, entry, ctx);
@@ -327,14 +391,15 @@ function currentEntryExport() {
   const safe = String(entry.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'entry';
   return { fields, csv: L.entryToCSV(u, entry, ctx), filename: 'aj-entry-' + safe + '.csv' };
 }
+/** @param {any} fields */
 function fillPrintRoot(fields) {
   const root = $('#print-root');
   if (!root) return;
-  const company = fields.find(f => f.key === 'company');
+  const company = fields.find(/** @param {any} f */ f => f.key === 'company');
   const ltrKeys = { amount: 1, entryDate: 1, recordedAt: 1, id: 1 };
-  const rows = fields.filter(f => f.key !== 'company').map(f => {
+  const rows = fields.filter(/** @param {any} f */ f => f.key !== 'company').map(/** @param {any} f */ f => {
     const cls = f.key === 'amount' ? ' class="print-amount-row"' : '';
-    const num = ltrKeys[f.key] ? ' class="num" dir="ltr"' : '';
+    const num = /** @type {Record<string, number>} */ (ltrKeys)[f.key] ? ' class="num" dir="ltr"' : '';
     return `<tr${cls}><th scope="row">${esc(f.label)}</th><td${num}>${esc(f.value)}</td></tr>`;
   }).join('');
   root.innerHTML = `<article class="print-sheet" dir="rtl" lang="ar">
@@ -344,6 +409,7 @@ function fillPrintRoot(fields) {
     <p class="print-foot">وثيقة للطباعة من حسابات أهل الجزيرة</p>
   </article>`;
 }
+/** @param {any} csv @param {any} filename */
 function downloadCsv(csv, filename) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -356,12 +422,13 @@ function downloadCsv(csv, filename) {
   a.remove();
   setTimeout(() => { try { URL.revokeObjectURL(url); } catch (err) { /* the file was already handed to the browser */ } }, 2000);
 }
+/** @param {any} csv @param {any} filename */
 function saveEntryFile(csv, filename) {
   const file = new File([csv], filename, { type: 'text/csv' });
   const payload = { files: [file], title: 'قيد أهل الجزيرة' };
   let can;
   try {
-    can = !!(navigator.share && typeof navigator.canShare === 'function' && navigator.canShare(payload));
+    can = !!(/** @type {Navigator['share'] | undefined} */ (navigator.share) && typeof navigator.canShare === 'function' && navigator.canShare(payload));
   } catch (err) { can = false; }
   if (can) {
     try {
@@ -374,7 +441,7 @@ function saveEntryFile(csv, filename) {
       }
       return;
     } catch (err) {
-      if (err && err.name === 'AbortError') return;
+      if (err && /** @type {{ name?: string }} */ (err).name === 'AbortError') return;
     }
   }
   downloadCsv(csv, filename);
@@ -389,6 +456,7 @@ function printCurrentEntry() {
   window.addEventListener('afterprint', () => { document.title = prev; }, { once: true });
   window.print();
 }
+/** @param {any} projectId */
 function shownEntryCount(projectId) {
   if (state.listProject !== projectId) {
     state.listProject = projectId;
@@ -396,13 +464,15 @@ function shownEntryCount(projectId) {
   }
   return state.listShown || L.PROJECT_ENTRY_PAGE;
 }
+/** @param {any} row */
 function entryListRow(row) {
   const status = row.reversalStatus ? `<small>${esc(row.reversalStatus)}</small>` : '';
   const cls = row.reversalStatus === 'قيد عكسي' ? 'bad' : '';
   return `<div class="entry"><a class="entry-open" href="${entryHref(row.id)}"><div class="meta"><span>${esc(row.type)}</span><small class="num">${esc(row.entryDate)}</small><small>${esc(row.recorder)}</small><small>${esc(row.party)}</small>${status}</div><span class="num ${cls}">${esc(row.amount)}</span></a></div>`;
 }
+/** @param {any} e @param {any} u @param {any} all */
 function entryRow(e, u, all) {
-  const reversed = all.some(x => x.isReversal && x.reversesEntryId === e.id);
+  const reversed = all.some(/** @param {any} x */ x => x.isReversal && x.reversesEntryId === e.id);
   const canRev = !e.isReversal && !reversed && (L.can(u, 'owner') || (POLICY.siteCanReverseOwn && e.createdBy === u.uid));
   const cls = e.isReversal ? 'bad' : e.direction === 'income' ? 'ok' : '';
   const badge = window.SyncStatus
@@ -410,7 +480,7 @@ function entryRow(e, u, all) {
     : (get(K.outbox, []).includes(e.id) ? '<span class="pill warn" style="font-size:11px">لم يُرسل</span>' : '');
   return `<div class="entry"><a class="entry-open" href="${entryHref(e.id)}"><div class="meta"><span>${esc(typeLabel(e))}</span><small>${esc(e.description)} · ${esc(e.entryDate)}</small><small>${esc(L.displayRecorder(e))}</small>
     ${badge}${reversed ? '<small>معكوس</small>' : ''}</div>
-    <span class="num ${cls}">${L.fmt(e.amount * L.sign(e))}</span></a>
+    <span class="num ${cls}">${L.fmt(/** @type {number} */ (e.amount) * L.sign(e))}</span></a>
     ${canRev ? `<button type="button" class="mini" data-rev="${esc(e.id)}">عكس</button>` : ''}</div>`;
 }
 
@@ -426,13 +496,13 @@ const views = {
   home() {
     const { u, projects, entries } = data();
     const sync = `<div class="card" style="background:#FFFBF4"><div class="pills" style="align-items:center"><span class="pill warn">${connectionLabel()}</span></div></div>`;
-    const ex = (demoRole() || get(K.entries, []).some(e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
+    const ex = (demoRole() || get(K.entries, []).some(/** @param {any} e */ e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
     if (L.can(u, 'owner')) {
       const t = L.totals(counts(entries));
       return ex + sync + `<div class="card"><h2>ملخص كل المشاريع</h2>
         <div class="kv"><span>إجمالي المقبوض</span>${money(t.received)}</div>
         <div class="kv"><span>إجمالي المصروف</span>${money(t.spent)}</div>
-        <div class="kv"><span>صافي الربح</span><span class="${t.profit < 0 ? 'bad' : 'ok'}">${money(t.profit)}</span></div></div>
+        <div class="kv"><span>صافي الربح</span><span class="${/** @type {number} */ (t.profit) < 0 ? 'bad' : 'ok'}">${money(/** @type {number} */ (t.profit))}</span></div></div>
         <a class="btn" href="#entry">+ قيد جديد</a><button class="btn ghost" id="csv">تصدير نسخة (CSV)</button>`;
     }
     const mine = entries.filter(e => e.createdBy === u.uid).slice(-3).reverse();
@@ -442,6 +512,7 @@ const views = {
       <div class="card"><h2>آخر قيودي</h2>${mine.map(e => entryRow(e, u, entries)).join('') || '<div class="note">لا يوجد</div>'}</div>
       <a class="btn" href="#entry">+ قيد جديد</a>`;
   },
+  /** @param {any} [pid] */
   entry(pid) {
     const { u } = data();
     const projects = L.projectList(u, get(K.projects, []), POLICY, 'open');
@@ -453,22 +524,22 @@ const views = {
     if (pid) state.projectId = pid;
     if (!projects.some(p => p.id === state.projectId)) state.projectId = projects[0] && projects[0].id;
     const subsHere = subcontractsOf(state.projectId);
-    if (state.type === 'subcontractor' && !subsHere.some(s => s.id === state.subcontractId)) state.subcontractId = (subsHere[0] && subsHere[0].id) || '';
+    if (state.type === 'subcontractor' && !subsHere.some(/** @param {any} s */ s => s.id === state.subcontractId)) state.subcontractId = (subsHere[0] && subsHere[0].id) || '';
     if (state.fmGone && state.foremanId) {
-      const person = get(K.foremen, []).find(f => f && f.id === state.foremanId);
-      const open = person && get(K.projects, []).find(p => p && p.id === person.projectId && p.status !== 'archived');
+      const person = get(K.foremen, []).find(/** @param {any} f */ f => f && f.id === state.foremanId);
+      const open = person && get(K.projects, []).find(/** @param {any} p */ p => p && p.id === person.projectId && p.status !== 'archived');
       if (open) state.fmGone = '';
     }
     const foremanBlock = L.can(u, 'owner') && L.ENTRY_TYPES[state.type] && L.ENTRY_TYPES[state.type].direction === 'expense'
       ? '<label class="field">من عهدة (اختياري)<select id="foreman" class="full"><option value="">—</option>'
-        + get(K.foremen, []).map(f => {
+        + get(K.foremen, []).map(/** @param {any} f */ f => {
           if (!f || !window.DomSafe || !DomSafe.isSafeId(f.id)) return '';
           return '<option value="' + DomSafe.projectAttr(f.id) + '"' + (f.id === state.foremanId ? ' selected' : '') + '>' + esc(f.name || f.id) + '</option>';
         }).join('') + '</select></label>' + (state.fmGone ? '<div class="warnbox">' + esc(state.fmGone) + '</div>' : '')
       : '';
     const partyBlock = state.type === 'subcontractor'
       ? `<label class="field">المقاول
-          <select id="subcontract" class="full">${subsHere.map(s => `<option value="${esc(s.id)}"${s.id === state.subcontractId ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+          <select id="subcontract" class="full">${subsHere.map(/** @param {any} s */ s => `<option value="${esc(s.id)}"${s.id === state.subcontractId ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
         </label>`
       : `<label class="field">الجهة المستلمة / المورّد (اختياري)
           <input id="party" class="full" maxlength="100" autocomplete="off" value="${esc(state.party || '')}">
@@ -498,20 +569,21 @@ const views = {
       : projects.map(p => {
         const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
         const line = L.can(u, 'owner')
-          ? `<div class="kv"><span>${s.profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(s.profit))}</span></div>`
+          ? `<div class="kv"><span>${/** @type {number} */ (s.profit) < 0 ? 'خسارة' : 'ربح'}</span><span class="${/** @type {number} */ (s.profit) < 0 ? 'bad' : 'ok'}">${money(Math.abs(/** @type {number} */ (s.profit)))}</span></div>`
           : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
         return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
       }).join('');
     const tail = list === 'archived' ? '' : (L.can(u, 'owner') ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
     return filter + cards + tail;
   },
+  /** @param {any} id */
   project(id) {
     const { u, projects, entries } = data();
     const p = projects.find(x => x.id === id); if (!p) return '<div class="card">المشروع غير متاح</div>';
     const es = entries.filter(e => e.projectId === id); const s = L.projectSummary(u, counts(es));
     const card = L.can(u, 'owner')
       ? `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
-         <div class="kv"><span>الربح</span><span class="${s.profit < 0 ? 'bad' : 'ok'}">${money(s.profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
+         <div class="kv"><span>الربح</span><span class="${/** @type {number} */ (s.profit) < 0 ? 'bad' : 'ok'}">${money(/** @type {number} */ (s.profit))}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
       : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
     const subs = L.can(u, 'owner') ? subcontractSection(p, counts(es)) : '';
@@ -525,6 +597,7 @@ const views = {
   },
   // Local cache only. projectEntryList reads nothing from Firestore; «المزيد»
   // reveals the next 50 rows already stored for this project.
+  /** @param {any} id */
   entries(id) {
     const u = me();
     const back = `<button type="button" class="mini" id="back-project">رجوع</button>`;
@@ -540,6 +613,7 @@ const views = {
     const rows = userRows().map(personLink).join('');
     return peopleFrame(`<div class="card"><p class="note">${esc(UID_HELP)}</p></div>${rows}<a class="btn" href="#person">إضافة شخص</a>`);
   },
+  /** @param {any} [uid] */
   person(uid) {
     const u = me();
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
@@ -547,7 +621,7 @@ const views = {
     const existing = uid ? userRows().find(x => x.uid === uid) : null;
     const person = existing || { uid: uid || '', displayName: '', email: '', role: 'site', active: true, assignedProjectIds: [] };
     const projects = get(K.projects, []);
-    const boxes = projects.map(p => assignBox(p, (person.assignedProjectIds || []).includes(p.id))).join('');
+    const boxes = projects.map(/** @param {any} p */ p => assignBox(p, (person.assignedProjectIds || []).includes(p.id))).join('');
     const locked = uid ? ' readonly' : '';
     return peopleFrame(`<div class="card"><p class="note">${esc(UID_HELP)}</p>
       <label class="field">معرّف المستخدم (User UID)<input id="person-uid" class="full" maxlength="64" autocomplete="off" value="${esc(person.uid)}"${locked}></label>
@@ -561,6 +635,7 @@ const views = {
       <button type="button" class="btn" id="save-person">حفظ</button>
       <div id="person-msg" class="msg">${esc(state.personMsg || '')}</div></div>`);
   },
+  /** @param {any} id */
   detail(id) {
     const { projects, entries } = data();
     const back = `<button type="button" class="mini" id="back">رجوع</button>`;
@@ -569,6 +644,7 @@ const views = {
     const project = projects.find(p => p.id === e.projectId);
     const reversal = !e.isReversal && entries.find(x => x.isReversal && x.reversesEntryId === e.id);
     const original = e.isReversal ? entries.find(x => x.id === e.reversesEntryId) : null;
+    /** @param {any} row @param {any} label */
     const link = (row, label) => row ? `<a class="detail-link" href="${entryHref(row.id)}">${esc(label)}</a>` : '—';
     const cls = e.isReversal ? 'bad' : e.direction === 'income' ? 'ok' : '';
     const linked = e.isReversal
@@ -580,7 +656,7 @@ const views = {
         : '');
     return `${back}<div class="card">
       <div class="kv"><span>النوع</span><b>${esc(typeLabel(e))}</b></div>
-      <div class="kv"><span>المبلغ</span><b class="num ${cls}">${L.fmt(e.amount * L.sign(e))} د.ع</b></div>
+      <div class="kv"><span>المبلغ</span><b class="num ${cls}">${L.fmt(/** @type {number} */ (e.amount) * L.sign(e))} د.ع</b></div>
       <div class="kv"><span>المشروع</span><b>${esc(project ? project.name : '—')}</b></div>
       <div class="kv"><span>التاريخ</span><b>${esc(e.entryDate || '—')}</b></div>
       <div class="kv"><span>الوصف</span><b>${esc(e.description || '—')}</b></div>
@@ -588,18 +664,19 @@ const views = {
       <div class="kv"><span>سجّله</span><b>${esc(L.displayRecorder(e))}</b></div>
       <div class="kv"><span>الإرسال</span><b>${esc(syncText(e.id))}</b></div>
       ${linked}</div>
-      ${(get(K.syncErrors, {}) || {})[e.id] ? '' : `<div class="export-actions">
+      ${(get(K.syncErrors, {}) || {})[/** @type {string} */ (e.id)] ? '' : `<div class="export-actions">
         <button type="button" class="btn ghost" id="entry-print">طباعة</button>
         <button type="button" class="btn ghost" id="entry-pdf">حفظ PDF</button>
         <button type="button" class="btn ghost" id="entry-file">حفظ كملف</button>
       </div>`}`;
   },
+  /** @param {any} id */
   sub(id) {
     const u = me();
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
-    const sub = get(K.subcontracts, []).find(s => s.id === id);
+    const sub = get(K.subcontracts, []).find(/** @param {any} s */ s => s.id === id);
     if (!sub) return '<div class="card">العقد غير متاح</div>';
-    const entries = counts(get(K.entries, []).filter(e => e.projectId === sub.projectId));
+    const entries = counts(get(K.entries, []).filter(/** @param {any} e */ e => e.projectId === sub.projectId));
     const fig = subFigures(sub, entries);
     const agreed = fig ? fig.agreed : null;
     const warn = fig && fig.over ? `<div class="warnbox">المدفوع أكبر من المتفق عليه بـ ${L.fmt(fig.paid - fig.agreed)} د.ع. تنبيه فقط، ولا يمنع تسجيل دفعة.</div>` : '';
@@ -607,10 +684,10 @@ const views = {
     const remainCls = fig && fig.over ? 'bad' : (fig && fig.settled ? 'ok' : '');
     const terms = (get(K.terms, {}) || {})[sub.id];
     const original = terms && Number.isInteger(terms.originalAmount) ? money(terms.originalAmount) : '<b>غير متاح</b>';
-    const amRows = amendmentsOf(sub.id).map(a => `<div class="kv"><span><span class="num">${esc(a.date)}</span> ${esc(a.note)}</span><b class="num">+${L.fmt(a.amount)}</b></div>`).join('') || '<div class="note">لا ملاحق.</div>';
-    const payRows = entries.filter(e => e.entryType === 'subcontractor' && e.subcontractId === sub.id).slice().sort((a, b) => a.entryDate < b.entryDate ? -1 : 1).map(e => `<div class="kv"><span><span class="num">${esc(e.entryDate)}</span> ${esc(e.description || '—')}</span><b class="num">${L.fmt(e.amount * L.sign(e))}</b></div>`).join('') || '<div class="note">لا دفعات.</div>';
+    const amRows = amendmentsOf(sub.id).map(/** @param {any} a */ a => `<div class="kv"><span><span class="num">${esc(a.date)}</span> ${esc(a.note)}</span><b class="num">+${L.fmt(a.amount)}</b></div>`).join('') || '<div class="note">لا ملاحق.</div>';
+    const payRows = entries.filter(e => e.entryType === 'subcontractor' && e.subcontractId === sub.id).slice().sort((a, b) => /** @type {string} */ (a.entryDate) < /** @type {string} */ (b.entryDate) ? -1 : 1).map(e => `<div class="kv"><span><span class="num">${esc(e.entryDate)}</span> ${esc(e.description || '—')}</span><b class="num">${L.fmt(/** @type {number} */ (e.amount) * L.sign(e))}</b></div>`).join('') || '<div class="note">لا دفعات.</div>';
     const loose = entries.filter(e => e.entryType === 'subcontractor' && !e.subcontractId);
-    const looseRows = loose.map(e => `<div class="entry"><div class="meta"><span>${esc(e.description || '—')}</span><small class="num">${esc(e.entryDate)}</small></div><span class="pill">غير مرتبط</span><b class="num">${L.fmt(e.amount * L.sign(e))}</b></div>`).join('') || '<div class="note">لا قيود سابقة بلا عقد.</div>';
+    const looseRows = loose.map(e => `<div class="entry"><div class="meta"><span>${esc(e.description || '—')}</span><small class="num">${esc(e.entryDate)}</small></div><span class="pill">غير مرتبط</span><b class="num">${L.fmt(/** @type {number} */ (e.amount) * L.sign(e))}</b></div>`).join('') || '<div class="note">لا قيود سابقة بلا عقد.</div>';
     const syncNote = (get(K.syncErrors, {}) || {})[sub.id] || (get(K.outbox, []).includes(sub.id) ? 'لم يُرسل' : '');
     return `<button type="button" class="mini" id="back-sub">رجوع</button>
       <div class="card">
@@ -629,10 +706,11 @@ const views = {
       <div class="card"><h2>الدفعات</h2>${payRows}</div>
       <div class="card" id="unlinked"><h2>قيود بلا عقد</h2><div class="note">قيد «مقاول» سابق بلا عقد. لا يدخل في المدفوع ولا في المتبقي.</div>${looseRows}</div>`;
   },
+  /** @param {any} projectId */
   subnew(projectId) {
     const u = me();
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
-    const project = get(K.projects, []).find(p => p.id === projectId);
+    const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === projectId);
     if (!project) return '<div class="card">المشروع غير متاح</div>';
     if (!state.subFormId) {
       state.subFormId = uuid();
@@ -651,10 +729,11 @@ const views = {
         <div class="note">بعد الحفظ لا يتغير المبلغ إلا بملحق مؤرخ.</div>
       </div>`;
   },
+  /** @param {any} id */
   amend(id) {
     const u = me();
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
-    const sub = get(K.subcontracts, []).find(s => s.id === id);
+    const sub = get(K.subcontracts, []).find(/** @param {any} s */ s => s.id === id);
     if (!sub) return '<div class="card">العقد غير متاح</div>';
     const fig = subFigures(sub, counts(get(K.entries, [])));
     if (!state.amFormId) {
@@ -692,6 +771,7 @@ function tabGlyph() {
   svg.append(circle, path);
   return svg;
 }
+/** @param {any} u */
 function syncPeopleTab(u) {
   const tabs = document.querySelector('.tabs');
   if (!tabs) return;
@@ -722,6 +802,7 @@ function foremanGlyph() {
   svg.append(circle, path);
   return svg;
 }
+/** @param {any} u */
 function syncForemenTab(u) {
   const tabs = document.querySelector('.tabs');
   if (!tabs) return;
@@ -758,15 +839,18 @@ function captureForm() {
   const typed = $('#delete-name');
   if (typed && state.confirm && state.confirm.action === 'delete') state.confirm.typed = typed.value;
 }
+/** @param {any} inner @param {any} [labelId] */
 function confirmShell(inner, labelId) {
   const labelled = labelId ? ' aria-labelledby="' + String(labelId).replace(/[^A-Za-z0-9_-]/g, '') + '"' : '';
   return '<div class="confirm-back" id="confirm-dialog" role="dialog" aria-modal="true"' + labelled + '><div class="confirm">' + inner + '</div></div>';
 }
+/** @param {any} projectId */
 function foremanExpenseBlock(projectId) {
   return L.guardedForemanDelete(L.foremanDeleteBlock, projectId, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {});
 }
+/** @param {any}} c */
 function deleteConfirm(c) {
-  const project = get(K.projects, []).find(p => p.id === c.id);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === c.id);
   const name = project ? project.name : '';
   const block = foremanExpenseBlock(c.id);
   if (block) {
@@ -779,8 +863,9 @@ function deleteConfirm(c) {
   }
   return confirmShell(`<p>حذف هذا المشروع نهائياً؟</p><p class="copy">يُحذف المشروع وكل ما فيه. كل القيود، بما فيها الدفعات وقيود «مقاول»، ومالية المشروع، وعقود المقاولين وشروطها وملاحقها.</p><p class="copy">القيود التي لم تُرسل بعد على أي هاتف (صندوق الإرسال عند مستخدمي الموقع) قد تُفقد أو يُرفض إرسالها.</p><p class="copy bad">الحذف نهائي. لا توجد نسخة احتياطية يُعتمد عليها.</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
 }
+/** @param {any}} c */
 function manageChoice(c) {
-  const project = get(K.projects, []).find(p => p.id === c.id);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === c.id);
   const archive = L.nextProjectStatus(me(), project, 'archive')
     ? '<button type="button" class="btn ghost" id="choose-archive">أرشفة</button>'
     : '';
@@ -794,6 +879,7 @@ function confirmDialog() {
   const ask = c.action === 'restore' ? 'استعادة هذا المشروع؟' : 'أرشفة هذا المشروع؟';
   return confirmShell(`<p>${ask}</p><button type="button" class="btn danger" id="confirm-yes">نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>`);
 }
+/** @param {any} id @param {any} before */
 function rememberProjectStatus(id, before) {
   if (!before || !before.createdAtServer) {
     const out = get(K.outbox, []);
@@ -803,25 +889,28 @@ function rememberProjectStatus(id, before) {
   const pending = get(K.statusPending, []);
   if (!pending.includes(id)) set(K.statusPending, pending.concat([id]));
 }
+/** @param {any} action @param {any} id */
 function commitProjectStatus(action, id) {
   const u = me();
   const projects = get(K.projects, []);
-  const project = projects.find(p => p.id === id);
+  const project = projects.find(/** @param {any} p */ p => p.id === id);
   const status = L.nextProjectStatus(u, project, action);
   if (!status) return false;
-  set(K.projects, projects.map(p => p.id === id ? Object.assign({}, p, { status }) : p));
+  set(K.projects, projects.map(/** @param {any} p */ p => p.id === id ? Object.assign({}, p, { status }) : p));
   if (!demoRole()) rememberProjectStatus(id, project);
   return true;
 }
+/** @param {any} action @param {any} id */
 function openConfirm(action, id) {
-  const project = get(K.projects, []).find(p => p.id === id);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
   if (!L.nextProjectStatus(me(), project, action)) return;
   state.confirm = { id, action };
   render();
 }
+/** @param {any} id */
 async function deleteProjectNow(id) {
   const u = me();
-  const project = get(K.projects, []).find(p => p.id === id);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
   if (!L.can(u, 'manageProject') || !project) return;
   const block = foremanExpenseBlock(id);
   if (block) { state.deleteMsg = block; render(); return; }
@@ -853,6 +942,7 @@ async function deleteProjectNow(id) {
     deleteLock = false;
   }
 }
+/** @param {any}} c */
 function finishConfirm(c) {
   const ok = commitProjectStatus(c.action, c.id);
   if (!ok) { render(); return; }
@@ -868,6 +958,7 @@ function lastSyncMillis() {
   const mark = get(K.pullWatermark, null) || {};
   return Math.max(Number(mark.entries) || 0, Number(mark.projects) || 0);
 }
+/** @param {any} ms */
 function formatSyncTime(ms) {
   const d = new Date(ms);
   const date = new Intl.DateTimeFormat('ar', { day: 'numeric', month: 'short', numberingSystem: 'latn' }).format(d);
@@ -920,6 +1011,7 @@ function paintBell() {
   const note = $('#sync-msg');
   if (note) { note.hidden = true; note.textContent = ''; }
 }
+/** @param {any} text @param {any} [kind] */
 function setFormMsg(text, kind) {
   state.formMsg = text || '';
   state.formMsgKind = kind || (text ? 'error' : '');
@@ -939,7 +1031,7 @@ function renderScreen() {
   const printRoot = $('#print-root');
   if (printRoot) printRoot.innerHTML = '';
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
-  const v = views[view] ? view : 'home';
+  const v = /** @type {Record<string, (arg?: string) => string>} */ (views)[view] ? view : 'home';
   if (v === 'entry') {
     if (!state.entrySeen && !state.fmCarry) {
       state.foremanId = '';
@@ -968,18 +1060,18 @@ function renderScreen() {
   const tab = foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
-  let heading = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : titles[v]);
+  let heading = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : /** @type {Record<string, string>} */ (titles)[v]);
   if (v === 'sub' || v === 'amend') {
-    const found = get(K.subcontracts, []).find(s => s.id === arg);
+    const found = get(K.subcontracts, []).find(/** @param {any} s */ s => s.id === arg);
     heading = found ? found.name : 'عقد مقاول';
   } else if (v === 'subnew') heading = arg && projectTitle !== 'مشروع' ? projectTitle : 'عقد مقاول';
   if (v === 'foreman' || v === 'foremanmove') {
-    const person = get(K.foremen, []).find(f => f && f.id === arg);
+    const person = get(K.foremen, []).find(/** @param {any} f */ f => f && f.id === arg);
     heading = person && person.name ? person.name : 'خلفة';
   } else if (v === 'foremen') heading = 'العُهد';
   else if (v === 'foremannew') heading = 'خلفة جديد';
   $('#title').textContent = heading;
-  $('#main').innerHTML = views[v](arg) + confirmDialog();
+  $('#main').innerHTML = /** @type {Record<string, (arg?: string) => string>} */ (views)[v](arg) + confirmDialog();
   if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person')) refreshDirectory('render');
 }
 function render() {
@@ -997,8 +1089,8 @@ function render() {
 }
 
 document.addEventListener('click', ev => {
-  if (bellOpen && !ev.target.closest('.bell-wrap')) { bellOpen = false; paintBell(); }
-  if (ev.target.closest && ev.target.closest('#confirm-dialog') && !ev.target.closest('.confirm')) {
+  if (bellOpen && !/** @type {Element} */ (ev.target).closest('.bell-wrap')) { bellOpen = false; paintBell(); }
+  if (/** @type {Element} */ (ev.target).closest && /** @type {Element} */ (ev.target).closest('#confirm-dialog') && !/** @type {Element} */ (ev.target).closest('.confirm')) {
     if (location.hash.indexOf('#foremanmove/') === 0) {
       const moveId = location.hash.slice(1).split('/')[1] || '';
       location.hash = window.DomSafe && DomSafe.isSafeId(moveId) ? '#foreman/' + DomSafe.projectAttr(moveId) : '#foremen';
@@ -1008,10 +1100,10 @@ document.addEventListener('click', ev => {
     render();
     return;
   }
-  const revBtn = ev.target.closest('[data-rev]');
-  const open = !revBtn && ev.target.closest('a.entry-open, a.detail-link');
+  const revBtn = /** @type {Element} */ (ev.target).closest('[data-rev]');
+  const open = !revBtn && /** @type {Element} */ (ev.target).closest('a.entry-open, a.detail-link');
   if (open && $('#login').hidden) state.backStack.push(location.hash || '#home');
-  const b = ev.target.closest('button'); if (!b) return;
+  const b = /** @type {Element} */ (ev.target).closest('button'); if (!b) return;
   if (!$('#login').hidden) return;
   const u = me();
   if (window.ForemenUI && ForemenUI.onClick(/** @type {HTMLButtonElement} */ (b))) return;
@@ -1020,7 +1112,7 @@ document.addEventListener('click', ev => {
   else if (b.dataset.add != null) {
     const amtEl = $('#amt');
     const parsed = L.parseAmount(amtEl ? amtEl.value : '');
-    const base = parsed.ok ? parsed.amount : 0;
+    const base = /** @type {number} */ (parsed.ok ? parsed.amount : 0);
     const next = b.dataset.add === '0' ? 0 : base + Number(b.dataset.add);
     if (next > L.MAX_AMOUNT_IQD) {
       setFormMsg((L.parseAmount(String(next)) || {}).error || '', 'error');
@@ -1044,7 +1136,7 @@ document.addEventListener('click', ev => {
     const parts = location.hash.slice(1).split('/');
     const id = parts[1] || '';
     if (parts[0] === 'amend' && id) { location.hash = subHref('sub', id); return; }
-    const sub = get(K.subcontracts, []).find(s => s.id === id);
+    const sub = get(K.subcontracts, []).find(/** @param {any} s */ s => s.id === id);
     const projectId = sub ? sub.projectId : '';
     const href = window.DomSafe ? DomSafe.projectHref('project', projectId) : '#projects';
     location.hash = data().projects.some(p => p.id === projectId) ? href : '#projects';
@@ -1066,15 +1158,15 @@ document.addEventListener('click', ev => {
     if (state.type === 'subcontractor') {
       if (!u || (!L.can(u, 'owner') && u.role !== 'site')) { b.disabled = false; setFormMsg('تسجيل دفعة المقاول غير مسموح', 'error'); return; }
       subcontractId = ($('#subcontract') && $('#subcontract').value) || '';
-      const chosen = subcontractsOf(state.projectId).find(s => s.id === subcontractId);
+      const chosen = subcontractsOf(state.projectId).find(/** @param {any} s */ s => s.id === subcontractId);
       if (!chosen) { b.disabled = false; setFormMsg('اختر مقاولاً من هذا المشروع', 'error'); return; }
       party = chosen.name;
     }
     const parsed = L.parseAmount($('#amt') && $('#amt').value);
     if (!parsed.ok) { b.disabled = false; setFormMsg(parsed.error, 'error'); return; }
-    const e = { id: state.formId, projectId: state.projectId, direction: L.ENTRY_TYPES[state.type].direction, entryType: state.type,
+    const e = /** @type {LedgerEntry} */ ({ id: state.formId, projectId: state.projectId, direction: L.ENTRY_TYPES[state.type].direction, entryType: state.type,
       amount: parsed.amount, currency: 'IQD', entryDate: today(), description: desc, partyName: party, isReversal: false,
-      createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
+      createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId });
     if (subcontractId) e.subcontractId = subcontractId;
     const foremanPick = ($('#foreman') && $('#foreman').value) || '';
     if (foremanPick && L.can(u, 'owner') && e.direction === 'expense') e.foremanId = foremanPick;
@@ -1090,12 +1182,12 @@ document.addEventListener('click', ev => {
       if ($('#amt')) $('#amt').value = '';
       render();
     }
-    catch (err) { b.disabled = false; setFormMsg(err.message, 'error'); }
+    catch (err) { b.disabled = false; setFormMsg(/** @type {{ message?: string }} */ (err).message, 'error'); }
   } else if (b.dataset.rev) {
-    const all = get(K.entries, []); const orig = all.find(x => x.id === b.dataset.rev);
+    const all = get(K.entries, []); const orig = all.find(/** @param {any} x */ x => x.id === b.dataset.rev);
     const reason = prompt('سبب التصحيح:', 'خطأ في الإدخال'); if (!reason) return;
     try { commit(L.makeReversal(orig, { user: u, reason, now: Date.now(), deviceId, entryDate: today() })); render(); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(/** @type {{ message?: string }} */ (err).message); }
   } else if (b.id === 'entry-print' || b.id === 'entry-pdf') {
     printCurrentEntry();
   } else if (b.id === 'entry-file') {
@@ -1114,7 +1206,7 @@ document.addEventListener('click', ev => {
   } else if (b.id === 'manage-project') {
     const id = (location.hash.slice(1).split('/')[1]) || '';
     const uNow = me();
-    const project = get(K.projects, []).find(p => p.id === id);
+    const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
     if (!L.can(uNow, 'manageProject') || !project) return;
     state.confirm = { id, action: 'manage' };
     render();
@@ -1124,7 +1216,7 @@ document.addEventListener('click', ev => {
   } else if (b.id === 'choose-delete') {
     const id = state.confirm && state.confirm.id;
     const uNow = me();
-    const project = id && get(K.projects, []).find(p => p.id === id);
+    const project = id && get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
     if (!L.can(uNow, 'manageProject') || !project) return;
     state.deleteMsg = '';
     state.confirm = { id, action: 'delete', step: 1, typed: '' };
@@ -1148,7 +1240,7 @@ document.addEventListener('click', ev => {
     if (b.disabled) return;
     const pending = state.confirm;
     const typed = ($('#delete-name') && $('#delete-name').value) || '';
-    const project = pending && get(K.projects, []).find(p => p.id === pending.id);
+    const project = pending && get(K.projects, []).find(/** @param {any} p */ p => p.id === pending.id);
     if (!pending || pending.action !== 'delete' || !project || !window.Sync.exactProjectName(typed, project.name)) return;
     state.confirm = null;
     deleteProjectNow(project.id);
@@ -1169,7 +1261,7 @@ document.addEventListener('input', ev => {
   if (el && window.ForemenUI && ForemenUI.onInput(el)) return;
   if (!el || el.id !== 'delete-name' || !state.confirm || state.confirm.action !== 'delete') return;
   state.confirm.typed = el.value;
-  const project = get(K.projects, []).find(p => p.id === state.confirm.id);
+  const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === /** @type {{ id: string }} */ (state.confirm).id);
   const btn = $('#confirm-delete');
   if (btn) btn.disabled = !project || !window.Sync.exactProjectName(el.value, project.name);
 });
@@ -1190,8 +1282,8 @@ document.addEventListener('beforeinput', ev => {
     if (box) box.textContent = limitMsg;
   } else setFormMsg(limitMsg, 'error');
 });
-$('#role').addEventListener('change', ev => { if (!demoRole()) return; set(K.role, /** @type {HTMLSelectElement} */ (ev.target).value); render(); });
-$('#login-form').addEventListener('submit', async ev => {
+$('#role').addEventListener('change', /** @param {any} ev */ ev => { if (!demoRole()) return; set(K.role, /** @type {HTMLSelectElement} */ (ev.target).value); render(); });
+$('#login-form').addEventListener('submit', /** @param {any} ev */ async ev => {
   ev.preventDefault();
   let token = sessionEpoch;
   const btn = $('#login-btn'); btn.disabled = true;
@@ -1226,7 +1318,7 @@ $('#login-form').addEventListener('submit', async ev => {
     await withTimeout(enterSession(fb, cred.user.uid, data), LOGIN_MS, 'فتح البيانات');
   } catch (err) {
     if (token !== sessionEpoch) return;
-    msg.textContent = err.code ? loginError(err) : (err.message || 'تعذر الدخول');
+    msg.textContent = /** @type {{ code?: string, message?: string }} */ (err).code ? loginError(err) : (/** @type {{ message?: string }} */ (err).message || 'تعذر الدخول');
   } finally { if (token === sessionEpoch) btn.disabled = false; document.body.dataset.loginAttempt = '1'; }
 });
 addEventListener('keydown', ev => {
