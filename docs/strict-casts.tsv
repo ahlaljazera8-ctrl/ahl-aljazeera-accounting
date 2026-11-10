@@ -1,0 +1,18 @@
+file	cast	test	parked	why
+public/firebase-client.js	SyncDoc & { id: string } on clean	tests/strict-firebase-client.test.js	if (!clean) return inside writeLocal	
+public/firebase-client.js	readonly string[] on the financeReads id list	tests/strict-firebase-client.test.js	.filter that drops an undefined id	
+public/firebase-client.js	string on spec.id and sub.id at the index	tests/strict-firebase-client.test.js	continue when the id is missing	
+public/firebase-client.js	string on the collection name passed to readRemote	tests/strict-firebase-client.test.js	|| '' or String(...)	
+public/firebase-client.js	string on local.id and entry.id	tests/strict-firebase-client.test.js	continue when the id is missing	
+public/firebase-client.js	() => void cast of begin through unknown	tests/strict-firebase-client.test.js	let begin = () => {}	
+public/firebase-client.js	{ code?: string, timeout?: boolean } on the flush catch	tests/strict-firebase-client.test.js	if (!(err instanceof Error)) in flushProjectStatus and performFlush	The runtime value is the object a rejected Firebase call or a thrown Error already passes, so .code or .timeout is the field the code reads today.
+public/app.js	{ name: string } on the subs.find result	tests/strict-app.test.js	if (!sub) return or if (!sub) throw	
+public/app.js	{ message?: string } on the login catch	tests/strict-app.test.js	if (!(e instanceof Error)) return or a new message string	The runtime value is the object a thrown Error already passes, so .message is the field the code reads today.
+public/render.js	projectId?: string on ScreenState, read as string | undefined	tests/strict-render.test.js	projectId: '' on the initial object	
+public/render.js	string on parsed.error	tests/strict-render.test.js	parsed.error || '…'	
+public/render.js	readonly string[] on assignedProjectIds	tests/strict-render.test.js	.filter that drops an undefined id	
+public/render.js	number on base	tests/strict-render.test.js	base ?? 0 or base || 0	
+public/render.js	Navigator['share'] | undefined	tests/strict-render.test.js	typeof navigator.share === 'function'	
+public/render.js	{ message?: string } on the save catch	tests/strict-render.test.js	if (!(err instanceof Error)) skipping setFormMsg	The runtime value is the object a thrown Error already passes, so .message is the field the code reads today.
+public/render.js	{ message?: string } on the reversal catch	tests/strict-render.test.js	if (!(err instanceof Error)) skipping alert	The runtime value is the object a thrown Error already passes, so .message is the field the code reads today.
+public/render.js	{ code?: string, message?: string } on the login catch	tests/strict-render.test.js	if (!(err instanceof Error)) skipping the login message	The runtime value is the object a rejected Firebase call or a thrown Error already passes, so .code or .message is the field the code reads today.
