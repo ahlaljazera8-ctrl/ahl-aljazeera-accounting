@@ -4,9 +4,11 @@
 // 13.1.0 is the newest JS SDK (2026-10-21). Its ca9 watch-target fix from 12.13.0
 // still leaves the assertion reachable, so a newer FB_VER is not available to upgrade to.
 var FB_VER = '13.1.0';
+/** @type {Promise<any> | null} */
 var fbPromise = null;
 var fbGeneration = 0;
 var FB_LOAD_MS = 20000;
+/** @param {any} err */
 function isImportFailure(err) {
   const text = String((err && err.message) || err || '');
   return /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(text);
@@ -151,9 +153,11 @@ async function createFirebaseClient(mods, generation) {
   const S = window.Sync;
   return {
     auth, db: fdb,
+    /** @param {string} email @param {string} password */
     signIn: (email, password) => authMod.signInWithEmailAndPassword(auth, email, password),
     signOut: () => authMod.signOut(auth),
     currentUser: async () => { await auth.authStateReady(); return auth.currentUser; },
+    /** @param {boolean | undefined} force */
     idToken: async force => {
       await auth.authStateReady();
       const user = auth.currentUser;
@@ -162,7 +166,9 @@ async function createFirebaseClient(mods, generation) {
     },
     // Clear persisted watch state, then tear the client down. The SDK rejects a clear
     // while this instance is running, so a rejected clear is followed by terminate and a second clear.
+    /** @param {boolean | undefined} signOutUser */
     async dispose(signOutUser) {
+      /** @param {() => unknown} fn */
       const step = async fn => { try { await fn(); return true; } catch (e) { return false; } };
       // Clear before terminate. A running client rejects that, so terminate and clear again.
       const cleared = await step(() => fsMod.clearIndexedDbPersistence(fdb));
@@ -173,6 +179,7 @@ async function createFirebaseClient(mods, generation) {
       await step(() => withTimeout(deleteApp(app), 3000, 'إغلاق'));
       return signedOut;
     },
+    /** @param {string} uid */
     async profile(uid) {
       const snap = await fsMod.getDoc(fsMod.doc(fdb, 'users', uid));
       return snap.exists() ? snap.data() : null;
@@ -180,6 +187,7 @@ async function createFirebaseClient(mods, generation) {
     // users/{uid} is readable while the account is inactive. The session copy
     // is what the screens filter on, so a pull that skips this keeps offering
     // a project the owner already removed.
+    /** @param {{ uid: string, displayName?: string }} user */
     async refreshProfile(user) {
       const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, 'users', user.uid));
       if (!snap.exists()) return null;
@@ -196,7 +204,7 @@ async function createFirebaseClient(mods, generation) {
     },
     async listUsers() {
       const snap = await fsMod.getDocsFromServer(fsMod.collection(fdb, 'users'));
-      return snap.docs.map(d => {
+      return snap.docs.map(/** @param {{ id: string, data(): { createdAtServer?: { toMillis?: () => number, seconds?: number } } }} d */ d => {
         const row = profileFrom(d.id, d.data());
         const ts = d.data().createdAtServer;
         if (ts && typeof ts.toMillis === 'function') row.createdAtServer = ts.toMillis();
@@ -204,6 +212,11 @@ async function createFirebaseClient(mods, generation) {
         return row;
       });
     },
+    /**
+     * @param {string} uid
+     * @param {{ displayName?: string, email?: string, role?: string, active?: boolean, assignedProjectIds?: readonly string[] }} value
+     * @param {{ createdAtServer?: number, createdBy?: string } | null | undefined} existing
+     */
     async saveUser(uid, value, existing) {
       const createdAt = existing && typeof existing.createdAtServer === 'number'
         ? fsMod.Timestamp.fromMillis(existing.createdAtServer)
@@ -218,14 +231,20 @@ async function createFirebaseClient(mods, generation) {
         createdAtServer: createdAt,
       });
     },
+    /**
+     * @param {string} col
+     * @param {string} id
+     * @param {SyncDoc} data
+     */
     async putIfMissing(col, id, data) {
       const ref = fsMod.doc(fdb, col, id);
       const snap = await fsMod.getDocFromServer(ref);
       if (snap.exists()) return;
       await fsMod.setDoc(ref, data);
     },
+    /** @param {SyncDoc | null | undefined} local */
     async writeLocal(local) {
-      const clean = S.withoutContractAmount(local);
+      const clean = /** @type {SyncDoc & { id: string }} */ (S.withoutContractAmount(local));
       const col = S.collectionFor(clean);
       if (col === 'subcontracts') {
         await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
@@ -262,28 +281,32 @@ async function createFirebaseClient(mods, generation) {
         fin[clean.id] = { contractAmount: saved.finance.contractAmount };
         set(K.finance, fin);
       }
-      set(K.projects, get(K.projects, []).map(p => p.id === clean.id ? S.withoutContractAmount(p) : p));
+      set(K.projects, get(K.projects, []).map(/** @param {SyncDoc} p */ p => p.id === clean.id ? S.withoutContractAmount(p) : p));
     },
+    /** @param {string} id @param {string} status */
     async updateProjectStatus(id, status) {
       if (status !== 'archived' && status !== 'active') throw new Error('status');
       await fsMod.updateDoc(fsMod.doc(fdb, 'projects', id), { status });
     },
+    /** @param {SyncDoc} local */
     async exists(local) {
       const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, S.collectionFor(local), local.id));
       return snap.exists();
     },
+    /** @param {LedgerUser | null | undefined} user */
     async pull(user) {
+      /** @param {ReadSpec} spec */
       const readSpec = async spec => {
         if (spec.id) {
           const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, spec.collection, spec.id));
           return snap.exists() ? [snap.data()] : [];
         }
         const col = fsMod.collection(fdb, spec.collection);
-        const clauses = (spec.where || []).map(([field, op, value]) => fsMod.where(
+        const clauses = (spec.where || []).map(/** @param {readonly [string, '<' | '<=' | '==' | '!=' | '>=' | '>' | 'array-contains' | 'in' | 'array-contains-any' | 'not-in', unknown]} binding */ ([field, op, value]) => fsMod.where(
           field, op, field === 'createdAtServer' ? fsMod.Timestamp.fromMillis(value) : value));
         const src = clauses.length ? fsMod.query(col, ...clauses) : col;
         const snap = await fsMod.getDocsFromServer(src);
-        return snap.docs.map(d => d.data());
+        return snap.docs.map(/** @param {{ data(): SyncDoc }} d */ d => d.data());
       };
       const previousMark = get(K.pullWatermark, {}) || {};
       const result = await S.pullChanges({
@@ -304,15 +327,15 @@ async function createFirebaseClient(mods, generation) {
       set(K.projects, S.projectsForClient(user, projects));
       set(K.entries, entries);
       set(K.pullWatermark, result.watermark);
-      for (const spec of S.financeReads(user, projects.map(p => p && p.id))) {
+      for (const spec of S.financeReads(user, /** @type {readonly string[]} */ (projects.map(p => p && p.id)))) {
         const rows = await readSpec(spec);
         const live = get(K.finance, {});
-        if (live[spec.id] && live[spec.id].pending) continue;
+        if (live[/** @type {string} */ (spec.id)] && live[/** @type {string} */ (spec.id)].pending) continue;
         const amount = rows[0] && rows[0].contractAmount;
         if (!Number.isInteger(amount)) continue;
         const again = get(K.finance, {});
-        if (again[spec.id] && again[spec.id].pending) continue;
-        again[spec.id] = { contractAmount: amount };
+        if (again[/** @type {string} */ (spec.id)] && again[/** @type {string} */ (spec.id)].pending) continue;
+        again[/** @type {string} */ (spec.id)] = { contractAmount: amount };
         set(K.finance, again);
       }
       const owned = await S.pullSubcontracts({
@@ -338,23 +361,26 @@ async function createFirebaseClient(mods, generation) {
       for (const sub of names) {
         if (!sub || pendingNow.includes(sub.id)) continue;
         const live = get(K.terms, {});
-        if (live[sub.id] && live[sub.id].pending) continue;
+        if (live[/** @type {string} */ (sub.id)] && live[/** @type {string} */ (sub.id)].pending) continue;
         const rows = await readSpec({ collection: 'subcontractTerms', id: sub.id });
         const amount = rows[0] && rows[0].originalAmount;
         if (!Number.isInteger(amount) || amount <= 0) continue;
         const again = get(K.terms, {});
-        if (again[sub.id] && again[sub.id].pending) continue;
-        again[sub.id] = { originalAmount: amount };
+        if (again[/** @type {string} */ (sub.id)] && again[/** @type {string} */ (sub.id)].pending) continue;
+        again[/** @type {string} */ (sub.id)] = { originalAmount: amount };
         set(K.terms, again);
       }
       }
       await forgetGoneProjects(user, result.missingProjectIds || [], readSpec);
     },
+    /** @param {string} projectId */
     async deleteProject(projectId) {
+      /** @param {string} col */
       const listIds = async col => {
         const snap = await fsMod.getDocsFromServer(fsMod.query(fsMod.collection(fdb, col), fsMod.where('projectId', '==', projectId)));
-        return snap.docs.map(d => d.id).filter(id => /^[A-Za-z0-9_-]{1,64}$/.test(id));
+        return snap.docs.map(/** @param {{ id: string }} d */ d => d.id).filter(/** @param {string} id */ id => /^[A-Za-z0-9_-]{1,64}$/.test(id));
       };
+      /** @param {readonly DeleteDoc[] | null | undefined} docs */
       const commit = async (docs) => {
         const groups = S.projectDeleteBatches(docs);
         for (const group of groups) {
@@ -386,6 +412,7 @@ async function createFirebaseClient(mods, generation) {
     },
   };
 }
+/** @type {Promise<unknown> | null} */
 var flushing = null;
 var deleteLock = false;
 var lastSyncAt = 0;
@@ -407,6 +434,7 @@ function cacheSnapshot() {
     statusPending: get(K.statusPending, []),
   };
 }
+/** @param {DroppedProject} next */
 function writeCache(next) {
   set(K.entries, next.entries);
   set(K.projects, next.projects);
@@ -420,12 +448,17 @@ function writeCache(next) {
   set(K.syncErrors, next.syncErrors);
   set(K.statusPending, next.statusPending);
 }
+/**
+ * @param {LedgerUser | null | undefined} user
+ * @param {readonly string[] | null | undefined} missingIds
+ * @param {(spec: ReadSpec) => Promise<readonly SyncDoc[]>} readSpec
+ */
 async function forgetGoneProjects(user, missingIds, readSpec) {
   const hold = new Set();
-  get(K.projects, []).forEach(project => {
+  get(K.projects, []).forEach(/** @param {SyncDoc | null | undefined} project */ project => {
     if (project && project.id && !project.createdAtServer && get(K.outbox, []).includes(project.id)) hold.add(project.id);
   });
-  const gone = new Set((missingIds || []).filter(id => !hold.has(id)));
+  const gone = new Set((missingIds || []).filter(/** @param {string} id */ id => !hold.has(id)));
   if (Ledger.can(user, 'owner')) {
     for (const project of get(K.projects, [])) {
       if (!project || !project.id || hold.has(project.id) || gone.has(project.id)) continue;
@@ -436,7 +469,9 @@ async function forgetGoneProjects(user, missingIds, readSpec) {
   }
   gone.forEach(id => writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: false })));
 }
+/** @param {any} err */
 function isDeadAuth(err) { return !!(window.SyncStatus && SyncStatus.isDeadAuth(err)); }
+/** @param {boolean | undefined} signOutUser */
 async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
   fbPromise = null;
@@ -449,6 +484,7 @@ async function disposeFirebase(signOutUser) {
   if (signOutUser === true && signedOut === true) clearSignOutPending(marked);
   return signOutUser === true && signedOut === true;
 }
+/** @param {boolean | undefined} signOutUser */
 async function rebuildFirebase(signOutUser) {
   await disposeFirebase(signOutUser);
   return ensureFirebase();
@@ -466,7 +502,7 @@ function flushRemote() {
     begin = () => { performFlush(token, run).then(resolve, reject); };
   });
   flushing = run;
-  begin();
+  /** @type {() => void} */ (/** @type {unknown} */ (begin))();
   if (!$('#shell').hidden) paintBell();
   const timer = setTimeout(() => {
     if (flushing !== run || token !== sessionEpoch) return;
@@ -477,6 +513,10 @@ function flushRemote() {
   run.then(() => clearTimeout(timer), () => clearTimeout(timer));
   return run;
 }
+/**
+ * @param {SyncDoc} local
+ * @param {SyncDoc | null | undefined} remote
+ */
 function adoptEntry(local, remote) {
   const src = window.Sync.fromRemote(remote || {});
   const next = Object.assign({}, local);
@@ -517,6 +557,7 @@ function queuePendingSubcontracts() {
 function paintShell() {
   if (get(K.sessionUser) && !$('#shell').hidden) render();
 }
+/** @param {{ updateProjectStatus(id: string, status: string): Promise<unknown> }} fb */
 async function flushProjectStatus(fb) {
   const pending = get(K.statusPending, []).slice();
   if (!pending.length) return;
@@ -524,23 +565,28 @@ async function flushProjectStatus(fb) {
   let stopped = false;
   for (const id of pending) {
     if (stopped) { left.push(id); continue; }
-    const project = get(K.projects, []).find(p => p.id === id);
+    const project = get(K.projects, []).find(/** @param {SyncDoc} p */ p => p.id === id);
     if (!project || window.Sync.isSeed(project) || !project.createdAtServer) continue;
     if (project.status !== 'archived' && project.status !== 'active') continue;
     try {
       await fb.updateProjectStatus(id, project.status);
     } catch (err) {
       if (isDeadAuth(err)) throw err;
-      const code = String((err && err.code) || '');
+      const code = String((err && /** @type {{ code?: string, timeout?: boolean }} */ (err).code) || '');
       if (code === 'not-found') continue;
       left.push(id);
-      if (err && (err.timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) stopped = true;
+      if (err && (/** @type {{ code?: string, timeout?: boolean }} */ (err).timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) stopped = true;
     }
   }
   set(K.statusPending, left);
   if (left.length) syncNotice = SEND_RETRY;
 }
+/**
+ * @param {number} token
+ * @param {Promise<unknown>} run
+ */
 async function performFlush(token, run) {
+  /** @type {string[] | null | undefined} */
   let keptIds;
   let statusAtStart = null;
   try {
@@ -556,7 +602,7 @@ async function performFlush(token, run) {
     } catch (err) {
       if (token !== sessionEpoch) return;
       if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
-      if (err && (err.timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) {
+      if (err && (/** @type {{ code?: string, timeout?: boolean }} */ (err).timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) {
         syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
         return;
       }
@@ -576,7 +622,7 @@ async function performFlush(token, run) {
     } catch (err) {
       if (token !== sessionEpoch) return;
       if (isDeadAuth(err)) { await holdSession(SESSION_DEAD_MSG); return; }
-      if (err && (err.timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) {
+      if (err && (/** @type {{ code?: string, timeout?: boolean }} */ (err).timeout || (window.SyncStatus && SyncStatus.isTransient(err)))) {
         syncNotice = get(K.outbox, []).length ? SEND_RETRY : PULL_RETRY;
         return;
       }
@@ -587,13 +633,13 @@ async function performFlush(token, run) {
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
         ids,
-        load: id => get(K.entries, []).find(e => e.id === id) || get(K.projects, []).find(p => p.id === id) || get(K.subcontracts, []).find(s => s.id === id) || get(K.amendments, []).find(a => a.id === id) || get(K.foremen, []).find(f => f.id === id) || get(K.foremanMoves, []).find(m => m.id === id) || null,
+        load: id => get(K.entries, []).find(/** @param {{ id?: string }} e */ e => e.id === id) || get(K.projects, []).find(/** @param {{ id?: string }} p */ p => p.id === id) || get(K.subcontracts, []).find(/** @param {{ id?: string }} s */ s => s.id === id) || get(K.amendments, []).find(/** @param {{ id?: string }} a */ a => a.id === id) || get(K.foremen, []).find(/** @param {{ id?: string }} f */ f => f.id === id) || get(K.foremanMoves, []).find(/** @param {{ id?: string }} m */ m => m.id === id) || null,
         write: local => fb.writeLocal(local),
         exists: local => fb.exists(local),
         readServer: async local => {
           try {
             if (typeof fb.readServer === 'function') return await fb.readServer(local);
-            if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, window.Sync.collectionFor(local), local.id);
+            if (window.SyncStatus && fb.db) return await SyncStatus.readRemote(fb.db, /** @type {string} */ (window.Sync.collectionFor(local)), /** @type {string} */ (local.id));
           } catch (e) {
             if (isDeadAuth(e)) throw e;
           }
@@ -628,13 +674,13 @@ async function performFlush(token, run) {
       keptIds = result.kept || [];
       if (result.adopted && result.adopted.length) {
         const map = new Map(result.adopted.map(row => [row.id, row.remote]));
-        set(K.entries, get(K.entries, []).map(entry => map.has(entry.id) ? adoptEntry(entry, map.get(entry.id)) : entry));
+        set(K.entries, get(K.entries, []).map(/** @param {SyncDoc} entry */ entry => map.has(/** @type {string} */ (entry.id)) ? adoptEntry(entry, map.get(/** @type {string} */ (entry.id))) : entry));
       }
       if (window.SyncStatus) {
         const next = SyncStatus.applyFlush(get(K.outbox, []), get(K.syncErrors, {}), result);
         set(K.outbox, next.outbox);
         set(K.syncErrors, next.errors);
-      } else set(K.outbox, get(K.outbox, []).filter(id => !(result.synced || []).includes(id) && !(result.failed || []).some(row => row && row.id === id)));
+      } else set(K.outbox, get(K.outbox, []).filter(/** @param {string} id */ id => !(result.synced || []).includes(id) && !(result.failed || []).some(row => row && row.id === id)));
       if ((result.kept || []).length) syncNotice = SEND_RETRY;
       else if (!(result.failed || []).length) syncNotice = '';
       // The reversal race adopts the server row and clears the outbox here.
@@ -679,8 +725,8 @@ async function performFlush(token, run) {
     queuePendingSubcontracts();
     const kept = new Set(keptIds);
     const started = new Set(Array.isArray(statusAtStart) ? statusAtStart : get(K.statusPending, []));
-    const freshStatus = get(K.statusPending, []).some(id => !started.has(id));
-    if (get(K.outbox, []).some(id => !kept.has(id)) || freshStatus) return flushRemote();
+    const freshStatus = get(K.statusPending, []).some(/** @param {string} id */ id => !started.has(id));
+    if (get(K.outbox, []).some(/** @param {string} id */ id => !kept.has(id)) || freshStatus) return flushRemote();
   }
 }
 
