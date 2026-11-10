@@ -65,7 +65,7 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          node --test tests/ledger.test.js tests/dom-safe.test.js tests/sync-status.test.js tests/appcheck.test.js tests/rules-constant.test.js tests/secret-guard.test.js tests/owner-access.test.js tests/chrome-debug.test.js tests/shell-cache.test.js tests/project-delete.test.js tests/sw-version-guard.test.js tests/strict-dom-safe.test.js tests/strict-appcheck.test.js tests/strict-sw.test.js tests/strict-sync-status.test.js tests/strict-foremen.test.js tests/foremen-ui.test.js tests/people-dir.test.js tests/strict-ledger.test.js tests/strict-sync.test.js tests/strict-session.test.js tests/session-get.test.js tests/firebase-load.test.js tests/signout-pending.test.js scripts/verify-aj.test.js | tee "$RUNNER_TEMP/unit.txt"
+          node --test tests/ledger.test.js tests/dom-safe.test.js tests/sync-status.test.js tests/appcheck.test.js tests/rules-constant.test.js tests/secret-guard.test.js tests/owner-access.test.js tests/chrome-debug.test.js tests/shell-cache.test.js tests/project-delete.test.js tests/sw-version-guard.test.js tests/strict-dom-safe.test.js tests/strict-appcheck.test.js tests/strict-sw.test.js tests/strict-sync-status.test.js tests/strict-foremen.test.js tests/foremen-ui.test.js tests/people-dir.test.js tests/strict-ledger.test.js tests/strict-sync.test.js tests/strict-session.test.js tests/session-get.test.js tests/firebase-load.test.js tests/signout-pending.test.js scripts/verify-aj.test.js tests/strict-firebase-client.test.js | tee "$RUNNER_TEMP/unit.txt"
           status=${PIPESTATUS[0]}
           set -e
           pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/unit.txt" | tail -1 | grep -oE '[0-9]+$' || true)
