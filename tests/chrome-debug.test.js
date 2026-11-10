@@ -211,7 +211,7 @@ test('a hash navigation that misses its url throws both hrefs', () => {
   assert.doesNotThrow(() => landed(expected, expected));
   const src = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
   const go = src.slice(src.indexOf('const go = async url'), src.indexOf('const reload = async'));
-  assert.match(go, /if \(!\(await sameDocument\(url\)\)\)[\s\S]*assertHashLanded\(/);
+  assert.match(go, /^( *)if \(!\(await sameDocument\(url\)\)\) \{\n(?:\1 [^\n]*\n)*?\1 +assertHashLanded\(/m);
 });
 
 test('stopAndWait throws when the process ignores the kill', { timeout: 10000 }, async () => {
