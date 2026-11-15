@@ -2,7 +2,7 @@
 
 No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The four code pull requests come after the Architect reviews this sketch and Ameer says go.
 
-Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, that earlier answer wins.
+Revision r3, on the r2 head `eee60ad6`. Lines 52-152 are the contract copy and are not edited. The verify id is the contract action id. The DOM id is the contract rule: `buttonId` is `act-` plus that id. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, that earlier answer wins.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. Strings list: `strings-contractor-module-r2.22.md`, sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`. PR B's types and `post` are the ones in `contractor-pr-b-sketch-r3.md`. This sketch treats that file as what B will add. It does not re-specify B.
 
@@ -28,22 +28,22 @@ A single `تسجيل دفعة` button that picks among four purposes hides three
 
 | #   | Save                     | Document                          | Collection                  | PR  | Verify id                 |
 | --- | ------------------------ | --------------------------------- | --------------------------- | --- | ------------------------- |
-| 1   | `عقد عمل جديد`           | agreement                         | `agreements/{uuid}`         | G   | `accounts-agreement`      |
-| 2   | `تسجيل عمل منجز`         | `laborQty` body                   | `accountTxns`               | G   | `accounts-labor-qty`      |
-| 3   | `اعتماد قياس العمل`      | `approveLabor`                    | `appr_<bodyId>`             | G   | `accounts-approve-labor`  |
-| 4   | `عن عمل معتمد`           | `payLabor`                        | uuid body                   | H   | `accounts-pay-labor`      |
-| 5   | `سلفة عمل قادم`          | `advanceLabor`                    | uuid body                   | H   | `accounts-advance-labor`  |
-| 6   | `إرجاع سلفة لم تُصرف`    | `returnAdvance`                   | uuid body                   | H   | `accounts-return-advance` |
-| 7   | `استرداد نقدي من العامل` | `refundLabor`                     | uuid body                   | H   | `accounts-refund-labor`   |
-| 8   | `نسخة جديدة`             | `sup_` of an unapproved uuid body | `sup_<oldId>`               | I   | `accounts-supersede`      |
-| 9   | `رفض السطر`              | `rej_`                            | `rej_<bodyId>`              | I   | `accounts-reject`         |
-| 10  | `اعتماد`                 | `approveDeduct`                   | `appr_<deductId>`           | I   | `accounts-approve-deduct` |
-| 11  | `تسوية سلفة`             | `settle`                          | `stl_<bodyId>_<gen>`        | J   | `accounts-settle`         |
-| 12  | `إصدار كشف حساب`         | statement approval                | `statementApprovals/{uuid}` | J   | `accounts-statement`      |
+| 1   | `عقد عمل جديد`           | agreement                         | `agreements/{uuid}`         | G   | `new-agreement`           |
+| 2   | `تسجيل عمل منجز`         | `laborQty` body                   | `accountTxns`               | G   | `labor-qty`               |
+| 3   | `اعتماد قياس العمل`      | `approveLabor`                    | `appr_<bodyId>`             | G   | `approve-labor`           |
+| 4   | `عن عمل معتمد`           | `payLabor`                        | uuid body                   | H   | `pay-labor`               |
+| 5   | `سلفة عمل قادم`          | `advanceLabor`                    | uuid body                   | H   | `advance-labor`           |
+| 6   | `إرجاع سلفة لم تُصرف`    | `returnAdvance`                   | uuid body                   | H   | `return-advance`          |
+| 7   | `استرداد نقدي من العامل` | `refundLabor`                     | uuid body                   | H   | `refund-labor`            |
+| 8   | `نسخة جديدة`             | `sup_` of an unapproved uuid body | `sup_<oldId>`               | I   | `supersede`               |
+| 9   | `رفض السطر`              | `rej_`                            | `rej_<bodyId>`              | I   | `reject`                  |
+| 10  | `اعتماد`                 | `approveDeduct`                   | `appr_<deductId>`           | I   | `approve-deduct`          |
+| 11  | `تسوية سلفة`             | `settle`                          | `stl_<bodyId>_<gen>`        | J   | `settle`                  |
+| 12  | `إصدار كشف حساب`         | statement approval                | `statementApprovals/{uuid}` | J   | `statement-approval`      |
 
-`خصم` writes the deduct body that save 10 approves. It is a thirteenth document. EA Q25 puts it inside I, beside `اعتماد`, and not in a fifth pull request. Its verify id is `accounts-deduct`.
+`خصم` writes the deduct body that save 10 approves. It is a thirteenth document. EA Q25 puts it inside I, beside `اعتماد`, and not in a fifth pull request. Its verify id is `deduct`.
 
-Two more writes are already decided and are not members of the twelve. H's `تدقيق` writes `revw_` (Q10 أ). I's `عكس` writes `rev_<id>` (section 14, reversal). Verify ids: `accounts-review`, `accounts-reverse`.
+Two more writes are already decided and are not members of the twelve. H's `تدقيق` writes `revw_` (Q10 أ). I's `عكس` writes `rev_<id>` (section 14, reversal). Verify ids: `review-cash`, `reverse`.
 
 Second shape, not chosen. Keep one `تسجيل دفعة` action with a purpose picker, drop the three material buttons, and ship nine actions. H is then one action. A revert of the refund takes the wage payment with it. The four purposes already differ in target, cap, and sentence, so they do not belong in one revert. Arena was not run.
 
@@ -188,7 +188,7 @@ That is the shared edit. The flow file, its two tests, its tsconfig, its verify-
 
 At baf4f21f both unit lists are 34 files and they match (`package.json` line 5 and `.github/workflows/ci.yml` line 68). Each G–J PR adds its behaviour test and its strict test to both lists. `"typecheck"` (`package.json` line 10) gains `tsc --noEmit -p tsconfig.strict-accounts-<flow>.json`. The lint job runs that script. It is not a fifth CI job. The tsconfig includes the new script and `types/checkjs.d.ts`, the same shape as F's `tsconfig.strict-accounts-view.json`.
 
-F adds the `accounts-view.js` script tag in `index.html`. G rebases onto that tag. The `حسابات` tab itself is injected by F's `syncTab`, the same idea as `syncPeopleTab` (`public/render.js` line 1137).
+F adds the `accounts-view.js` script tag in `index.html`. G rebases onto that tag. `render.js` calls `AccountsView.install`, which the contract names. F's `syncTab` is not in the contract. It only adds or removes the `حسابات` nav link, the same idea as `syncPeopleTab` (`public/render.js` line 1137). G–J do not call `syncTab`.
 
 ### G
 
@@ -207,24 +207,24 @@ F adds the `accounts-view.js` script tag in `index.html`. G rebases onto that ta
 | `tests/webkit-upgrade.test.js`                                                      | `MARK`.                                                                        |
 | `package.json`, `.github/workflows/ci.yml`                                          | The two new test paths, both lists.                                            |
 | `docs/PSTACK_INVENTORY.md`                                                          | Evidence on `feature`, `maintain-verification-skill`, `opening-a-pr`.          |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`                           | `drive` accepts the three G ids. An unknown id still exits 3.                  |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`                           | `drive` accepts `new-agreement`, `labor-qty`, and `approve-labor`. An unknown id still exits 3. |
 | `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`                 | One line per id.                                                               |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts-agreement.md`     | New recipe.                                                                    |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts-labor-qty.md`     | New recipe.                                                                    |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts-approve-labor.md` | New recipe.                                                                    |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/new-agreement.md`          | New recipe.                                                                    |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/labor-qty.md`              | New recipe.                                                                    |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/approve-labor.md`          | New recipe.                                                                    |
 | `scripts/verify-aj.js`                                                              | Dispatch only. The steps live in `scripts/verify-drives/accounts-work.js`.     |
 
 ### H
 
-Same shell, inventory, skill, and list files as G, with these names instead: `public/accounts-payment.js`, `tests/accounts-payment.test.js`, `tests/strict-accounts-payment.test.js`, `tsconfig.strict-accounts-payment.json`, `scripts/verify-drives/accounts-payment.js`, and feature files `accounts-pay-labor.md`, `accounts-advance-labor.md`, `accounts-return-advance.md`, `accounts-refund-labor.md`, `accounts-review.md`.
+Same shell, inventory, skill, and list files as G, with these names instead: `public/accounts-payment.js`, `tests/accounts-payment.test.js`, `tests/strict-accounts-payment.test.js`, `tsconfig.strict-accounts-payment.json`, `scripts/verify-drives/accounts-payment.js`, and feature files `pay-labor.md`, `advance-labor.md`, `return-advance.md`, `refund-labor.md`, `review-cash.md`.
 
 ### I
 
-Same pattern: `public/accounts-correct.js`, `tests/accounts-correct.test.js`, `tests/strict-accounts-correct.test.js`, `tsconfig.strict-accounts-correct.json`, `scripts/verify-drives/accounts-correct.js`, and feature files `accounts-supersede.md`, `accounts-reject.md`, `accounts-approve-deduct.md`, `accounts-deduct.md`, `accounts-reverse.md`.
+Same pattern: `public/accounts-correct.js`, `tests/accounts-correct.test.js`, `tests/strict-accounts-correct.test.js`, `tsconfig.strict-accounts-correct.json`, `scripts/verify-drives/accounts-correct.js`, and feature files `supersede.md`, `reject.md`, `approve-deduct.md`, `deduct.md`, `reverse.md`.
 
 ### J
 
-Same pattern: `public/accounts-statement.js`, `tests/accounts-statement.test.js`, `tests/strict-accounts-statement.test.js`, `tsconfig.strict-accounts-statement.json`, `scripts/verify-drives/accounts-statement.js`, and feature files `accounts-settle.md`, `accounts-statement.md`.
+Same pattern: `public/accounts-statement.js`, `tests/accounts-statement.test.js`, `tests/strict-accounts-statement.test.js`, `tsconfig.strict-accounts-statement.json`, `scripts/verify-drives/accounts-statement.js`, and feature files `settle.md`, `statement-approval.md`.
 
 ### Files the code PRs do not edit
 
@@ -249,7 +249,7 @@ They do not edit `public/render.js`, `public/accounts.js`, or `public/ledger.js`
 
 ## Usage
 
-The owner opens `#account/<partyId>` on `العقود`, `الحركات`, or `كشف الحساب`. F has painted the tab and the registry. The button is `action.button`. The form is `action.form`.
+The owner opens `#account/<partyId>` on `العقود`, `الحركات`, or `كشف الحساب`. F has painted the tab and the registry. The button id is `buttonId`, which is `act-` plus the action id. The form HTML is `renderForm()`. `new-agreement` is the button `act-new-agreement`. `review-cash` is `act-review-cash`.
 
 A save mints `id` with `api.uuid()` when the form opens and keeps it until the append succeeds (`public/render.js` line 40). The click disables the button for that tap, the same way `#save` does (`public/render.js` line 1235). The module then appends the document to the K list only when that id is absent, then calls `api.queueDoc(id)`, then clears the form and mints a new id. A failed `post` does not append and does not mint. A second tap, including a tap after the first success, finds the id already stored and does not append again. `queueDoc` only pushes an id (`public/render.js` lines 89-92). The append is what puts the document in the local list.
 
@@ -550,7 +550,7 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 - Two taps of the agreement save append one `agreements` row and one outbox id. The button is disabled on the first tap.
 - `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, and the body has `reversesId` and no `amount` key the original lacked. After that row, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
 
-`accounts-approve-labor` drive: sign in, open the person, save the brick agreement, save the measurement, approve it. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. The person page shows `عمل معتمد` 600,000. Home المصروف is unchanged. Screenshot and `firestore.json` under that id.
+`approve-labor` drive: sign in, open the person, save the brick agreement, save the measurement, approve it. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. The person page shows `عمل معتمد` 600,000. Home المصروف is unchanged. Screenshot and `firestore.json` under that id.
 
 ### H, `tests/accounts-payment.test.js`
 
@@ -561,7 +561,7 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 - `reviewDoc` has no amount and effect zeros. A second live `revw_` of the same cash id is refused. After `rev_` of the mark, the next id carries the generation character.
 - Two taps of a `payLabor` save append one document and one outbox id.
 
-`accounts-pay-labor` drive: the brick payment 600,000. Firestore one `payLabor`. The person net on the page is 0. `accounts-refund-labor` checks the sentence `المُرجَع أكبر من الدفعة` and that no second document was queued.
+`pay-labor` drive: the brick payment 600,000. Firestore one `payLabor`. The person net on the page is 0. `refund-labor` checks the sentence `المُرجَع أكبر من الدفعة` and that no second document was queued.
 
 ### I, `tests/accounts-correct.test.js`
 
@@ -633,7 +633,7 @@ An agent that edits `public/accounts.js` to build a slot id will collide with B,
 
 Two owners can each queue a cash uuid. Both land. A lump slot is one id. The second create is denied, and E adopts the winner. These screens do not add a second conflict pill.
 
-While `CONTRACTOR_COST_START` is null, a green `accounts-approve-labor` drive that expected home المصروف to become 600,000 would be wrong. The drive asserts the document and an unchanged home total.
+While `CONTRACTOR_COST_START` is null, a green `approve-labor` drive that expected home المصروف to become 600,000 would be wrong. The drive asserts the document and an unchanged home total.
 
 `public-canon-diff.sh` fails when the set of files under `public/` changes. CI runs `tests/public-canon-diff.test.js`, which uses a temp repo. The code PRs do not point that script at their own base and head.
 
