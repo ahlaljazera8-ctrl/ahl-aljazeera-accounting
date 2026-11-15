@@ -81,17 +81,34 @@ test('an amount milestone earns its amount, and percent stays refused', () => {
   assert.equal(percent.earned, 0);
   assert.deepEqual(percent.errors, ['percent']);
   const missingMode = Accounts.workPosition({ method: 'milestone', milestoneAmount: 250000 }, { approved: true });
-  assert.equal(missingMode.earned, 250000);
-  assert.deepEqual(missingMode.errors, []);
+  assert.equal(missingMode.earned, 0);
+  assert.deepEqual(missingMode.errors, ['milestone']);
+  const otherMode = Accounts.workPosition(
+    { method: 'milestone', milestoneMode: 'foo', milestoneAmount: 250000 },
+    { approved: true },
+  );
+  assert.equal(otherMode.earned, 0);
+  assert.deepEqual(otherMode.errors, ['milestone']);
   const mixed = Accounts.workPosition(
-    { method: 'milestone', milestoneAmount: 250000, lumpAmount: 1 },
+    { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 250000, lumpAmount: 1 },
     { approved: true },
   );
   assert.deepEqual(mixed.errors, ['method']);
-  const zero = Accounts.workPosition({ method: 'milestone', milestoneAmount: 0 }, { approved: true });
+  const modeOnly = Accounts.workPosition(
+    { method: 'lump', lumpAmount: 1, milestoneMode: 'amount' },
+    { approved: true },
+  );
+  assert.deepEqual(modeOnly.errors, ['method']);
+  const zero = Accounts.workPosition(
+    { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 0 },
+    { approved: true },
+  );
   assert.equal(zero.earned, 0);
   assert.deepEqual(zero.errors, ['range']);
-  const above = Accounts.workPosition({ method: 'milestone', milestoneAmount: 10000000001 }, { approved: true });
+  const above = Accounts.workPosition(
+    { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 10000000001 },
+    { approved: true },
+  );
   assert.equal(above.earned, 0);
   assert.deepEqual(above.errors, ['range']);
   const old = Accounts.workPosition({ method: 'milestone', lumpAmount: 1 }, { approved: true });
@@ -100,21 +117,23 @@ test('an amount milestone earns its amount, and percent stays refused', () => {
 
 test('every built milestone payload has milestoneMode', () => {
   const bare = { method: 'milestone', milestoneAmount: 250000 };
-  const qty = posted(Accounts.post('laborQty', { id: 'ms-qty', agreement: bare }));
+  const missing = Accounts.post('laborQty', { id: 'ms-qty', agreement: bare });
+  assert.equal(missing.doc, null);
+  assert.deepEqual(missing.errors, ['milestone']);
+  assert.equal(Object.prototype.hasOwnProperty.call(bare, 'milestoneMode'), false);
+  /** @type {{ method: string, milestoneMode: 'amount', milestoneAmount: number }} */
+  const named = { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 250000 };
+  const qty = posted(Accounts.post('laborQty', { id: 'ms-named', agreement: named }));
   const approved = posted(Accounts.post('approveLabor', {
     id: 'ms-appr',
     targetId: qty.id,
     target: qty,
-    agreement: bare,
+    agreement: named,
   }));
-  /** @type {{ method: string, milestoneMode: 'amount', milestoneAmount: number }} */
-  const named = { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 250000 };
-  const explicit = posted(Accounts.post('laborQty', { id: 'ms-named', agreement: named }));
-  for (const doc of [qty, approved, explicit]) {
+  for (const doc of [qty, approved]) {
     assert.equal(doc.agreement && doc.agreement.milestoneMode, 'amount');
   }
-  assert.equal(Object.prototype.hasOwnProperty.call(bare, 'milestoneMode'), false);
-  assert.equal(Accounts.workPosition(bare, { approved: true }).earned, 250000);
+  assert.equal(approved.amount, 250000);
   const percent = Accounts.post('approveLabor', {
     id: 'ms-pct',
     targetId: qty.id,
@@ -432,4 +451,150 @@ test('a second live refund, deduct, or advance draw that passes the line is cumu
     reversedIds: new Set([first.id]),
   }));
   assert.equal(reversedOk.amount, 600000);
+});
+
+function marker(id) {
+  return { id, purpose: 'mark', ledger: /** @type {'labor'} */ ('labor'), effect: { cost: 0, person: 0, cash: 0 } };
+}
+
+test('a rejected or reversed target is refused, and a rejected deduct does not lower the balance', () => {
+  const measurement = measure('m-live');
+  const approval = approvalOf('a-live', measurement);
+  const payment = posted(Accounts.post('payment', { id: 'pay-live', paidAs: 'payLabor', amount: 600000 }));
+  const advance = posted(Accounts.post('payment', { id: 'adv-live', paidAs: 'advanceLabor', amount: 100000 }));
+  const deduct = posted(Accounts.post('deduct', {
+    id: 'ded-live', targetId: approval.id, target: approval, amount: 50000,
+  }));
+  assert.deepEqual(Accounts.post('refundLabor', {
+    id: 'rf-dead', targetId: payment.id, amount: 1, ledger: [payment, marker('rev_' + payment.id)],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('deduct', {
+    id: 'ded-dead', targetId: approval.id, amount: 1, ledger: [approval, marker('rev_' + approval.id)],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('approveLabor', {
+    id: 'ap-dead',
+    targetId: measurement.id,
+    agreement: bricks,
+    approvedQty: 8000,
+    ledger: [measurement, marker('rev_' + measurement.id)],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('approveDeduct', {
+    id: 'ad-rej', targetId: deduct.id, ledger: [approval, deduct, marker('rej_' + deduct.id)],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('approveDeduct', {
+    id: 'ad-rev', targetId: deduct.id, ledger: [approval, deduct, marker('rev_' + deduct.id)],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('returnAdvance', {
+    id: 'ret-dead', targetId: advance.id, amount: 1, ledger: [advance, marker('rev_' + advance.id)],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('settle', {
+    id: 'stl-dead', settlesId: advance.id, amount: 1, ledger: [advance, marker('rev_' + advance.id)],
+  }).errors, ['settlesId']);
+  const hand = {
+    id: 'ad-hand',
+    purpose: 'approveDeduct',
+    ledger: /** @type {'labor'} */ ('labor'),
+    targetId: deduct.id,
+    effect: { cost: 0, person: 0, cash: 0 },
+  };
+  assert.equal(Accounts.personBalance([approval, deduct, marker('rej_' + deduct.id), hand]), 600000);
+});
+
+test('settle and return share one cap, and a settle doc names settlesId', () => {
+  const advance = posted(Accounts.post('payment', { id: 'adv-order', paidAs: 'advanceLabor', amount: 100000 }));
+  const settled = posted(Accounts.post('settle', {
+    id: 'stl-first', settlesId: advance.id, target: advance, amount: 60000,
+  }));
+  assert.equal(settled.settlesId, advance.id);
+  assert.equal(Object.prototype.hasOwnProperty.call(settled, 'targetId'), false);
+  assert.deepEqual(Accounts.post('returnAdvance', {
+    id: 'ret-second', targetId: advance.id, target: advance, amount: 50000, siblings: [settled],
+  }).errors, ['cumulative']);
+  const viaLedger = posted(Accounts.post('settle', {
+    id: 'stl-ledger', settlesId: advance.id, amount: 1000, ledger: [advance],
+  }));
+  assert.equal(viaLedger.settlesId, advance.id);
+});
+
+test('approveDeduct counts only live approved deducts, and not the deduct being approved twice', () => {
+  const approval = approvalOf('a-only', measure('m-only'));
+  const pending = posted(Accounts.post('deduct', {
+    id: 'ded-pending', targetId: approval.id, target: approval, amount: 500000,
+  }));
+  const small = posted(Accounts.post('deduct', {
+    id: 'ded-small', targetId: approval.id, target: approval, amount: 200000,
+  }));
+  const approvedSmall = posted(Accounts.post('approveDeduct', {
+    id: 'ad-small', targetId: small.id, target: small, siblings: [approval, pending, small],
+  }));
+  assert.equal(approvedSmall.purpose, 'approveDeduct');
+  const first = posted(Accounts.post('deduct', {
+    id: 'ded-first', targetId: approval.id, target: approval, amount: 400000,
+  }));
+  const firstApproval = posted(Accounts.post('approveDeduct', {
+    id: 'ad-first', targetId: first.id, target: first, siblings: [approval],
+  }));
+  const again = posted(Accounts.post('approveDeduct', {
+    id: 'ad-again', targetId: first.id, target: first, siblings: [approval, first, firstApproval],
+  }));
+  assert.equal(again.purpose, 'approveDeduct');
+  const second = posted(Accounts.post('deduct', {
+    id: 'ded-second', targetId: approval.id, target: approval, amount: 400000,
+  }));
+  const afterReversal = posted(Accounts.post('approveDeduct', {
+    id: 'ad-second',
+    targetId: second.id,
+    target: second,
+    siblings: [approval, first, firstApproval, marker('rev_' + firstApproval.id), second],
+  }));
+  assert.equal(afterReversal.purpose, 'approveDeduct');
+  const wrongTarget = Object.assign({}, approval, { id: 'not-the-approval' });
+  assert.deepEqual(Accounts.post('deduct', {
+    id: 'ded-mismatch', targetId: approval.id, target: wrongTarget, amount: 1,
+  }).errors, ['targetId']);
+  const later = posted(Accounts.post('deduct', {
+    id: 'ded-later', targetId: approval.id, target: approval, amount: 10000,
+  }));
+  assert.deepEqual(Accounts.post('approveDeduct', {
+    id: 'ad-later',
+    targetId: later.id,
+    ledger: [approval, later, marker('rev_' + approval.id)],
+  }).errors, ['targetId']);
+});
+
+test('a capped amount outside 1 through the row is range, and a bad stored amount does not move the balance', () => {
+  const payment = posted(Accounts.post('payment', { id: 'pay-range', paidAs: 'payLabor', amount: 600000 }));
+  const advance = posted(Accounts.post('payment', { id: 'adv-range', paidAs: 'advanceLabor', amount: 100000 }));
+  const approval = approvalOf('a-range', measure('m-range'));
+  const samples = [0, -1, NaN, Infinity, -Infinity];
+  for (const amount of samples) {
+    assert.deepEqual(Accounts.post('refundLabor', {
+      id: 'rf-bad', targetId: payment.id, target: payment, amount,
+    }).errors, ['range']);
+    assert.deepEqual(Accounts.post('returnAdvance', {
+      id: 'ret-bad', targetId: advance.id, target: advance, amount,
+    }).errors, ['range']);
+    assert.deepEqual(Accounts.post('deduct', {
+      id: 'ded-bad', targetId: approval.id, target: approval, amount,
+    }).errors, ['range']);
+    assert.deepEqual(Accounts.post('settle', {
+      id: 'stl-bad', settlesId: advance.id, target: advance, amount,
+    }).errors, ['range']);
+  }
+  const weird = {
+    id: 'pay-inf',
+    purpose: 'payLabor',
+    ledger: /** @type {'labor'} */ ('labor'),
+    amount: Infinity,
+    effect: { cost: 0, person: -1, cash: 1 },
+  };
+  assert.equal(Accounts.personBalance([weird]), 0);
+  const wages = posted(Accounts.post('payment', { id: 'pay-copy', paidAs: 'payLabor', amount: 10 }));
+  wages.effect.cost = 7;
+  const again = posted(Accounts.post('payment', { id: 'pay-copy-2', paidAs: 'payLabor', amount: 10 }));
+  assert.equal(again.effect.cost, 0);
+  assert.equal(Accounts.PURPOSES.payLabor.effect.cost, 0);
+  // @ts-expect-error id is required at runtime
+  assert.deepEqual(Accounts.post('payment', { paidAs: 'payLabor', amount: 1 }).errors, ['id']);
+  assert.deepEqual(Accounts.post('laborQty', { id: 'no-ag' }).errors, ['agreement']);
 });

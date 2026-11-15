@@ -1,0 +1,12 @@
+M2-1 onLine ignores a settle sibling	killed
+M2-2 approvedDeductSum counts a pending deduct	killed
+M2-3 a reversed approveDeduct still counts	killed
+M2-4 a reversed approveLabor is still found	killed
+M2-5 targetError ignores a different target id	killed
+M2-6 markerSets ignores rev_	killed
+M2-7 milestoneMode is not a method field	killed
+M2-8 a capped post accepts amount 0	killed
+M2-9 settle writes targetId	killed
+M2-10 ledger lookup uses targetId only	killed
+M2-11 approveDeduct counts the current deduct twice	killed
+11 killed, 0 survived, 11 total
