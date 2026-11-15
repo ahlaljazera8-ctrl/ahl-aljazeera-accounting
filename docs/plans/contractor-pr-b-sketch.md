@@ -40,7 +40,7 @@ Deferrals now assigned to B, from the Architect's review of PR #71 and from `pla
 
 | File                                                                        | Change                                                                                                                                                                             |
 | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/accounts.js`                                                        | Extend `post`, `workPosition`, `PURPOSES` pointers, `cashPointerErrors`, and `projectCost`. Add `personBalance`, the one fold PR C extends into `balances()` (plan 371).             |
+| `public/accounts.js`                                                        | Extend `post`, `workPosition`, `PURPOSES` pointers, `cashPointerErrors`, and `projectCost`. Add `personBalance`, the one fold PR C extends into `balances()` (plan 371).           |
 | `tests/accounts.test.js`                                                    | Behaviour tests below. The spec 1, 2, 6, and 7 tests stay green. The test that treats every `milestone` as an unknown method changes: amount mode is accepted, percent is refused. |
 | `public/session.js`                                                         | Only if Ameer includes LOW-3.                                                                                                                                                      |
 | `public/sw.js`, `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | Version pins only, after #72. See Sequencing.                                                                                                                                      |
@@ -167,15 +167,15 @@ function projectCost(projectId, txns) // return 0. PR K replaces this.
 
 `post` rules, one document or an error list, never both a doc and an error:
 
-| Action          | Accepts                                                                 | Refuses                                                                                          |
-| --------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `payment`       | `paidAs` `payLabor` or `advanceLabor`, amount from 1 through 1e10       | missing `paidAs`, amount 0, negative, fractional, or above 1e10                                  |
-| `approveLabor`  | a labor agreement and `targetId`, earned at least 1                     | earned 0, inexact unit split, percent milestone, partial lump or partial amount-milestone        |
-| `refundLabor`   | `targetId` at a `payLabor`, amount from 1 through that payment          | missing or wrong-type target, amount above that payment, or over the live cumulative cap         |
-| `returnAdvance` | `targetId` at an `advanceLabor`, amount from 1 through that advance     | missing or wrong-type target, amount above that advance, or over the live cumulative cap         |
-| `deduct`        | `targetId` at an `approveLabor`, amount from 1 through that approval    | missing or wrong-type target, amount above that approval, or over the live cumulative cap        |
-| `approveDeduct` | `targetId` at a `deduct`. Stores no `amount` (plan 428).                | missing or wrong-type target, or over the live cumulative cap                                    |
-| `settle`        | `settlesId` at an `advanceLabor`, amount from 1 through that advance    | missing or wrong-type target, amount above that advance, or over the live cumulative cap         |
+| Action          | Accepts                                                              | Refuses                                                                                   |
+| --------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `payment`       | `paidAs` `payLabor` or `advanceLabor`, amount from 1 through 1e10    | missing `paidAs`, amount 0, negative, fractional, or above 1e10                           |
+| `approveLabor`  | a labor agreement and `targetId`, earned at least 1                  | earned 0, inexact unit split, percent milestone, partial lump or partial amount-milestone |
+| `refundLabor`   | `targetId` at a `payLabor`, amount from 1 through that payment       | missing or wrong-type target, amount above that payment, or over the live cumulative cap  |
+| `returnAdvance` | `targetId` at an `advanceLabor`, amount from 1 through that advance  | missing or wrong-type target, amount above that advance, or over the live cumulative cap  |
+| `deduct`        | `targetId` at an `approveLabor`, amount from 1 through that approval | missing or wrong-type target, amount above that approval, or over the live cumulative cap |
+| `approveDeduct` | `targetId` at a `deduct`. Stores no `amount` (plan 428).             | missing or wrong-type target, or over the live cumulative cap                             |
+| `settle`        | `settlesId` at an `advanceLabor`, amount from 1 through that advance | missing or wrong-type target, amount above that advance, or over the live cumulative cap  |
 
 A missing or wrong-type target is `targetId`, or `settlesId` when the named field is `settlesId`. The single-row caps (one refund, deduct, return, or settle above its named row) stay refused here and were already approved. `settle` is capped at the named advance, like `returnAdvance`, so «سلف قائمة عليه» (plan 364) cannot go negative from one settle.
 
