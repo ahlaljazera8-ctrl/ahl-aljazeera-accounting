@@ -2,6 +2,8 @@
 
 Revision r2, against Architect NOTES on `d344b3d9` (review sha256 `e1645840cc1be989d0ddfa499efaccafa10b835aa67fc6d64e89b467234a7170`). r1 is that head, 570 lines, blob `5a998ba208e26b1303f938a2c0289f9bfc001b7e`.
 
+EA, on Ameer's delegation, 2026-11-16 00:52 Baghdad, approved the defaults in `QUESTIONS-FOR-EA-r1.md` (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) for Q1–Q47. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, the earlier answer wins. This lane folds in Q5 and Q11–Q15. The date-fix answer in that earlier file says the date fix merges first as v59 and the rest renumber. That is the Q5 reading used here. Q13's approved default (an unknown dependency error stays queued) replaces the fail-once line this r2 had taken from the Architect's M2. The earlier answers file does not speak on Q13, so the approved default stands.
+
 No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The code PR comes after the Architect reviews this r2 and Ameer says go.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Base for every line cited below: `baf4f21fc54c156989334e826d19990b8e5e8a74` (v58, #72). PR A is already on that commit (`public/accounts.js`).
@@ -26,23 +28,23 @@ From the table, PR E is:
 
 Not in E: material purposes, invoice locks, `linkRefusals` text other than the existing conflict sentence, screens, rules, `projectCost`, and the statement fold. PR K asserts the adopted-`appr_` project figure of 700,000. E does not.
 
-Preconditions, both still in front of the code PR. D is deployed by Ameer. Ameer says the rejected-entries stream is finished (Q7, C1). This docs PR does not wait on those and does not start the code.
+Preconditions, both still in front of the code PR (Q11). D is deployed by Ameer. EA has confirmed the rejected-entries stream is finished. #72 on this base is not that confirmation. This docs PR does not start the code.
 
 ## Files the code PR edits
 
-| File                                                                        | Change                                                                                                                                                                                                                                                                                   |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/sync.js`                                                            | Route `party`, `agreement`, `accountTxn`, and `statementApproval`. `queueRefusal` before any outbox append. `accountReads` / `pullAccounts`, owner only. The adopt step and the one subtree walk live inside `flushOutbox`. `localDoc` is the one id lookup.                             |
-| `public/sync-status.js`                                                     | One `sameContent` key list per new kind, taken from D r2's allowlists. `payloadDiffers` subtracts the owner-identity fields. `dependencyStatus` matches today's read catch. `applyFlush` drops `parked` ids and clears any `syncErrors` key on them.                                     |
-| `public/firebase-client.js`                                                 | `readDependency` runs only after a dependent write throws a non-transient error. `writeLocal` uses `setDoc` and strips `docType`. `pull` stores the watermark at `K.pullWatermark.accounts`. The flush applies adopted rows, `slotLosers`, and `linkRefusals`, then `applyFlush`.        |
-| `public/session.js`                                                         | Six names on `K` (line 5): `parties`, `agreements`, `accountTxns`, `statementApprovals`, `slotLosers`, `linkRefusals`. IndexedDB stays version 1. The new values are meta, same as `K.foremen`. The watermark is a sub-key of the existing `K.pullWatermark`, not a seventh name.        |
-| `public/render.js`                                                          | `queueDoc` (lines 89-93) asks `queueRefusal` before the append. `rejectedLogoutBlock` (lines 535-539) and the rejected CSV (lines 1277-1290) also cover account ids in `syncErrors`, `slotLosers`, and `linkRefusals`. No new screen.                                                    |
-| `public/sync.js` `dropProjectLocal`                                         | Same keep rule for agreements, account rows, and statement approvals that name the project. Parties have no `projectId` and stay. `slotLosers` and `linkRefusals` for that project are removed. This is the only PR that edits that function for these stores. See «أسئلة لأمير» item 3. |
-| `types/checkjs.d.ts`                                                        | `SyncApi`, `SyncStatusApi`, `FlushCall`, and `FlushResult` gain the fields below. `SyncRow.docType` gains the four new literals.                                                                                                                                                         |
-| `tests/sync-status.test.js`                                                 | The flush tests below. Already named by `package.json` `"test"` and by `.github/workflows/ci.yml`.                                                                                                                                                                                       |
-| `tests/emulator/account-adopt.test.js`                                      | The two-phone server tests. Architect M4 on #80 moved them here. D keeps the single-client allow/deny matrix.                                                                                                                                                                            |
-| `package.json`, `.github/workflows/ci.yml`                                  | The `test:emulator` command in both files gains `tests/emulator/account-adopt.test.js`. The two command strings stay identical. The unit `"test"` script does not change. D edits `ci.yml` line 181 first. E rebases and appends this file after D's rules test.                         |
-| `public/sw.js`, `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | Version pins only, after the parallel public PRs. See Sequencing.                                                                                                                                                                                                                        |
+| File                                                                        | Change                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/sync.js`                                                            | Route `party`, `agreement`, `accountTxn`, and `statementApproval`. `queueRefusal` before any outbox append. `accountReads` / `pullAccounts`, owner only. The adopt step and the one subtree walk live inside `flushOutbox`. `localDoc` is the one id lookup.                                                                  |
+| `public/sync-status.js`                                                     | One `sameContent` key list per new kind, taken from D r2's allowlists. `payloadDiffers` subtracts the owner-identity fields. `dependencyStatus` keeps a missing or denied dependency failed once, and keeps any other dependency error queued (Q13). `applyFlush` drops `parked` ids and clears any `syncErrors` key on them. |
+| `public/firebase-client.js`                                                 | `readDependency` runs only after a dependent write throws a non-transient error. `writeLocal` uses `setDoc` and strips `docType`. `pull` stores the watermark at `K.pullWatermark.accounts`. The flush applies adopted rows, `slotLosers`, and `linkRefusals`, then `applyFlush`.                                             |
+| `public/session.js`                                                         | Six names on `K` (line 5): `parties`, `agreements`, `accountTxns`, `statementApprovals`, `slotLosers`, `linkRefusals`. IndexedDB stays version 1. The new values are meta, same as `K.foremen`. The watermark is a sub-key of the existing `K.pullWatermark`, not a seventh name.                                             |
+| `public/render.js`                                                          | `queueDoc` (lines 89-93) asks `queueRefusal` before the append. `rejectedLogoutBlock` (lines 535-539) and the rejected CSV (lines 1277-1290) also cover account ids in `syncErrors`, `slotLosers`, and `linkRefusals`. No new screen.                                                                                         |
+| `public/sync.js` `dropProjectLocal`                                         | Same keep rule for agreements, account rows, and statement approvals that name the project. Parties have no `projectId` and stay. `slotLosers` and `linkRefusals` for that project are removed. This is the only PR that edits that function for these stores. Approved, Q15. The Q8 button stays PR F.                       |
+| `types/checkjs.d.ts`                                                        | `SyncApi`, `SyncStatusApi`, `FlushCall`, and `FlushResult` gain the fields below. `SyncRow.docType` gains the four new literals.                                                                                                                                                                                              |
+| `tests/sync-status.test.js`                                                 | The flush tests below. Already named by `package.json` `"test"` and by `.github/workflows/ci.yml`.                                                                                                                                                                                                                            |
+| `tests/emulator/account-adopt.test.js`                                      | The two-phone server tests. Architect M4 on #80 moved them here. D keeps the single-client allow/deny matrix.                                                                                                                                                                                                                 |
+| `package.json`, `.github/workflows/ci.yml`                                  | The `test:emulator` command in both files gains `tests/emulator/account-adopt.test.js`. The two command strings stay identical. The unit `"test"` script does not change. D edits `ci.yml` line 181 first. E rebases and appends this file after D's rules test.                                                              |
+| `public/sw.js`, `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | Version pins only, after the parallel public PRs. See Sequencing.                                                                                                                                                                                                                                                             |
 
 `public/accounts.js` is not edited. The walker reads `Accounts.PURPOSES` at flush time. `payLabor` already has `needsApproval: false` and `effect.cash: 1` (`public/accounts.js` lines 28-38). PR B may change `post` and the pointer table. It does not have to change those two fields for this rule to keep working.
 
@@ -105,7 +107,7 @@ Stale, and the correction:
 | `projectSummary.spent` for the site user is `public/ledger.js` lines 111-115.                                                                                                                                                                                       | The function is lines 111-115. The site branch returns `spent` only. Still true.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Demo uid cited at `public/session.js` line 93.                                                                                                                                                                                                                      | Line 93 is the end of `uuid()`. The `u-ameer` lookup is line 101.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-`dropProjectLocal` starts at `public/sync.js` line 542. The keep rule is line 552. Its return value has no parties, agreements, or account rows. That gap is «أسئلة لأمير» item 3.
+`dropProjectLocal` starts at `public/sync.js` line 542. The keep rule is line 552. Its return value has no parties, agreements, or account rows. E fills that gap (Q15). The Q8 button is PR F.
 
 ## Usage
 
@@ -286,7 +288,7 @@ function sameContent(local, remote)
  * Owner identity is createdBy and createdByName.
  * partyId and projectId count as a difference: approveLabor binds
  * them, and a denied write of the shared approval id would hide the winner.
- * createdAtServer and deviceId do not count. Engineering default, below.
+ * createdAtServer and deviceId do not count (Q12).
  * unitName and unitPrice are not on D r2's AccountTxn allowlist, so they
  * are not compared and not sent.
  */
@@ -295,12 +297,13 @@ function payloadDiffers(local, remote)
 /**
  * @param {SyncFailure | null | undefined} err
  * @param {boolean | null} exists
- * @returns {'found'|'missing'|'denied'|'transient'|'auth'|'unverified'}
+ * @returns {'found'|'missing'|'denied'|'transient'|'auth'}
  * exists false and no error is 'missing'.
  * permission-denied is 'denied'.
  * isTransient is 'transient'. isDeadAuth is 'auth'.
- * Any other error is 'unverified'. The row fails once.
- * It does not stay queued. Same split as public/sync.js lines 626-632.
+ * Any other error is 'transient' (Q13). The dependent stays queued.
+ * The legacy read of the row being flushed still uses
+ * public/sync.js lines 626-632. This function does not.
  */
 function dependencyStatus(err, exists)
 
@@ -419,7 +422,7 @@ The walk, once, on the docs already queued at that moment:
 - A queued slot body of the same `agreementId` whose generation character is higher, and which is already queued, joins, and then the same walk takes its dependents.
 - A slot body queued after this pass is not in the set. A later `queueDoc` does not consult the set.
 - A labor `deduct` whose `targetId` is an `approveLabor` in the set joins.
-- A purpose with `needsApproval === false` and `effect.cash !== 0` does not join. The read is `Accounts.PURPOSES[purpose]`. The hand-built `payLabor` is that case even though it carries a `targetId`. «أسئلة لأمير» item 2 is whether this pass also skips `write` for it.
+- A purpose with `needsApproval === false` and `effect.cash !== 0` does not join. The read is `Accounts.PURPOSES[purpose]`. The hand-built `payLabor` is that case even though it carries a `targetId`. Q14, approved: this pass does not `write` it.
 - If `Accounts.PURPOSES` is missing, the pass does not guess. It does not park anything and it does not send the dependents. They stay queued. The production page has loaded `accounts.js` before a flush.
 
 Parked ids are removed from the outbox and from `K.accountTxns`. They have no `syncErrors` key. `applyFlush` would write `errMap[row.id]` (`public/sync-status.js` line 176) and the fold would hide that id. On a shared id that is the winner. This path does not push the shared id, or a parked dependent, through `failed`.
@@ -434,7 +437,7 @@ The badge for a lost row is the existing `badgeHtml` (`public/sync-status.js` li
 
 For a dependent id:
 
-1. Cash purpose (`needsApproval` false and `effect.cash !== 0`): «أسئلة لأمير» item 2. Recommended: do not `write` it in the adoption pass when its pointer names an id parked in this pass. Leave it in the outbox and in `K.accountTxns`. Do not fail it. The next flush, with that target gone from the outbox, uses the normal write. No server read on this step.
+1. Cash purpose (`needsApproval` false and `effect.cash !== 0`), Q14. Do not `write` it in the adoption pass when its pointer names an id parked in this pass. Leave it in the outbox and in `K.accountTxns`. Do not fail it and do not put it in `slotLosers`. The next flush, with that target gone from the outbox, uses the normal write. A later rules denial is on the payment id. No server read on this step.
 2. The pointer id is in `kept` this pass, or still later in the outbox and not yet in `synced`: `kept.push` the dependent. Do not `write`. An approval queued ahead of its body stays queued. The loop still reaches the body. The next flush attempts the approval, because a body that synced in an earlier flush is not a hold. No server read.
 3. The pointer id is in `failed` this pass: fail the dependent once. Message is `رُفض الإرسال`. Do not keep it and do not park it. No server read.
 4. The pointer id was parked this pass: the dependent is in the subtree. Do not fail it and do not `write` it. No server read.
@@ -445,7 +448,7 @@ For a dependent id:
    - `denied`: `failed` once, the same message. Not sent again.
    - `found`: then the adopt rules above, using that server doc. A content match is `synced`. A different slot payload parks the subtree.
    - `auth`: return `authDead`.
-   - `unverified`: `failed` once. The message is the existing `القيد موجود مسبقاً وتعذر مطابقة محتواه` (`public/sync-status.js` line 14), which is what `failureMessage` returns when the read could not be checked (`public/sync.js` lines 626-632 set `unverified`). The id leaves the outbox. It does not stay queued, so it cannot block logout forever and it is not re-billed on every flush.
+   - any other error: `kept`, the same as `transient` (Q13). The id stays in the outbox. Logout then hits the existing unsent alert (`public/session.js` line 331), because `outboxEmpty` is false (lines 256-269). It does not become a `syncErrors` row and it does not use the rejected-export block. The legacy read of the row being flushed still fails once when its own read is unverified (`public/sync.js` lines 626-632). That path is not this dependency read.
 
 There is no retry counter. `إرسال الآن` (`public/render.js` line 1089, click at line 1209) calls `flushRemote` on the current outbox. `applyFlush` has already removed a failed id. The button does not put it back. The correction is to re-enter the record. A failed account id still blocks logout until it is exported, which is the #72 rule above, not a permanent outbox hold.
 
@@ -464,11 +467,9 @@ Counts E adds:
 
 ## Engineering defaults
 
-These were questions 2 and 3 in r1. They are not questions for Ameer. The Architect's L1 accepts them.
+Q12, approved. `sameContent` does not compare `createdAtServer` or `deviceId`. The server writes the time, so a retry of the same bytes would never match. `deviceId` differs across phones and is not the field that separates two owners. `createdBy` is compared. Two owners therefore take the adopt path. A same-bytes retry from the phone that wrote the row matches and is `synced`.
 
-`sameContent` does not compare `createdAtServer` or `deviceId`. The server writes the time, so a retry of the same bytes would never match. `deviceId` differs across phones and is not the field that separates two owners. `createdBy` is compared. Two owners therefore take the adopt path. A same-bytes retry from the phone that wrote the row matches and is `synced`.
-
-A dependency read that is not transient, not missing, not permission-denied, and not dead auth fails once. That is `public/sync.js` lines 626-632. Leaving it queued would keep `outboxEmpty` false (`public/session.js` lines 256-269) and the unsent alert would fire on every logout (line 331), and every flush would bill the read again.
+Q13, approved. A dependency read that is not transient, not missing, not permission-denied, and not dead auth stays queued, the same as a transient error. The Architect's M2 asked for a fail-once, matching `public/sync.js` lines 626-632. EA approved the questions-file default instead, and the earlier answers file does not override Q13. The cost is the one M2 named: while that error keeps happening, the id stays in the outbox, `outboxEmpty` stays false, and logout shows the unsent alert (line 331). The next successful read sends it. It is not failed once and not re-entered by hand. The legacy unverified path on the row being flushed is unchanged.
 
 ## Tests
 
@@ -491,11 +492,11 @@ Amounts of 600,000 are the Q6 / spec 1 figure, used as data so the adopted appro
 - `E11 slot 2 queued before adoption`. The loser had rejected slot 1 and queued slot 2. Slot 2 is `parked`, in `slotLosers`, absent from the account list, not in `failed`. `write` is not called with slot 2's id.
 - `E12 slot 2 queued after the result`. A second `flushOutbox` that contains only that later slot calls `write` with it.
 - `E13 loser rows`. Measurement, approval, rejection, labor `stl_`, and a labor `deduct` whose `targetId` is that `approveLabor`: each `slotLoserViews` entry is `readOnly`, the key is `slotLoser:` plus the id, and the key is not the shared id. `badgeHtml` on the winner id with an empty error map is `''`.
-- `E14 hand-built guard`. A `payLabor` with `targetId` aimed at the losing `approveLabor`, built as an object, not by `post`. It is not in `parked` and not in `slotLosers`. It is not in `failed`. It remains available to count. `cashPointerErrors` on the real `PURPOSES` table is not this test. «أسئلة لأمير» item 2 decides whether `write` is called on this pass.
+- `E14 hand-built guard` (Q14). A `payLabor` with `targetId` aimed at the losing `approveLabor`, built as an object, not by `post`. On the adoption pass `write` is not called. It is not in `parked`, not in `slotLosers`, and not in `failed`. It stays in the outbox and in the account list. `cashPointerErrors` on the real `PURPOSES` table is not this test.
 - `E15 rev_ of the slot id and rev_ of the approval` are `parked`. `write` is not called with either id.
 - `E16 missing dependency`. `write` throws a non-transient denial first. `readDependency` is then called and returns `missing`. The dependent is `failed` once, message `رُفض الإرسال`. `readDependency` was not called before `write`. A second flush whose outbox is the `applyFlush` result does not see that id.
 - `E17 denied dependency`. Same as E16 with `denied`.
-- `E18 transient dependency`. The read after the failed write returns `transient`. The dependent is `kept`, not `failed`. A read error that is none of transient, missing, denied, or dead auth is `failed` once, message `القيد موجود مسبقاً وتعذر مطابقة محتواه`, and the id is not in the next outbox.
+- `E18 transient dependency` (Q13). The read after the failed write returns `transient`. The dependent is `kept`, not `failed`. A read error that is none of transient, missing, denied, or dead auth is also `kept`. It is still in the next outbox. It is not `failed`.
 - `E19 body synced on an earlier flush`. The approval is not held. `write` is called with it.
 - `E20 body then approval, body first`. Both land in `synced` on one pass.
 - `E21 transient body`. The body is `kept`. The `appr_` and the `rev_` are `kept`, not `failed`. The next flush, with `write` succeeding, puts all three in `synced`.
@@ -512,14 +513,14 @@ Amounts of 600,000 are the Q6 / spec 1 figure, used as data so the adopted appro
 
 Ameer approved all 88 strings in `strings-contractor-module-r2.22.md` (sha256 starts `9d25840a`) and the tab `حسابات` on 2026-11-10 at 11:16 Baghdad. `strings-contractor-module-r2.23` records that approval. E adds none of the 88, and it adds no string outside the 88. `لم يُربط التسديد بالفاتورة` stays out (Q-link-text is phase 2). The Q8 delete sentences are strings 86 and 87. They are approved, and PR F shows them. E does not.
 
-| String                                                | Mark                                              | Where it already is                                                                                  |
-| ----------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `رُفض الإرسال`                                        | reused, already shipped, not one of the 88        | `public/sync-status.js` line 12. A missing or denied dependency.                                     |
-| `القيد موجود على الخادم بمحتوى مختلف`                 | reused, already shipped, not one of the 88        | `public/sync-status.js` line 13. The pill on a `slotLoser:` key and on a link-refusal uuid.          |
-| `القيد موجود مسبقاً وتعذر مطابقة محتواه`              | reused, already shipped, not one of the 88        | `public/sync-status.js` line 14. An unverified dependency read. Fails once.                          |
-| `إرسال الآن`                                          | reused, already shipped, not one of the 88        | `public/render.js` line 1089. Flushes the outbox.                                                    |
-| `لم يُرسل`                                            | reused, already shipped, not one of the 88        | `public/sync-status.js` line 195. A row that is still queued.                                        |
-| `يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.` | reused, already shipped by #72, not one of the 88 | `public/session.js` line 326. Logout while an account refusal or a `slotLosers` row is not exported. |
+| String                                                | Mark                                              | Where it already is                                                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `رُفض الإرسال`                                        | reused, already shipped, not one of the 88        | `public/sync-status.js` line 12. A missing or denied dependency.                                                               |
+| `القيد موجود على الخادم بمحتوى مختلف`                 | reused, already shipped, not one of the 88        | `public/sync-status.js` line 13. The pill on a `slotLoser:` key and on a link-refusal uuid.                                    |
+| `القيد موجود مسبقاً وتعذر مطابقة محتواه`              | reused, already shipped, not one of the 88        | `public/sync-status.js` line 14. The legacy unverified read of the row being flushed. Not the dependency's fourth error (Q13). |
+| `إرسال الآن`                                          | reused, already shipped, not one of the 88        | `public/render.js` line 1089. Flushes the outbox.                                                                              |
+| `لم يُرسل`                                            | reused, already shipped, not one of the 88        | `public/sync-status.js` line 195. A row that is still queued.                                                                  |
+| `يوجد قيود مرفوضة على هذا الهاتف. صدّرها قبل الخروج.` | reused, already shipped by #72, not one of the 88 | `public/session.js` line 326. Logout while an account refusal or a `slotLosers` row is not exported.                           |
 
 ## Sequencing
 
@@ -529,14 +530,14 @@ This docs PR adds one file and does not bump the service worker.
 
 The code PR:
 
-| Overlap                                                                                                                | Why it is sequential                                                                                                                                                                                                                                           |
-| ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/session.js`                                                                                                    | Baghdad-date merges first and edits this file. E adds names on `K` at line 5. Rebase after Baghdad-date. PR B edits `uuid()` only if Ameer includes LOW-3. That is the same file and a different function.                                                     |
-| `public/render.js`                                                                                                     | `queueDoc` is lines 89-93. The logout block is lines 535-539 and the rejected CSV is lines 1277-1290. Baghdad-date and the foreman export both edit this file. Rebase. E does not edit `public/ledger.js`, so the foreman export's ledger hunks do not meet E. |
-| `.github/workflows/ci.yml` and `package.json` `test:emulator`                                                          | D edits `ci.yml` line 181 first for its rules test. E rebases and appends `tests/emulator/account-adopt.test.js` to both emulator command strings.                                                                                                             |
-| `public/accounts.js`                                                                                                   | No E edit. PR B is not blocked on this file by E.                                                                                                                                                                                                              |
-| `public/sw.js` line 1, `tests/shell-cache.test.js` lines 43, 65, and 93, `tests/webkit-upgrade.test.js` line 18 `MARK` | Every public PR bumps these. The value is the next free version at merge time. v58 is what main says now. This sketch does not pick v59.                                                                                                                       |
-| Other phase sketches                                                                                                   | Other paths under `docs/plans/`. This PR does not edit them.                                                                                                                                                                                                   |
+| Overlap                                                                                                                | Why it is sequential                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/session.js`                                                                                                    | Baghdad-date merges first and edits this file. E adds names on `K` at line 5. Rebase after Baghdad-date. PR B edits `uuid()` only if Ameer includes LOW-3. That is the same file and a different function.                                                                  |
+| `public/render.js`                                                                                                     | `queueDoc` is lines 89-93. The logout block is lines 535-539 and the rejected CSV is lines 1277-1290. Baghdad-date and the foreman export both edit this file. Rebase. E does not edit `public/ledger.js`, so the foreman export's ledger hunks do not meet E.              |
+| `.github/workflows/ci.yml` and `package.json` `test:emulator`                                                          | D edits `ci.yml` line 181 first for its rules test. E rebases and appends `tests/emulator/account-adopt.test.js` to both emulator command strings.                                                                                                                          |
+| `public/accounts.js`                                                                                                   | No E edit. PR B is not blocked on this file by E.                                                                                                                                                                                                                           |
+| `public/sw.js` line 1, `tests/shell-cache.test.js` lines 43, 65, and 93, `tests/webkit-upgrade.test.js` line 18 `MARK` | Q5. The date fix merges first as v59 (earlier answer). E does not claim a number, including the table's v63. If the code PR touches `public/`, the bump is the next free version at merge time and stays renumberable. This docs PR does not bump. Main is `aj-p0-v58` now. |
+| Other phase sketches                                                                                                   | Other paths under `docs/plans/`. This PR does not edit them.                                                                                                                                                                                                                |
 
 `types/checkjs.d.ts` moves if another PR touches `FlushResult` or `SyncRow`. Rebase if it does.
 
@@ -562,7 +563,7 @@ Reverting the code PR does not delete Firestore documents. If phones have queued
 - `applyFlush` deletes error keys for `synced` and `kept` (lines 174-175). A parked id is deleted too, on purpose, so a previous error on a shared id cannot hide the winner.
 - The loser payload has to be copied to `slotLosers` before `mergeById` can replace the row. The flush writes the map first, then drops the outbox ids.
 - An approval queued ahead of its body waits one extra flush. It does not spin: the body is still attempted in the first pass, and the next pass finds the body gone from the outbox.
-- `dropProjectLocal` (`public/sync.js` lines 542-552) does not yet know the new stores. «أسئلة لأمير» item 3 names E as the only editor of that function for them, and names F as the owner of the Q8 refusal. The two edits are different functions.
+- `dropProjectLocal` (`public/sync.js` lines 542-552) does not yet know the new stores. Q15 says E is the editor of that function for them. F owns the Q8 refusal. The two edits are different functions.
 - Logout does not delete a refused account row or a `slotLosers` row until that id has been exported. That is the #72 block. After the export, logout still deletes `aj-u-…`.
 - Phase 2 stays out: `inv_`, percent milestones, USD, attachments, materials, and the invoice-link sentence.
 
@@ -570,7 +571,7 @@ Reverting the code PR does not delete Firestore documents. If phones have queued
 
 No new accounting rule. The counted row is the server copy. The lost subtree is not counted, because it is not in `K.accountTxns` and the fold does not read `slotLosers`. A cash row is not removed from the figures by the walk. A labor `deduct` in the subtree is not counted. Rejection wins when both a `rej_` and an `appr_` exist, which is Q7 and is the fold's rule in PR C, not a second rule here.
 
-Those sentences are Ameer's closed decisions in the parent plan (Q1, Q7, Q10). This sketch does not ask محاسب أهل الجزيرة for a new opinion. The remaining questions are the stream gate, the hand-built payment, and which PR extends project delete. C's fold, not E, also drops an `approveLabor` whose body has a `rej_`.
+Those sentences are Ameer's closed decisions in the parent plan (Q1, Q7, Q10). This sketch does not ask محاسب أهل الجزيرة for a new opinion. Q5 and Q11–Q15 are approved and are not open. C's fold, not E, also drops an `approveLabor` whose body has a `rej_`.
 
 ## pstack
 
@@ -588,22 +589,11 @@ The chosen shape hides the walk, the key list, and the dependency read behind `f
 
 ## أسئلة لأمير
 
-هاي الأسئلة الباقية. وقت الخادم، ومعرّف الجهاز، والخطأ الغريب، صارت قرارات هندسة بقسم Engineering defaults. النصوص الـ 88 واسم التبويب «حسابات» موافَق عليها من 2026-11-10 الساعة 11:16 بتوقيت بغداد. ماكو جملة جديدة براها.
+ماكو سؤال مفتوح. EA وافق على الافتراضات بتاريخ 2026-11-16 الساعة 00:52 بتوقيت بغداد. النصوص الـ 88 واسم التبويب «حسابات» موافَق عليها من 2026-11-10 الساعة 11:16. ماكو جملة جديدة.
 
-**1. تيار القيود المرفوضة.**
-
-كود E ينتظر كلمتك إن التيار خلص، وينتظر نشرك لقواعد D. على `baf4f21` الطلب 72 نازل: جملة «رُفض الإرسال لأن المشروع محذوف» وتصدير القيود المرفوضة. الطلب 65 لسه مفتوح، بس هو نقل جدول النماذج، مو هذا التيار.
-
-اقتراح: اكتب «خلص» لما التيار يخلص عندك، وبعد ما تنشر قواعد D. لحدها ما نكتب كود E. هذي المسودة ما تبدي الكود.
-
-**2. دفعة تشير لموافقة خاسرة.**
-
-سطر `payLabor` مصنوع باليد، و`targetId` ماله على موافقة داخل الشغل الخاسر. الخطة تقول يبقى بالطابور وينحسب، وتقول هم إن صف الفلوس ما ينتظر إرسالاً ثانياً.
-
-اقتراح: بمرور التبني نفسه ما نرسله وما نفشله وما ندخله `slotLosers`. يبقى بالطابور وينحسب. الإرسال الجاي يعامله كأي دفعة. إذا القواعد رفضته لأن المؤشر ما يجوز، هذا رفض عادي على معرّف الدفعة، مو إخفاء لموافقة الفائز.
-
-**3. حذف المشروع. من يشتغل، وشنو علاقته بسؤال Q8.**
-
-Q8 مقفول: التلفون يمنع حذف المشروع إذا رصيد شخص بهالمشروع مو صفر. الجملة جاهزة وموافَق عليها، رقم 86 إذا الرصيد للشركة، ورقم 87 إذا الرصيد للشخص. هالمنع مو شغل `dropProjectLocal`. شغله شاشة الحذف.
-
-اقتراح: E بس يوسّع `dropProjectLocal` (`public/sync.js` سطر 542). الاتفاق والقيود وكشف الحساب اللي بيها `projectId` تنحذف بنفس القاعدة الحالية: الصف المعلّق أو المرفوض يبقى إذا الحذف مو من هاتف الحاذف. الشخص نفسه ما ينحذف، لأن ما عنده `projectId`. `slotLosers` و`linkRefusals` لنفس المشروع تنحذف وياهن. قواعد الخادم ما تتغير. منع الزر، سؤال Q8، مال PR F، وهي الوحيدة اللي تضيفه. E ما يلمس زر الحذف. F ما تلمس `dropProjectLocal`. هيج ما يصير تعديلين على نفس الدالة.
+- Q5. رقم الخدمة هو الرقم الفاضي وقت الدمج. تصليح التاريخ هو v59 ويندمج أول. E ما يثبت رقم، ولا v63.
+- Q11. كود E ما يبدي. الطلب 72 مو «خلص». ننتظر تأكيد EA إن تيار القيود المرفوضة خلص، وبعد نشر قواعد D.
+- Q12. ما نقارن `createdAtServer` ولا `deviceId`. نقارن `createdBy`.
+- Q13. خطأ الخادم الغريب على قراءة القيد المعتمد عليه يبقى بالطابور، مثل الانقطاع. الخروج يوقف بجملة التغييرات اللي ما انرسلت، لحد ما القراءة تنجح.
+- Q14. دفعة `payLabor` المصنوعة باليد، إذا تشير لموافقة خاسرة، تبقى بالطابور وتنحسب بهالمرور. ما تنفشل وما تدخل `slotLosers`.
+- Q15. E يوسّع `dropProjectLocal`. الصف المعلّق أو المرفوض يبقى إذا الحذف مو من هاتف الحاذف. `slotLosers` و`linkRefusals` لنفس المشروع تنحذف وياهن. قواعد الخادم ما تتغير. زر المنع، سؤال Q8، مال PR F.
