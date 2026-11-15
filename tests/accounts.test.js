@@ -50,13 +50,13 @@ test('spec 7: approved days times the day rate', () => {
 });
 
 test('a payment records paidAs and does not guess advance versus wages', () => {
-  const missing = Accounts.post('payment', { amount: 600000 });
+  const missing = Accounts.post('payment', { id: 'pay-missing', amount: 600000 });
   assert.equal(missing.doc, null);
   assert.deepEqual(missing.errors, ['paidAs']);
-  const wages = Accounts.post('payment', { paidAs: 'payLabor', amount: 600000 });
+  const wages = Accounts.post('payment', { id: 'pay-wages', paidAs: 'payLabor', amount: 600000 });
   assert.equal(wages.doc && wages.doc.purpose, 'payLabor');
   assert.equal(wages.doc && wages.doc.effect.cost, 0);
-  const advance = Accounts.post('payment', { paidAs: 'advanceLabor', amount: 600000 });
+  const advance = Accounts.post('payment', { id: 'pay-advance', paidAs: 'advanceLabor', amount: 600000 });
   assert.equal(advance.doc && advance.doc.purpose, 'advanceLabor');
 });
 
@@ -66,6 +66,7 @@ test('a method outside lump, unit, daily, and milestone is refused', () => {
 });
 
 test('an amount milestone earns its amount, and percent stays refused', () => {
+  /** @type {{ method: string, milestoneMode: 'amount', milestoneAmount: number }} */
   const amount = { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 250000 };
   const whole = Accounts.workPosition(amount, { approved: true });
   assert.equal(whole.earned, 250000);
@@ -342,6 +343,7 @@ test('a second live refund, deduct, or advance draw that passes the line is cumu
   });
   assert.deepEqual(settled.errors, ['cumulative']);
 
+  /** @type {{ id: string, purpose: string, ledger: 'labor', amount: number, targetId: string, effect: { cost: number, person: number, cash: number } }} */
   const rejected = {
     id: 'ded-rej',
     purpose: 'deduct',
@@ -350,6 +352,7 @@ test('a second live refund, deduct, or advance draw that passes the line is cumu
     targetId: approval.id,
     effect: { cost: -1, person: -1, cash: 0 },
   };
+  /** @type {{ id: string, purpose: string, ledger: 'labor', effect: { cost: number, person: number, cash: number } }} */
   const rejection = { id: 'rej_ded-rej', purpose: 'reject', ledger: 'labor', effect: { cost: 0, person: 0, cash: 0 } };
   const afterReject = posted(Accounts.post('deduct', {
     id: 'ded-c3',
