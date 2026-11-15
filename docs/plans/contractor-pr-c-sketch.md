@@ -8,6 +8,8 @@ Base for the citations below: `baf4f21fc54c156989334e826d19990b8e5e8a74` (v58, P
 
 Arena was not run. Ameer's gate bans it (cost). The shape is the one already approved in r2.28 sections 3, 9, and 13. This file is the sketch those gates asked for before code.
 
+Revision r2, against Architect NOTES on `17e8c678` (review sha256 starts `d17c5ebd`). M1, L1, L2, and L4 are in the fold below. The 88 strings are approved. The reversal question is a confirmation of Q1, not a new decision.
+
 ## Scope
 
 Plan r2.28 lines 941 and 948. Order is A, then B, then C, then D merged and deployed by Ameer, then E, F, K, G-J. PR A is merged. PR C does not start D, E, F, K, or G-J, and it does not redo B.
@@ -60,7 +62,7 @@ Third design considered: store the closing on the approval document. Rejected. P
 
 ## Types and signatures
 
-All of these stay in `public/accounts.js`. Names already exported stay exported. B's names stay exported. C adds `balances`, `statementLines`, and `periodBounds` to the return at the bottom of the file (`public/accounts.js` line 187 at `baf4f21f` is the PR A return; B will have added `personBalance` before this edit).
+All of these stay in `public/accounts.js`. Names already exported stay exported. B's names stay exported. C adds `rowCounts`, `balances`, `statementLines`, and `periodBounds` to the return at the bottom of the file (`public/accounts.js` line 187 at `baf4f21f` is the PR A return; B will have added `personBalance` before this edit). `rowCounts` is the only row-count rule. `balances` calls it. PR K imports it and does not write a second one.
 
 `FoldDoc` is B's `AccountDoc` plus the fields the fold reads when the caller has them. `post` does not have to fill them. A missing `currency` counts as IQD, so B's documents still sum. A row with `currency: 'USD'` is out. A missing `txnDate` counts in an all-time fold and in no dated statement.
 
@@ -91,12 +93,15 @@ All of these stay in `public/accounts.js`. Names already exported stay exported.
  *   projectId?: string,
  *   currency?: 'IQD',
  *   periodEnd?: string,
- *   syncErrors?: ReadonlySet<string> | readonly string[]
+ *   syncErrors?: Readonly<Record<string, unknown>> | null
  * }} BalanceFilter
  * Absent partyId: every party in the list. Absent projectId: every project.
  * currency omitted: IQD, including a row with no currency field.
  * periodEnd omitted: every date, including a row with no txnDate.
- * periodEnd set: txnDate <= periodEnd. A row with no txnDate is out.
+ * periodEnd set: txnDate <= periodEnd, compared as strings. A row with no txnDate is out.
+ * syncErrors is the id-keyed record already stored as K.syncErrors.
+ * countedEntries reads err[id] (public/ledger.js lines 305-309 at baf4f21f).
+ * A Set or an array is not this type. A present key means the id is refused. The value is ignored.
  */
 
 /**
@@ -134,7 +139,37 @@ All of these stay in `public/accounts.js`. Names already exported stay exported.
 function balances(docs, filter)
 
 /**
- * @typedef {{ syncErrors?: ReadonlySet<string> | readonly string[] }} LiveIndex
+ * @typedef {{
+ *   byId: Readonly<Record<string, FoldDoc>>,
+ *   syncErrors?: Readonly<Record<string, unknown>> | null
+ * }} RowIndex
+ * Built once from the doc list. byId maps each id to its doc.
+ */
+
+/**
+ * @param {FoldDoc | null | undefined} row
+ * @param {RowIndex} index
+ * @returns {boolean}
+ * The only exported answer to "does this row's amount enter the buckets?".
+ * Party, project, currency, and dates stay in balances. This function does not.
+ * False when row is missing, when it is a marker, when index.syncErrors[row.id]
+ * is present, when a live sup_ names it, or when a live rev_ names it.
+ * A rev_ is live when that reversal doc is not itself reversed. rev-of-rev
+ * puts the original back in and leaves both marker rows out.
+ * Rejection wins (Q7), for deduct and for approveLabor. An approveLabor whose
+ * target body has a live rej_ is out, even though needsApproval on that
+ * purpose is false. A deduct is out unless a live approveDeduct points at it,
+ * and it is out when a live rej_ names the deduct, and it is out when its
+ * target approval does not count.
+ * A settle is out when a live rej_ names its measurement, or when the
+ * approveLabor of that measurement is reversed. The measurement id is the
+ * body id inside stl_<bodyId>_<generation>. targetId, when set, is that same body.
+ * The approval is appr_ plus that body id.
+ */
+function rowCounts(row, index)
+
+/**
+ * @typedef {{ syncErrors?: Readonly<Record<string, unknown>> | null }} LiveIndex
  */
 
 /**
@@ -178,8 +213,10 @@ function personBalance(docs, live)
  *   overLimitIds: readonly string[]
  * }}
  * With no period, opening is 0 and closing is balances(docs, filter).net.
- * With both dates, opening is balances at the day before periodStart,
- * the figure amounts are the period buckets, and closing is
+ * With both dates, opening is the fold of rows whose txnDate is a string
+ * strictly before periodStart. That compare is string order. It does not
+ * compute the previous calendar day.
+ * Figure amounts are the rows inside the period. Closing is
  * balances(docs, the same party, project, currency, periodEnd, syncErrors).net.
  * The lines are read from PURPOSES.statementLine. One line per purpose.
  */
@@ -190,8 +227,12 @@ function statementLines(docs, filter)
  * @param {string} day
  * @returns {{ periodStart: string, periodEnd: string } | null}
  * Week starts Saturday (Q7). Month is the calendar month of day.
- * day is YYYY-MM-DD. Comparison stays string order. A bad day returns null.
+ * day is YYYY-MM-DD. A bad day returns null.
+ * Build the calendar with Date.UTC and getUTCDay, then format with the UTC
+ * year, month, and date. Do not call toISOString on a local Date.
+ * session.js line 94 today() is the bug class this avoids. The date fix owns that line.
  * 2026-02-15 is 2026-02-01 through 2026-02-28.
+ * The same strings come back under TZ=UTC and under TZ=Asia/Baghdad.
  */
 function periodBounds(kind, day)
 ```
@@ -240,16 +281,16 @@ Unapproved rows are `pendingIds`. They are listed by the later screen under «ب
 
 ## Fold rules
 
-One pass. A row is in the money buckets only when all of these hold:
+`balances` builds one `RowIndex` and calls `rowCounts` for each doc. A row enters the money buckets only when `rowCounts` is true and the party, project, currency, and `periodEnd` filters match. The rules below are that function. They are not copied into `balances` or into PR K.
 
-- Its id is not in `syncErrors`. Same idea as `countedEntries` (`public/ledger.js` lines 307-310 at `baf4f21f`): a refused id is left out. The plan's older line numbers for that function are in the citation fixes below.
+- `syncErrors` is a record keyed by id, the same input `countedEntries` already takes (`public/ledger.js` lines 305-309 at `baf4f21f`). `index.syncErrors[id]` present means the id is refused. The stored value is ignored. Callers pass `get(K.syncErrors, {})`. They do not pass a Set.
 - It is not superseded. A doc whose id is `sup_` plus this id, or whose `supersedesId` is this id, supersedes it. The replacement row counts if it itself passes these rules. The old amount does not also count.
-- It is not reversed. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. The original drops out. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. This is the reading in «أسئلة لأمير». The code PR uses this reading unless Ameer corrects it.
+- It is not reversed by a live `rev_`. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. That `rev_` is live only when no further `rev_` names the reversal. rev-of-rev puts the original back. Both marker rows stay out. The original drops out while the reversal is live. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. That reading confirms Q1. See «أسئلة لأمير».
 - The row itself is not a marker. `kind` of `rev`, `sup`, `rej`, or `revw`, or an id with those prefixes, is not a money row. `approveLabor` and `approveDeduct` are money rows only through the purpose table, and `approveDeduct` has zeros.
-- `needsApproval` is false, or a live approval points at this id. Live means the approval doc exists, its id is `appr_` plus the body id or its `targetId` is the body id, and that approval is not itself reversed or in `syncErrors`.
-- A `deduct` counts only when that live approval is `approveDeduct`. `laborQty` has zeros either way. If a `rej_` of the deduct also exists, rejection wins (Q7) and the deduct stays out, even when an `appr_` landed too.
-- `settle` adds 0 to `net`. Its amount still counts in `settlements` and in `openAdvances`.
-- Party, project, currency, and `periodEnd` match the filter.
+- `needsApproval` is false, or a live approval points at this id. Live means the approval doc exists, its id is `appr_` plus the body id or its `targetId` is the body id, and `rowCounts` is true for that approval.
+- Rejection wins for approvals, not only for deducts (Q7, plan line 1054). An `approveLabor` whose target body also has a live `rej_` is out of every bucket, even though `needsApproval` on `approveLabor` is false (`public/accounts.js` line 30). Two offline phones can each land one create before the other commits. Rules close the sequential orders. The fold is the side that sees both. A `deduct` aimed at that approval is out too, because its target does not count.
+- A `deduct` counts only when a live `approveDeduct` points at it and no live `rej_` names the deduct. `laborQty` has zeros either way.
+- A `settle` adds 0 to `net`. Its amount counts in `settlements` and lowers `openAdvances` only while `rowCounts` is true. It is out when a live `rej_` names its measurement, or when `rev_` of `appr_` plus that measurement id is live. Dropping it does not change `net`. It puts the settled amount back into `openAdvances`. A settle that is itself reversed is already out by the reversal rule.
 
 `net` = approved labor - advances paid - payments + cash returned + labor refunds - counted deductions.
 
@@ -261,7 +302,7 @@ One pass. A row is in the money buckets only when all of these hold:
 
 `payableGross - openAdvances` = `net`. The screen's payable is `max(payableGross, 0)`. It is not the statement closing.
 
-`overLimitIds` names the parent line. It does not remove either child from `net`.
+`overLimitIds` names the parent line. It does not remove either child from `net`. A parent is in this list only when `rowCounts` is true for it. A pending deduct is the one row that still counts toward the cap while `rowCounts` is false. A rejected approval is not a parent.
 
 - Live `refundLabor` rows whose `targetId` is one `payLabor`, summed above that payment's amount.
 - `deduct` rows that are not reversed and not rejected, including a pending deduct, whose `targetId` is one `approveLabor`, summed above that approval. This matches B's cap: a pending deduct counts toward the flag and does not count in `net` until `approveDeduct`.
@@ -269,7 +310,7 @@ One pass. A row is in the money buckets only when all of these hold:
 
 `unreviewedCashIds` names a counted cash row (`payLabor`, `advanceLabor`, `returnAdvance`, `refundLabor`) that has no live `revw_`. The first mark is `revw_` plus the body id. A later mark, after `rev_` of the earlier one, is `revw_` plus the body id plus `_` and a generation `1` through `9` (plan lines 240-242). Live means that mark is not itself reversed and not in `syncErrors`. The flag does not change `net`. Cash counts when it is written (Q10 أ). C returns the ids so the later screen can hide the finalise button. C does not create `statementApprovals` and does not draw the button.
 
-A reversed `settle` drops out, so `openAdvances` goes back up by that amount and `net` does not move.
+A reversed `settle`, a settle of a rejected measurement, and a settle whose approval was reversed all drop out the same way. `openAdvances` goes back up by that amount. `net` does not move because of the settle. If the approval itself leaves, `net` moves by that approval only.
 
 ## Tests (behaviour)
 
@@ -284,44 +325,50 @@ All in `tests/accounts.test.js`. Each asserts a number, a line key, a label, or 
 - `advance 100 returned in full`. `advanceLabor` 100 and `returnAdvance` 100. `netAdvances` is 0. Closing is 0. The return's line key is `cashReturned`, not `deduct`. Parking that return under deductions would show -200.
 - `payments term, labor shape of plan line 350`. `payLabor` 200,000 and `refundLabor` 50,000. `net` is -150,000. The payments contribution is -200,000 and the refund contribution is +50,000. No `refundPayment` row is built. That purpose is phase 2.
 - `spec 9 and 13: opening is the live fold before periodStart`. `periodStart` `2026-11-14`, `periodEnd` `2026-11-20`. An `approveLabor` 600,000 dated `2026-11-13` is the opening and is not on the period's approved-labor line. A `payLabor` 100,000 dated `2026-11-15` is on the payments line and not in the opening. Closing is 500,000. Adding another row dated `2026-11-13` changes the opening on the next call. Nothing is read from a stored closing.
-- `spec 13: the week starts Saturday, and February has 28 days in 2026`. `periodBounds('week', '2026-11-15')`, and the same call for `2026-11-14` and `2026-11-20`, all return `2026-11-14` through `2026-11-20`. `2026-11-21` returns `2026-11-21` through `2026-11-27`. `periodBounds('month', '2026-11-15')` is `2026-11-01` through `2026-11-30`. `periodBounds('month', '2026-02-15')` is `2026-02-01` through `2026-02-28`. A bad day returns null.
+- `spec 9 and 13: opening uses txnDate < periodStart`. The compare is the strings. A row dated `2026-11-14` is not in the opening when `periodStart` is `2026-11-14`. No test builds "the day before" with `Date`.
+- `spec 13: the week starts Saturday, and February has 28 days in 2026`. `periodBounds('week', '2026-11-15')`, and the same call for `2026-11-14` and `2026-11-20`, all return `2026-11-14` through `2026-11-20`. `2026-11-21` returns `2026-11-21` through `2026-11-27`. `periodBounds('month', '2026-11-15')` is `2026-11-01` through `2026-11-30`. `periodBounds('month', '2026-02-15')` is `2026-02-01` through `2026-02-28`. A bad day returns null. The same assertions run in this process and in a child with `TZ=Asia/Baghdad`. Both must match. A local `Date` plus `toISOString` fails the Baghdad child.
 - `spec 10: IQD only, balances come from the rows`. A `payLabor` of 100 with `currency: 'USD'` does not change `net`. No rate is applied. A row with no `currency` field still counts, so B's documents stay in the fold. Two calls with a different list return different numbers. No total is written back onto the input.
 - `spec 15: one project and the consolidated person`. Same party. Project A is `approveLabor` 600,000. Project B is `advanceLabor` 100,000. Project A net is 600,000. Project B net is -100,000. The filter with no `projectId` is 500,000. A row for another `partyId` is out of all three.
 - `one statement line per purpose`. The nine `statementLine` strings are distinct and non-empty. `statementSign` equals `effect.person` on each. The emitted keys on the 480,000 fixture are, in order, `opening`, `approvedLabor`, `payments`, `paymentRefund`, `advancesPaid`, `cashReturned`, `netAdvances`, `deduct`, `settle`, `closing`, `openAdvances`. `outside` and `notInSum` are absent. No key appears twice. The sum of entering contributions is 480,000. There is no `approvedMaterials` line and no «مواد معتمدة».
 - `a reversed approval of 600000 nets to 0`. The `rev_` row is in the list. `net` is 0. The approved-labor amount is 0. It is not -600,000.
-- `syncErrors drops the approval and not a second copy`. The approval id is in `syncErrors`. `net` is 0. `personBalance(docs, { syncErrors })` is the same 0.
+- `syncErrors drops the approval and not a second copy`. `syncErrors` is `{ [approvalId]: 'رُفض الإرسال' }`. `net` is 0. `personBalance(docs, { syncErrors })` is the same 0. The argument is that record. It is not a Set and not an array.
 - `a superseded payment counts once`. `payLabor` 100,000 plus `sup_` of that id for 40,000. `net` is -40,000, not -100,000 and not -140,000. Rules deny `sup_` of cash. The fold still has one answer if such a pair is in the list.
 - `rejection wins over approveDeduct`. The 480,000 rows, the deduct's `approveDeduct`, and a `rej_` of that deduct. `net` is 530,000, the same as the absent-`appr_` case.
+- `M1: rejection wins over approveLabor`. `laborQty` id `m`, `approveLabor` 600,000 with `targetId` `m`, and `rej_` of `m`. `rowCounts` is false for the approval. `net` is 0. The approved-labor line is 0. The same list plus a `deduct` 50,000 aimed at that approval, with its `approveDeduct`, stays at net 0. The deduct's target does not count.
+- `L1: a settle drops when the measurement is rejected`. `advanceLabor` 100,000, `approveLabor` 600,000 on measurement `m`, `settle` 40,000 of that advance against `m`. Before the `rej_`: `net` is 500,000, `settlements` is 40,000, `openAdvances` is 60,000. After `rej_` of `m`: `net` is -100,000, `settlements` is 0, `openAdvances` is 100,000. The 600,000 left because of M1. The 40,000 left `settlements` and returned to `openAdvances`. `net` did not move by the 40,000.
+- `L1: a settle drops when the approval is reversed`. The same three rows, then `rev_` of the `appr_`. `net` is -100,000, `settlements` is 0, `openAdvances` is 100,000.
+- `rev-of-rev puts the approval back`. `approveLabor` 600,000, then `rev_` of it, is net 0. `rev_` of that reversal is net 600,000. `rowCounts` is false for both marker rows and true for the approval.
+- `rowCounts is false for a marker`. A `rej_` row, a `rev_` row, a `sup_` row, and a `revw_` row each return false.
 - `overLimit keeps both rows`. `payLabor` 600,000 and two live `refundLabor` rows of 400,000 against it. Both refunds stay in the net: `net` is 200,000 (`-600,000 + 400,000 + 400,000`). `overLimitIds` contains the payment id. Dropping either refund would not yield 200,000.
 - `personBalance matches balances().net`. On the 480,000 list the two calls return 480,000. `approveLabor` 600,000 then `payLabor` 600,000 is 0. `payLabor` 700,000 after that approval is -100,000. A `deduct` of 50,000 with no `approveDeduct` does not move the number. The same list plus `approveDeduct` moves it by -50,000.
 - `an unreviewed payment still counts`. `payLabor` 100,000 and no `revw_`. `net` is -100,000 and the id is in `unreviewedCashIds`. A live `revw_` of that id keeps `net` at -100,000 and clears the flag. `rev_` of that mark puts the flag back and leaves `net` at -100,000. A later `revw_<id>_1` clears the flag again.
 
-v1 strings stay the approved 88. C adds no Arabic in the app. The code PR returns labels that are already in `strings-contractor-module-r2.22.md` (sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`). Ameer approved that list on 2026-11-10 11:16 via EA (`plan-status-r2.29.md`). This sketch does not reopen it.
+v1 strings are the approved 88 in `strings-contractor-module-r2.22.md` (sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`). Strings r2.23 records Ameer's approval of that list and of the tab «حسابات» on 2026-11-10 at 11:16 Baghdad. C adds no Arabic. A label that is not one of those 88 is a question in «أسئلة لأمير», with a recommended default. Plan lines 1034 and 1076 still say the list is open. That sentence is stale. r2.23 is the record this sketch follows.
 
 ## Strings
 
 This docs PR adds none. The code PR adds none that are new. Each label below is reused.
 
-| Label                                 | Mark                 | Where it already is                                                                                                      |
-| ------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| «عمل معتمد»                           | reused, v1 string 13 | the approved 88                                                                                                          |
-| «مدفوع للعمل»                         | reused, v1 string 14 | the approved 88. The statement line for `payLabor`. «الدفعات» stays the subcontract card at `public/render.js` line 754. |
-| «المُرجَع من الدفعة نقداً»            | reused, v1 string 70 | the approved 88                                                                                                          |
-| «السلف المصروفة له»                   | reused, v1 string 65 | the approved 88                                                                                                          |
-| «المُرجَع من السلف نقداً»             | reused, v1 string 66 | the approved 88                                                                                                          |
-| «صافي السلف»                          | reused, v1 string 67 | the approved 88                                                                                                          |
-| «الخصومات ومرتجعات المواد»            | reused, v1 string 62 | the approved 88                                                                                                          |
-| «تسوية سلفة»                          | reused, v1 string 21 | the approved 88                                                                                                          |
-| «رصيد أول المدة»                      | reused, v1 string 61 | the approved 88                                                                                                          |
-| «رصيد آخر المدة»                      | reused, v1 string 63 | the approved 88                                                                                                          |
-| «سلف قائمة عليه»                      | reused, v1 string 68 | the approved 88                                                                                                          |
-| «الصافي»                              | reused, v1 string 69 | label of `net`, not a second figure line                                                                                 |
-| «مستحق له»                            | reused               | payable, `max(payableGross, 0)`. Also v1 strings 87's sentence. The screen draws it.                                     |
-| «مستحق عليه»                          | reused, v1 string 16 | recoverable, `max(-payableGross, 0)`. The screen draws it.                                                               |
-| «بانتظار الاعتماد»                    | reused, v1 string 45 | the screen's heading for `pendingIds`                                                                                    |
-| «غير مدقّق»                           | reused, v1 string 71 | the screen's badge for `unreviewedCashIds`                                                                               |
-| «لا يُعتمد الكشف وفيه مبلغ غير مدقّق» | reused, v1 string 72 | the screen, while `unreviewedCashIds` or `overLimitIds` is non-empty. C does not show it.                                |
-| «معكوس»                               | reused               | already in `public/render.js`. Not a new statement line.                                                                 |
+| Label                                 | Mark                       | Where it already is                                                                                                                                                     |
+| ------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| «عمل معتمد»                           | reused, v1 string 13       | the approved 88                                                                                                                                                         |
+| «مدفوع للعمل»                         | reused, v1 string 14       | the approved 88. The statement line for `payLabor`. «الدفعات» stays the subcontract card at `public/render.js` line 754.                                                |
+| «المُرجَع من الدفعة نقداً»            | reused, v1 string 70       | the approved 88                                                                                                                                                         |
+| «السلف المصروفة له»                   | reused, v1 string 65       | the approved 88                                                                                                                                                         |
+| «المُرجَع من السلف نقداً»             | reused, v1 string 66       | the approved 88                                                                                                                                                         |
+| «صافي السلف»                          | reused, v1 string 67       | the approved 88                                                                                                                                                         |
+| «الخصومات ومرتجعات المواد»            | reused, v1 string 62       | the approved 88                                                                                                                                                         |
+| «تسوية سلفة»                          | reused, v1 string 21       | the approved 88                                                                                                                                                         |
+| «رصيد أول المدة»                      | reused, v1 string 61       | the approved 88                                                                                                                                                         |
+| «رصيد آخر المدة»                      | reused, v1 string 63       | the approved 88                                                                                                                                                         |
+| «سلف قائمة عليه»                      | reused, v1 string 68       | the approved 88                                                                                                                                                         |
+| «الصافي»                              | reused, v1 string 69       | label of `net`, not a second figure line                                                                                                                                |
+| «مستحق له»                            | reused, not its own number | Inside approved sentence 87. Already the foreman badge at `public/foremen.js` lines 148 and 174. The screen reuses that badge for payable. C does not add a new string. |
+| «مستحق عليه»                          | reused, v1 string 16       | recoverable, `max(-payableGross, 0)`. The screen draws it.                                                                                                              |
+| «بانتظار الاعتماد»                    | reused, v1 string 45       | the screen's heading for `pendingIds`                                                                                                                                   |
+| «غير مدقّق»                           | reused, v1 string 71       | the screen's badge for `unreviewedCashIds`                                                                                                                              |
+| «لا يُعتمد الكشف وفيه مبلغ غير مدقّق» | reused, v1 string 72       | the screen, while `unreviewedCashIds` or `overLimitIds` is non-empty. C does not show it.                                                                               |
+| «معكوس»                               | reused                     | already in `public/render.js`. Not a new statement line.                                                                                                                |
 
 Not used, and not added: «مواد معتمدة», «فرق سعر الصرف», «رصيد افتتاحي», «من إقفال الكشف السابق». Materials, USD, and a stored opening are out of v1. The advance-line overrun sentence is still the screens PR's question, as B's sketch left it. C ships the id list only.
 
@@ -381,7 +428,7 @@ The plan cites older SHAs. These sentences are no longer true at `baf4f21fc54c15
 - Plan line 629. `countedEntries` at `public/ledger.js` lines 298-308. `totals` is still lines 27-39. `sign` is line 24. `countedEntries` is lines 307-310.
 - Plan line 931. `SHELL_FILES` at `public/session.js` line 263. It is line 271, and `accounts.js` is already on it. The script tag is `public/index.html` line 71, inside the plan's lines 69-72.
 - Plan line 434. `public/sync-status.js` lines 154-165 hide a refused id. Those lines are `messageAfterProjectProbe` (the function starts at line 157). The error map is read at line 190. The adopt compare the plan puts at `public/sync.js` lines 631-634 is `sameContent` at line 634 and `sameReversal` at line 635.
-- Plan lines 1034, 1038, and 1076. Q-strings and Q-rules still open. `plan-status-r2.29.md` records Ameer's close on 2026-11-10 11:16. This sketch uses the approved 88 and does not edit rules.
+- Plan lines 1034, 1038, and 1076. Q-strings and Q-rules still open in the plan text. Strings r2.23 records the 11:16 approval of the 88 and of «حسابات». Q-rules stays D. This sketch does not edit rules.
 - `public/app.js` lines 34-35 are still the demo owner and the demo site user. `firestore.rules` line 11 is still `isOwner()`, line 19 is still `idOk`, and lines 52-54 are still `projectOpen`. #72 did not edit the rules. `public/foremen.js` lines 367-368 are still `draft.formId || uuid()`.
 
 `public/accounts.js` did not change between PR A (`0f17cf31`) and this SHA. The shared statement tokens above are the PR A tokens.
@@ -397,7 +444,7 @@ The later code PR also reverts with `git revert`. C creates no Firestore documen
 - PR A is on main. The nine purposes, `statementSign`, and the labor math are in `public/accounts.js`.
 - PR B's code lands first on `public/accounts.js` and `tests/accounts.test.js`. C rebases onto that. B adds `personBalance`, the payment actions, the cumulative cap, and the `approveLabor` / `approveDeduct` pointers. C does not rewrite `post` and does not add a second fold.
 - This docs PR does not wait for B's code. The r3 sketch is the contract.
-- D owns rules and `statementApprovals` creates. E owns adopt. F owns the screen that will call `statementLines`. K owns `projectCost`. None of that is this phase.
+- D owns rules and `statementApprovals` creates. E owns adopt. F owns the screen that will call `statementLines`. K owns `projectCost` and imports `rowCounts`. K does not keep a second copy of rejection-wins or rev-of-rev. None of K's cost arithmetic is this phase.
 - Q2 stays «بعدين». `CONTRACTOR_COST_START` stays `null`. C does not set it.
 
 ## Risks
@@ -430,16 +477,20 @@ Also used while drawing the sketch, not as an inventory edit: `architect` (this 
 
 ## Next implementation step
 
-After the Architect's review and Ameer's go, rebase onto PR B's `public/accounts.js` and add `balances`, `statementLines`, and `periodBounds` so the 480,000 test and the 530,000 test both pass.
+After the Architect's review and Ameer's go, rebase onto PR B's `public/accounts.js` and add `rowCounts`, `balances`, `statementLines`, and `periodBounds` so the 480,000 test, the 530,000 test, and the M1 test all pass.
 
 ## أسئلة لأمير
 
-سؤال واحد. الباقي محسوم بالخطة وبجوابك السابق.
+سؤال تأكيد، مو قرار جديد. النصوص الـ 88 واسم «حسابات» موافق عليها بتاريخ 2026-11-10 الساعة 11:16 بتوقيت بغداد. ماكو نص جديد بهالمرحلة.
 
-**1. قيد العكس.**
+**1. تأكيد على جوابك الأول، قيد العكس.**
 
-إذا انعكس اعتماد بمبلغ 600,000، شنو يصير رصيد الشخص؟
+جوابك الأول يقول التصحيح قيد عكس وبعده سطر جديد. إذا انعكس اعتماد بمبلغ 600,000، الرصيد المقترح يرجع صفر. السطر الأصلي يطلع من الحساب، وصف العكس ما ينطرح مرة ثانية. لو طرحنا صف العكس وياه يصير الرصيد سالب 600,000، وهذا غلط.
 
-الاقتراح: الرصيد يرجع صفر. السطر الأصلي يطلع من الحساب، وصف العكس ما ينطرح مرة ثانية. لو طرحنا صف العكس وياه يصير الرصيد سالب 600,000، وهذا غلط. الكشف الحي يتغير لأن الأرقام تتحسب من القيود. ورقة الاعتماد المخزونة ما تقفل الأرقام القديمة.
+الاقتراح: «تأكيد». اكتب «تأكيد»، أو اكتب الرقم اللي تريده.
 
-اكتب «موافق»، أو اكتب الرقم اللي تريده.
+**2. «مستحق له» على شاشة الشخص.**
+
+هالجملة مو رقم مستقل بالقائمة الـ 88. هي داخل الجملة 87، ومكتوبة اليوم على شارة الخلفة. الاقتراح: نعيد استخدامها للمستحق، وما نضيف جملة جديدة.
+
+اكتب «تأكيد»، أو اكتب الجملة اللي تريدها.
