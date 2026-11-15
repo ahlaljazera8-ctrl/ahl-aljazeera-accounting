@@ -145,7 +145,11 @@ All of these live in `public/accounts-view.js`. `Accounts.balances` and `Account
  *   milestoneAmount?: number,
  *   milestoneMode?: 'amount'
  * }} AgreementRow
- * Read-only. Percent is not a value this screen renders.
+ * Read-only on screen. Percent is not rendered.
+ * Every milestone this screen writes goes through `writtenMilestone`.
+ * That sets `milestoneMode: 'amount'` and does not omit the field.
+ * PR D's rules require `milestoneMode` (EA, after Architect #80 review M2).
+ * A missing mode would be a denied create. The default is `'amount'`.
  */
 
 /**
@@ -234,6 +238,15 @@ function periodBounds(kind, today)
  * The screen maps that token to «أدخل اسم الشخص» if Ameer accepts question 2.
  */
 function partyErrors(name)
+
+/**
+ * @param {{ milestoneAmount: number, milestoneMode?: 'amount' }} input
+ * @returns {{ method: 'milestone', milestoneAmount: number, milestoneMode: 'amount' } | null}
+ * Always sets `milestoneMode` to `'amount'`. A missing mode becomes `'amount'`.
+ * `'percent'` returns null and writes nothing. The new-agreement button stays G.
+ * Any milestone F itself writes uses this function, so the field is never absent.
+ */
+function writtenMilestone(input)
 
 /**
  * @param {{ role?: string }|null|undefined} user
@@ -456,6 +469,7 @@ Behaviour:
 - `canCreateParty` is false when `collectionFor` returns null, and false when `demoRole()` is `owner` even if `collectionFor` returns `parties`.
 - Logged-in owner and `collectionFor` returns `parties`: the button is present. Saving `حسن` queues one id, the stored row has no `roles`, and a second click does not add a second id.
 - Empty name and an 81-character name do not call `queueDoc`.
+- `writtenMilestone({ milestoneAmount: 250000 })` stores `milestoneMode: 'amount'`. Omitting the mode still stores `'amount'`. `'percent'` returns null and does not write.
 - Bad id: `معرّف غير صالح`. Unknown safe id: `الشخص غير متاح`.
 - Filters. A `laborQty` is under `قياسات العمل` and not under `الدفعات`. A `payLabor` is under `الدفعات`. An `advanceLabor` is under `السلف`. A `deduct` is on `all` and on neither of those three.
 - The four tab strings are present. `حركات المواد`, `المرفقات`, and `العملة` are absent. There is no `<select`.
