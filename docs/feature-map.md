@@ -98,6 +98,8 @@ Keys are `K.foremen` and `K.foremanMoves`. Server collections are `foremen` and 
 
 Tests: `tests/foremen-ui.test.js`. `tests/ledger.test.js` from `foremanBalance`. `tests/strict-foremen.test.js`. `tests/emulator/sync.test.js`. `tests/emulator/rules.test.js` from line 653. `tests/sync-status.test.js` (SS1 through SS6, and T-FC1).
 
+The list has «تصدير العهدة (CSV)» for an active owner. One tap builds `Ledger.foremanCustodyToCSV` and `Ledger.foremanSummaryToCSV`, then `saveCsvFiles` shares both files. The names are `aj-foreman-custody-YYYY-MM-DD.csv` and `aj-foreman-summary-YYYY-MM-DD.csv`. Amounts, dates, and ids in those two files use Western digits. The `#csv` ledger file is not part of that tap.
+
 ## Bell, outbox, and flush
 
 `paintBell` is `public/render.js` lines 881-922. «إرسال الآن» is line 1036. The demo calls `sendNow` (line 278). A signed-in user calls `flushRemote`.
@@ -120,7 +122,7 @@ Tests: `tests/emulator/sync.test.js`. `tests/emulator/offline-reconnect.test.js`
 
 The `#csv` handler is `public/render.js` line 1104. `Ledger.toCSV` is `public/ledger.js` line 286. `canExportCSV` is line 296 (owner and active). A site user does not get the button (`views.home` lines 430-443).
 
-Tests: `tests/ledger.test.js` (owner only, BOM, formula guard, party name).
+Tests: `tests/ledger.test.js` (owner only, BOM, formula guard, party name). The custody export on «العُهد» is a second path and does not change this file.
 
 ## Not a screen
 

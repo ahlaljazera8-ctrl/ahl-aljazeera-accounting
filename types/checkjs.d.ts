@@ -188,6 +188,17 @@ interface ForemanFigures {
   state: 'holding' | 'owed' | 'settled';
 }
 
+interface ForemanExportSummary {
+  foremanId: string;
+  foremanName: string;
+  advances: number;
+  settled: number;
+  spent: number;
+  returned: number;
+  remaining: number;
+  owedToForeman: number;
+}
+
 interface SettleGuard {
   stale: boolean;
   pendingIds: string[];
@@ -412,6 +423,21 @@ interface LedgerApi {
     entries: readonly LedgerEntry[] | null | undefined,
     errors?: Record<string, unknown> | null,
   ): ForemanFigures;
+  FOREMAN_CUSTODY_COLS: readonly string[];
+  FOREMAN_SUMMARY_COLS: readonly string[];
+  foremanCustodyToCSV(
+    foremen: readonly Foreman[] | null | undefined,
+    moves: readonly ForemanMove[] | null | undefined,
+    entries: readonly LedgerEntry[] | null | undefined,
+    projects: readonly LedgerProject[] | null | undefined,
+    errors?: Record<string, unknown> | null,
+  ): string;
+  foremanSummaryToCSV(
+    foremen: readonly Foreman[] | null | undefined,
+    moves: readonly ForemanMove[] | null | undefined,
+    entries: readonly LedgerEntry[] | null | undefined,
+    errors?: Record<string, unknown> | null,
+  ): string;
   validateForemanMove(
     move: {
       id?: string;
@@ -709,6 +735,7 @@ interface RenderApi {
   confirmShell(inner: string, labelId?: string): string;
   lastSyncAt(): number;
   formatSyncTime(ms: number): string;
+  saveCsvFiles?(list: readonly { csv: string; filename: string }[]): Promise<'shared' | 'downloaded' | 'aborted'>;
 }
 
 interface SettleParts {

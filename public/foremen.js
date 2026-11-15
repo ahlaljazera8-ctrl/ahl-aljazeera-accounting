@@ -158,7 +158,14 @@
         + '<div class="kv"><span>مجموع المصروف</span>' + screen.money(sum.spent) + '</div>'
         + '<div class="kv' + rule + '"><span>' + line + '</span>' + screen.money(shown, state === 'owed' ? 'fm-owe' : state === 'holding' ? 'fm-hold' : '') + '</div></a>';
     }).join('');
-    return (cards || '<div class="card"><div class="note">لا توجد خلفات.</div></div>') + '<a class="btn" href="#foremannew">+ خلفة جديد</a>';
+    const user = me();
+    const exportBtn = user && Ledger.canExportCSV(user)
+      ? '<button type="button" class="btn ghost" data-fm="export">تصدير العهدة (CSV)</button>'
+      : '';
+    const noteRaw = screen.state.fmExportNote;
+    const noteText = typeof noteRaw === 'string' ? noteRaw : '';
+    const note = noteText ? '<div class="note" id="fm-export-note">' + screen.esc(noteText) + '</div>' : '';
+    return (cards || '<div class="card"><div class="note">لا توجد خلفات.</div></div>') + '<a class="btn" href="#foremannew">+ خلفة جديد</a>' + exportBtn + note;
   }
 
   /** @param {string} id */
@@ -318,6 +325,27 @@
     location.hash = href('foremanmove', id);
   }
 
+  const CUSTODY_FALLBACK = 'ما انفتحت المشاركة، فانحفظ ملفين بالتنزيلات: ملف العهدة وملف الملخص.';
+
+  function exportCustody() {
+    const user = me();
+    if (!user || !Ledger.canExportCSV(user)) return;
+    const screen = ui();
+    const saveFiles = screen.saveCsvFiles;
+    if (typeof saveFiles !== 'function') return;
+    const errs = syncErrors();
+    const custody = Ledger.foremanCustodyToCSV(people(), moves(), entries(), projects(), errs);
+    const summary = Ledger.foremanSummaryToCSV(people(), moves(), entries(), errs);
+    const pending = saveFiles([
+      { csv: custody, filename: 'aj-foreman-custody-' + today() + '.csv' },
+      { csv: summary, filename: 'aj-foreman-summary-' + today() + '.csv' },
+    ]);
+    pending.then(result => {
+      screen.state.fmExportNote = result === 'downloaded' ? CUSTODY_FALLBACK : '';
+      if (location.hash === '#foremen') screen.render();
+    });
+  }
+
   /** @param {HTMLButtonElement} b */
   function onClick(b) {
     const action = b.dataset.fm;
@@ -325,6 +353,7 @@
     if (b.disabled) return true;
     const id = b.dataset.id || '';
     if (action === 'back') { location.hash = '#foremen'; return true; }
+    if (action === 'export') { exportCustody(); return true; }
     if (action === 'cancel') { location.hash = href('foreman', id); return true; }
     if (action === 'refresh') {
       if (demoRole()) sendNow();
