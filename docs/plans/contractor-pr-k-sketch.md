@@ -8,9 +8,11 @@ Arena was not run. Ameer's gate bans it (cost). The shape is the one already app
 
 Format follows the Architect-approved PR B sketch. PR B's types and functions are what B will add. K does not redo them.
 
+Revision r2, against Architect NOTES on `b5624404` (review sha256 starts `84ddfb4e`). C lands first and exports `rowCounts(row, index)`. K calls that function. K does not define a second live-row rule.
+
 ## Scope
 
-Plan r2.28 sections 10 and 13. Order is A, B, C, then D merged and deployed by Ameer, then E, F, K, then G-J. K is after C and before G-J.
+Plan r2.28 sections 10 and 13. Order is A, B, C, then D merged and deployed by Ameer, then E, F, K, then G-J. K is after C and before G-J. C's code, including the exported `rowCounts`, is on the base before K's code. K reuses it. K does not land against a C that still has the check inline.
 
 PR K puts `projectCost` on the owner home and the owner project screen. The owner's profit is received minus that number. Received stays the legacy income fold. Site `spent` stays the legacy figure. `CONTRACTOR_COST_START` stays `null`. An engineer sets that constant and deploys only after Ameer says go through EA, on the day the new section ships. While it is `null`, K adds no new cost. K does not edit legacy rows. K creates no new document kind.
 
@@ -27,21 +29,21 @@ In K, once a test passes a real date:
 
 While the constant is `null`, the same approval adds nothing, and the owner figure stays the legacy spent.
 
-Outside K: material purposes, `inv_`, screens G-J, the adopt path (E), parties and agreements (F), rules (D), statements (C's fold, apart from the shared live-row predicate below), CSV, `subcontractBalance`, `countedEntries`, `toCSV`, and any write of `CONTRACTOR_COST_START`.
+Outside K: material purposes, `inv_`, screens G-J, the adopt path (E), parties and agreements (F), rules (D), the statement fold (C), CSV, `subcontractBalance`, `countedEntries`, `toCSV`, and any write of `CONTRACTOR_COST_START`. The live-row rule is C's `rowCounts`. K calls it.
 
 The projects list already shows the same owner profit as the project screen (`public/render.js` lines 617-621 and 631-634). K uses one function for the home total, that list's open-project profit, and the project screen. Archived cards stay a name and a restore button (lines 612-616). They gain no figure.
 
 ## Files the code PR edits
 
-| File                           | Change                                                                                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `public/accounts.js`           | Replace `projectCost`. Add `rowCounts` only when C left the live-row check inline. Keep `CONTRACTOR_COST_START` as `null`.                 |
-| `public/render.js`             | Owner home (lines 546-551), open project cards (lines 617-621), and the owner project screen (lines 631-634) call the helper below.        |
-| `tests/accounts.test.js`       | The behaviour tests below. The null-date test at lines 78-81 is rewritten for the new signature and still expects no new cost.             |
-| `public/sw.js`                 | `VERSION` only, the next free value at merge time. At this base it is `aj-p0-v58` (`public/sw.js` line 1). Do not reserve the next number. |
-| `tests/shell-cache.test.js`    | The three pins at lines 43, 65, and 93, same string as `VERSION`.                                                                          |
-| `tests/webkit-upgrade.test.js` | `MARK` at line 18, same string as `VERSION`.                                                                                               |
-| `docs/PSTACK_INVENTORY.md`     | Evidence on the three PR K rows in plan section 16. Do not flip a status word.                                                             |
+| File                           | Change                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/accounts.js`           | Replace `projectCost` so it calls C's exported `rowCounts(row, index)`. Do not declare `rowCounts`. Keep `CONTRACTOR_COST_START` as `null`. |
+| `public/render.js`             | Owner home (lines 546-551), open project cards (lines 617-621), and the owner project screen (lines 631-634) call the helper below.         |
+| `tests/accounts.test.js`       | The behaviour tests below. The null-date test at lines 78-81 is rewritten for the new signature and still expects no new cost.              |
+| `public/sw.js`                 | `VERSION` only, the next free value at merge time. At this base it is `aj-p0-v58` (`public/sw.js` line 1). Do not reserve the next number.  |
+| `tests/shell-cache.test.js`    | The three pins at lines 43, 65, and 93, same string as `VERSION`.                                                                           |
+| `tests/webkit-upgrade.test.js` | `MARK` at line 18, same string as `VERSION`.                                                                                                |
+| `docs/PSTACK_INVENTORY.md`     | A next-step sentence on the «ناقصة» redesign row (line 41). Evidence links only on the two «مطبّقة» rows (lines 29 and 58).                 |
 
 Behaviour lives in `public/accounts.js` and `public/render.js`. `public/ledger.js` is not one of them.
 
@@ -52,7 +54,7 @@ function ownerSpent(projectId, entries) {
   const errs = get(K.syncErrors, {}) || {};
   const counted = L.countedEntries(entries, errs).filter(e => e.projectId === projectId);
   const legacy = L.totals(counted).spent;
-  const txns = get(K.accountTxns, []) || [];
+  const txns = get(K.accountTxns);
   return Accounts.projectCost(projectId, legacy, txns, errs, Accounts.CONTRACTOR_COST_START);
 }
 ```
@@ -63,7 +65,7 @@ Owner home sums `ownerSpent` over `data().projects`. Received stays `L.totals(co
 
 `public/ledger.js`. `countedEntries` (lines 307-310), `totals` (lines 27-39), `projectSummary` (lines 111-115), `toCSV` (lines 288-296), `subcontractBalance` (line 461), and `foremanBalance` (lines 649-668) stay as they are. The owner CSV stays `public/render.js` lines 1294-1295.
 
-`public/session.js`. The Baghdad-date fix owns it. `K` at line 5 has no `accountTxns`. `get` at line 63 returns the default when the key is missing, so a missing cache is `[]`. K does not add the key.
+`public/session.js`. The Baghdad-date fix owns the date change. E adds `accountTxns` on `K` (E sketch, the six names on line 5). At `baf4f21f` that name is absent (`public/session.js` line 5). K does not add it. The code PR's base includes E's key. `ownerSpent` calls `get(K.accountTxns)` with no default list. A missing name fails `tests/strict-render.test.js`. An empty array stored under the key is a real empty log, and the new half is 0. `get` at line 63 is unchanged.
 
 `public/foremen.js`, `public/sync.js`, `public/app.js`, `public/index.html`, `firestore.rules`. `accounts.js` is already the script before `render.js` (`public/index.html` lines 71-72).
 
@@ -87,7 +89,7 @@ Second design considered: teach `Ledger.projectSummary` to add account cost when
 
 ## Types and signatures
 
-All of these stay in `public/accounts.js`. Names already exported stay exported. `rowCounts` is file-local. It is exported only when C already exported the same predicate under another name: then K calls that name and does not add a second one.
+`projectCost` stays in `public/accounts.js`. Names C already exported stay exported. `rowCounts` is one of those names. K does not declare it and does not add it to the return.
 
 ```javascript
 /**
@@ -107,29 +109,20 @@ All of these stay in `public/accounts.js`. Names already exported stay exported.
  */
 
 /**
- * @param {CostTxn} txn
- * @param {ReadonlyMap<string, CostTxn>} byId
- * @param {Record<string, unknown>} syncErrors
+ * Defined and exported by PR C. K does not declare this function.
+ * Rejection-wins, rev-of-rev, and marker detection stay inside C.
+ * @param {CostTxn} row
+ * @param {object} index
  * @returns {boolean}
- * True when this row contributes its effect.cost.
- * False when it has no id, its id is in syncErrors, or it has reversesId
- * (a reversal cancels its target and adds no cost of its own).
- * False when another live row has supersedesId === txn.id (superseded).
- * False when another live row has reversesId === txn.id (reversed).
- * A pointer row is live when it has an id, that id is not in syncErrors,
- * and it is not itself reversed. A rev_ of that rev_ restores the original.
- * needsApproval false: the row counts once it is live.
- * needsApproval true: it also needs a live approveDeduct whose targetId
- * is txn.id. v1 has no inv_. This function does not look for one.
- * Walk reversesId with a seen set so a cycle stops.
  */
-function rowCounts(txn, byId, syncErrors)
+// Accounts.rowCounts(row, index)
 
 /**
  * Owner cost for one project: legacy spent plus the cost column.
  * legacySpent is Ledger.totals(countedEntries for this project).spent.
  * start is CONTRACTOR_COST_START on the screen. Tests pass a date or null.
  * The new half is 0 unless start matches /^\d{4}-\d{2}-\d{2}$/.
+ * A row adds cost only when Accounts.rowCounts(row, index) is true.
  * Does not read entryDate. Does not write. Does not read slotLosers
  * or linkRefusals.
  * @param {string} projectId
@@ -146,17 +139,19 @@ function projectCost(projectId, legacySpent, txns, syncErrors, start)
 
 There is one `projectCost`. The code PR replaces the function at lines 175-185, and PR B's `return 0` stub, with the signature above. The old two-argument call goes away in that same change.
 
+`projectCost` calls `rowCounts(row, index)` and does not keep a second predicate beside it. C lands first. The code PR rebases onto that export.
+
 Fold, in order:
 
 1. If `start` is not `YYYY-MM-DD`, return `legacySpent`.
-2. Build `byId` from `txns`. A later row with the same `id` replaces the earlier row. One id contributes once.
-3. For each row in `byId` whose `projectId` is this project, whose `txnDate` is a `YYYY-MM-DD` string, and whose `txnDate` is greater than or equal to `start`: if `rowCounts` is true, add `PURPOSES[purpose].effect.cost * amount`.
+2. Build `index` once from `txns`, in the shape C's `rowCounts` takes. One id, one row. A later row with the same `id` replaces the earlier row.
+3. For each row whose `projectId` is this project, whose `txnDate` is a `YYYY-MM-DD` string, and whose `txnDate` is greater than or equal to `start`: if `rowCounts(row, index)` is true, add `PURPOSES[purpose].effect.cost * amount`.
 4. A missing purpose, a missing `txnDate`, or an amount that is not an integer adds 0 for that row. `approveDeduct` has no amount and effect cost 0, so it adds 0. The deduct body carries the amount.
 5. Return `legacySpent` plus that sum.
 
 `effect.cost` stays the table at lines 28-38. `approveLabor` is cost +1 and `needsApproval` false (line 30). `payLabor` is cost 0 (line 32). `deduct` is cost -1 and `needsApproval` true (line 35). `approveDeduct` is cost 0 (line 36). K does not edit the table. A payment adds no cost because its multiplier is 0, with or without `revw_`.
 
-A reversed approval is omitted. The `rev_` row has `reversesId` and adds nothing itself, so the figure stays the legacy 100,000. A `rev_` whose id is in `syncErrors` is not live, so the approval still counts.
+Rejection-wins, marker detection (id prefix or pointer field), and rev-of-rev stay in C's function. K does not restate them. D's rules sketch denies a `rev_` of a `rev_` (PR #80, test `rev: a rev_ of a rev_ is denied`). `rev_` of a `revw_` is a different create and that sketch allows it (`s7.13`). If a list still holds a `rev_` of a `rev_`, C's `rowCounts` is the reading. K does not write another.
 
 `slotLosers` and `linkRefusals` are not arguments. The adopted snapshot has one approval row. The loser's copy is absent. K does not read those maps.
 
@@ -178,7 +173,10 @@ Same section 10 rules, locked so the code PR cannot drop them:
 - `null start keeps legacy 100000`. `Accounts.CONTRACTOR_COST_START` is `null`. `projectCost(..., null)` with the approval and the payment returns 100,000. The old call at lines 78-81 expected 0 because it passed no legacy spent. The rewritten test expects 0 when `legacySpent` is 0, and 100,000 when `legacySpent` is 100,000.
 - `txnDate before the start is 100000`. Approval `txnDate` `'2026-11-30'` and start `'2026-12-01'` returns 100,000. The start day itself is the 700,000 case (`txnDate` greater than or equal to `start`, which is what line 179 does today with `<`).
 - `a non-date start keeps legacy 100000`. `start` `'soon'` returns 100,000. Only `YYYY-MM-DD` opens the gate.
-- `deduct 50000 with no approveDeduct stays 100000`. The 50,000 is the plan's deduct amount. The same list plus a live `approveDeduct` whose `targetId` is that deduct's id returns 50,000. The approval row adds 0.
+- `deduct 50000 against approveLabor 600000`. The list is legacy 100,000, `approveLabor` 600,000 (id `appr_labor-1`, `targetId` `labor-1`), and `deduct` 50,000 (id `ded-1`, `targetId` `appr_labor-1`). With no `approveDeduct`, the result is 700,000. The same list plus `approveDeduct` (`appr_ded-1`, `targetId` `ded-1`, no amount) is 650,000.
+- `reversed target approval: the deduct adds nothing`. That 650,000 list plus a `rev_` of `appr_labor-1` is 100,000. The approval's cost is out, and the deduct adds nothing.
+- `rejection wins: appr_ plus rej_ of the body is 100000`. The 700,000 rows plus `rej_labor-1` (`targetId` `labor-1`). The approval's 600,000 is out. Counting it would leave 700,000.
+- `rejection wins: rej_ of the deduct adds no deduct effect`. Legacy 100,000, `approveLabor` 600,000, `deduct` 50,000, `approveDeduct` of that deduct, and `rej_ded-1` (`targetId` `ded-1`). The result is 700,000. The -50,000 is absent.
 - `a live supersede of the approval is 100000`. A row with `supersedesId` of the approval, not in `syncErrors`, drops the 600,000.
 - `an approval on another project stays 100000`. The approval's `projectId` is `'q'`.
 - `a refused legacy labour row is not in the 100000`. The labour id is in the `syncErrors` map passed to `countedEntries`, so the number handed to `projectCost` is 0. With the approval and a real date, the result is 600,000.
@@ -188,7 +186,7 @@ Same section 10 rules, locked so the code PR cannot drop them:
 
 ## Strings
 
-No new Arabic string. The v1 count is unchanged.
+No new Arabic string. The v1 count stays 88. Ameer approved that list in `strings-contractor-module-r2.22.md` (sha256 starts `9d25840a`) and the tab «حسابات» on 2026-11-10 11:16 Baghdad. This sketch adds no string outside those 88.
 
 Reused, already on these screens:
 
@@ -210,12 +208,12 @@ This docs PR adds one file and does not touch `public/sw.js`. Parallel sketches 
 
 The later code PR is sequential where the files overlap:
 
-- `public/accounts.js` with PR B and PR C. B replaces the loop at lines 175-185 with `return 0`. C extends `personBalance` into `balances` and adds the live-row checks (`rev_`, `sup_`, `syncErrors`). K rebases onto both and replaces B's stub. If C inlined those checks, K moves them into `rowCounts` and points `balances` at it in the same `accounts.js` edit.
+- `public/accounts.js` with PR B and PR C. B replaces the loop at lines 175-185 with `return 0`. C lands first and exports `rowCounts(row, index)`. K rebases onto that export and replaces B's stub. K does not move an inlined check and does not declare `rowCounts`.
 - `public/render.js` with the Baghdad-date fix (`session.js` and `render.js`; that fix merges first) and with the foreman export (`ledger.js` and `render.js`). K does not edit `session.js` or `ledger.js`. The overlap is `render.js`.
 - `public/sw.js`, `tests/shell-cache.test.js`, and `tests/webkit-upgrade.test.js` with every public PR that bumps `VERSION`. The code PR takes the next free value at merge time.
 - `docs/PSTACK_INVENTORY.md` with any PR that edits the same evidence cells. The code PR only.
 
-K is after F, so the screen may read `K.accountTxns` once F or E has stored it. Until that key exists, `get` returns `[]` and the new half is 0. K does not create the store. G-J come after K, so an approval can move this figure. K does not build those actions.
+K is after E and F. E's `K.accountTxns` is required on the code PR's base. K does not create the store and does not treat a missing key as `[]`. G-J come after K, so an approval can move this figure. K does not build those actions.
 
 ## Accounting advisor
 
@@ -266,16 +264,16 @@ The code PR reverts with `git revert`. Revert puts the screens back on `totals` 
 
 - A, merged at this base. The nine purposes and `projectCost`'s current body are in `public/accounts.js`.
 - B, before K. Payments, `refundLabor`, `deduct`, `approveDeduct`, `settle`, and the `return 0` stub. K uses B's effect table and B's rule that `approveDeduct` stores no amount. K does not post those rows.
-- C, before K. `personBalance` becomes `balances`. K shares one live-row predicate with that fold.
+- C, before K, and C's code is merged before K's code is written. C exports `rowCounts(row, index)`. K calls it.
 - D, deployed by Ameer before E. K does not edit rules.
-- E, before K. The adopted `appr_` test is a snapshot of E's result: one server row, that id not in `syncErrors`, the loser absent. K does not implement adopt.
+- E, before K. E adds `accountTxns` on `K`. K's code PR requires that key and fails `tests/strict-render.test.js` without it. The adopted `appr_` test is a snapshot of E's result: one server row, that id not in `syncErrors`, the loser absent. K does not implement adopt.
 - F, before K. The cache key may exist. K reads it and tolerates a miss.
 - G-J, after K.
 
 ## Risks
 
 - Keeping the loop at lines 175-185, or wrapping it, still skips `deduct` and still ignores legacy spent. The code PR replaces the whole function.
-- A second copy of the live-row checks inside `balances` will drift from `projectCost`. One predicate.
+- A second live-row check inside `projectCost` will drift from C. The code PR calls `rowCounts` and does not grow a copy.
 - `render.js` will conflict with the date fix and the foreman export. Rebase those hunks. Do not take their date or export edits out.
 - Assigning `CONTRACTOR_COST_START` in the code PR turns cost on before the ship-day go.
 - Dropping a legacy row because its `entryDate` is on or after `start` answers the open question. K does not.
@@ -287,7 +285,7 @@ The code PR reverts with `git revert`. Revert puts the screens back on `totals` 
 
 The app is not claimed to be pstack-compliant. This docs PR does not flip a row in `docs/PSTACK_INVENTORY.md`.
 
-Plan section 16 names the code PR's rows: `principle-redesign-from-first-principles`, `principle-explain-the-number`, `blast-radius`. The code PR adds evidence on those rows and does not flip the status word. `principle-redesign-from-first-principles` is the choice to make `projectCost` the owner figure, rather than grow the loop at lines 175-185. `principle-explain-the-number` is the 700,000 split (100,000 legacy plus 600,000 approval, payment 0). `blast-radius` is the site figure, CSV, and `countedEntries` staying on their current functions.
+Plan section 16 names the code PR's rows: `principle-redesign-from-first-principles`, `principle-explain-the-number`, `blast-radius`. At `baf4f21f`, redesign is «ناقصة» (`docs/PSTACK_INVENTORY.md` line 41). The code PR writes a next-step sentence on that row: `projectCost` is the owner figure, legacy counted spent plus the cost column, and the loop at `public/accounts.js` lines 175-185 is replaced rather than extended. That row does not get an evidence link. `principle-explain-the-number` (line 29) and `blast-radius` (line 58) are «مطبّقة». Those two gain an evidence link only. A status-word change follows the inventory's own rule. This sketch does not flip one. The 700,000 split is 100,000 legacy plus 600,000 approval, and the payment adds 0. `blast-radius` is the site figure, CSV, and `countedEntries` staying on their current functions.
 
 This docs PR is the architect sketch. Arena was not run. The code PR is the `feature` playbook, after this review, and it is not this commit.
 
@@ -309,7 +307,7 @@ This docs PR is the architect sketch. Arena was not run. The code PR is the `fea
 
 هالمرحلة ما تطبق ولا خيار من الخمسة. القيد القديم المحسوب يبقى داخل الكلفة، والدالة ما تشوف تاريخه.
 
-قائمة النصوص، واسم التبويب «حسابات»، وموافقة قواعد الخادم، كلها مفتوحة بالخطة. هالمرحلة ما تعيد السؤال، لأن ما بيها نص جديد ولا تغيير قواعد.
+قائمة النصوص، 88 جملة، واسم التبويب «حسابات»، موافَق عليها بتاريخ 2026-11-10 الساعة 11:16 بتوقيت بغداد. هالمرحلة ما تضيف جملة خارج الـ 88، فما تعيد سؤال النصوص.
 
 ## Decisions only Ameer can make
 
