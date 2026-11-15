@@ -1,6 +1,6 @@
 # PLAN ONLY: contractor PR D sketch
 
-Revision r2, against Architect NOTES on `22f00d41` (review sha256 `dd9ed13ad0758f0bbcf5f621e063453633da5d1b729abaa83b9c66508f0417b5`). r1 blob `8a90b306099ec2fa6511f98c40f36dc26c39ad57`. Ameer's answers of 2026-11-16 00:34 Baghdad, and the 00:36 follow-up, via EA, are recorded in «أجوبة أمير».
+Revision r2, against Architect NOTES on `22f00d41` (review sha256 `dd9ed13ad0758f0bbcf5f621e063453633da5d1b729abaa83b9c66508f0417b5`). r1 blob `8a90b306099ec2fa6511f98c40f36dc26c39ad57`. Ameer's answers of 2026-11-16 00:34 Baghdad, and the 00:36 follow-up, via EA, are recorded in «أجوبة أمير». QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) Q5, Q8, Q9, and Q10 are approved as their defaults (00:52 via EA). Where `answers-EA-delegated-0034` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, that earlier answer wins.
 
 No code in this pull request. No edit to `firestore.rules`, `public/`, or `public/sw.js`. The code PR comes after the Architect reviews this r2 and Ameer says go. Merging the rules and deploying them need the real-data conditions below. This sketch does not merge and does not deploy.
 
@@ -44,7 +44,7 @@ Not in D: `inv_`, `hashing.sha256`, `lockId`, `invoiceKey`, `invoiceNumber`, `at
 
 `public/` (including `public/sw.js`, `public/accounts.js`, `public/session.js`, `public/sync.js`, `public/sync-status.js`, `public/ledger.js`, `public/render.js`, `public/firebase-client.js`, `public/index.html`), `package.json`, `README.md`, `firebase.json`, `firestore.indexes.json`, and every existing test file.
 
-No service-worker bump. D edits no file under `public/`, so `scripts/sw-version-guard.sh` has nothing to bump. The version at this base is `aj-p0-v58` (`public/sw.js` line 1). A later PR that edits `public/` takes the next free version at its own merge. D does not reserve one.
+No service-worker bump (Q5). D edits no file under `public/`, so `scripts/sw-version-guard.sh` has nothing to bump. The version at this base is `aj-p0-v58` (`public/sw.js` line 1). D does not reserve a number. A later PR that edits `public/` takes the next free version at its own merge, and that number stays renumberable until then.
 
 `package.json` `test:emulator` (line 7) is a different command from ci.yml line 181. At this base it also lists `tests/emulator/offline-cold-start.test.js`, which the CI line does not. D does not edit `package.json` and does not try to make those two strings identical. The unit lists at `ci.yml` line 68 and `package.json` line 5 are the same 34 files. D adds no unit file, so both stay at 34.
 
@@ -159,7 +159,7 @@ The document types live in `tests/emulator/account-rules.test.js`. The rules fun
  *   createdAtServer: unknown
  * }} StatementApproval
  * No `reviewGen`, no `includedIds`, no figures, no `deviceId`.
- * `periodKind` is `week` or `month` only. Answered, 2026-11-16 00:36 via EA.
+ * `periodKind` is `week` or `month` only (Q10). Answered, 2026-11-16 00:36 via EA.
  * The screen shows «أسبوعي» and «شهري». Saturday-to-Friday is the screen, not a rule.
  */
 ```
@@ -188,7 +188,7 @@ function agreementCreate()
 /**
  * @returns {boolean}
  * Reads: 3. `user`, the original agreement, project.
- * Id is `rev_` plus the agreement uuid. Same keys as an agreement, plus `reversesId`.
+ * Id is `rev_` plus the agreement uuid (Q9). Same keys as an agreement, plus `reversesId`.
  * Answered, 2026-11-16 00:34 via EA. The original id must be a uuid, not a `rev_`.
  */
 function agreementReversalCreate()
@@ -393,9 +393,9 @@ Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-
 
 `revw_` names a cash body: `payLabor`, `advanceLabor`, `returnAdvance`, or `refundLabor`. `revw_` of a `deduct` is denied. The cash create does not read `revw_`. The first id is `revw_` plus the cash id. After `rev_` of that id, the next id is `revw_` plus the cash id plus `_` plus `1`, and so on through `9`. No `amount`.
 
-`statementApprovals` stores only the `StatementApproval` keys. `periodKind` is `week` or `month`. Anything else is denied. The server accepts the document while cash rows are still unreviewed. Two owners can each create one, because each id is a fresh uuid. `periodStart` and `periodEnd` pass `entryDateOk`, and `periodStart <= periodEnd`. A start after the end is denied. An extra key, including `includedIds` or a figure, is denied. A missing party is denied. The week starting on Saturday is a screen rule. It is not a rules predicate. The project `get` lives only in `statementWithProjectCreate`. `statementConsolidatedCreate` does not get a project.
+`statementApprovals` stores only the `StatementApproval` keys. `periodKind` is `week` or `month` (Q10). Anything else is denied. The server accepts the document while cash rows are still unreviewed. Two owners can each create one, because each id is a fresh uuid. `periodStart` and `periodEnd` pass `entryDateOk`, and `periodStart <= periodEnd`. A start after the end is denied. An extra key, including `includedIds` or a figure, is denied. A missing party is denied. The week starting on Saturday is a screen rule. It is not a rules predicate. The project `get` lives only in `statementWithProjectCreate`. `statementConsolidatedCreate` does not get a project.
 
-Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists` of `agreements/rev_<agreementId>`, not a `get`, and not a document under `accountTxns`. `rev_` plus a uuid does not pass `uuidOk`, so the reversal itself cannot be named as the agreement. Answered, س٢-ب, 2026-11-16 00:36 via EA: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read). Deny tests cover each of those paths.
+The reversal document is `agreements/rev_<agreementId>` (Q9). Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. `rev_` plus a uuid does not pass `uuidOk`, so the reversal itself cannot be named as the agreement. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read). Deny tests cover each of those paths.
 
 `rej_` is a marker: shared header plus `targetId`. No `amount` and no `purpose`. It is denied when `appr_` of that target is already stored. The target purpose has `needsApproval`. A slot may be rejected. That rejection is what frees the next slot generation.
 
@@ -615,11 +615,11 @@ Merge and deploy order:
 3. A revert is a revert of D's commit on `main`, then a deploy of that new `main`. Never deploy an older file by hand.
 4. If E is already live, turn E's writer off before reverting D. Otherwise every new account write fails closed.
 
-No rules deploy without all of these: a fresh Drive backup, an emulator restore test of that backup against the new rules, CI 4/4, Architect APPROVE on the SHA, and EA's go. Ameer still deploys (`README.md` line 24).
+Q8 approves the sketch and leaves the deploy for later. The earlier 00:34 answer is the list that wins: no rules deploy without a fresh Drive backup, an emulator restore test of that backup against the new rules, CI 4/4, Architect APPROVE on the SHA, and EA's go. Ameer still deploys (`README.md` line 24). Q8's shorter list (green code, backup, emulator) is inside that one. It does not drop the Architect APPROVE or EA's go.
 
 The four new collections are create-only, so a backup cannot delete them. The backup-gaps seed list does not name `parties`, `agreements`, `accountTxns`, or `statementApprovals`. That list gains these four, and a restore keeps create-only. The daily full dump adds about one read per account document to the Spark count. D does not edit the backup script.
 
-Service worker version for this phase: none. "Next free at merge time" applies to a PR that edits `public/`. D does not. The date fix merges first as v59. Later `public/` PRs renumber after that. D takes no number.
+Service worker version for this phase: none (Q5). The rule is the next free number at merge time. D does not edit `public/`, so it claims no number, and nothing here is a reservation that a later merge would have to keep. The earlier date-fix answer (00:38) wins on one point Q5 leaves open: the date fix merges first as v59. Every later `public/` bump renumbers after that. D takes no number.
 
 ## Accounting advisor
 
@@ -705,23 +705,27 @@ Plan statements that are no longer true at this base. #72 moved the lines. D doe
 
 ## أجوبة أمير
 
-Recorded from EA, on Ameer's delegation, 2026-11-16 00:34 Baghdad, and the 00:36 follow-up. These are answered. This r2 does not ask them again.
+Recorded from EA, on Ameer's delegation, 2026-11-16 00:34 Baghdad, and the 00:36 follow-up. Q5, Q8, Q9, and Q10 of QUESTIONS-FOR-EA-r1 are the same decisions, approved again at 00:52. Where the two files differ, the 00:34 and 00:36 answers win. This r2 does not ask them again.
 
-**1. قواعد الخادم. جواب: موافق على السكتش.**
+**Q5. رقم الخدمة.**
 
-النشر ما يصير من هذا الطلب. ينزل من `main` على الـ SHA المدموج، بعد نسخة احتياطية جديدة على Drive، وتجربة استرجاع على المحاكي، و CI 4/4، وموافقة المعماري على الـ SHA، وموافقة EA. أمير ينشر بنفسه.
+القاعدة: الرقم الفاضي الجاي وقت الدمج. D ما يلمس `public/` فما يحجز رقماً. جواب 00:38 يثبت تصليح التاريخ على v59، والباقي يتعاد ترقيمه بعدين.
 
-**2. عكس الاتفاق. جواب: إي.**
+**Q8. قواعد الخادم. جواب: موافق على السكتش.**
+
+النشر ما يصير من هذا الطلب. جواب 00:34 هو القائمة المعتمدة، وهي أوسع من نص Q8: ينزل من `main` على الـ SHA المدموج، بعد نسخة احتياطية جديدة على Drive، وتجربة استرجاع على المحاكي، و CI 4/4، وموافقة المعماري على الـ SHA، وموافقة EA. أمير ينشر بنفسه.
+
+**Q9. عكس الاتفاق. جواب: إي. الوثيقة في `agreements`.**
 
 إذا انكتب اتفاق وطلع بيه غلط، ما ينمسح وما يتعدّل. تنكتب وثيقة إلغاء في `agreements`، والمعرّف `rev_` زائد معرّف الاتفاق، بنفس الحقول زائد `reversesId`. معرّف الاتفاق يبقى uuid.
 
-**2-ب. جواب: إي.**
+**س٢-ب. جواب 00:36، ويبقى فوق Q9.**
 
-بعد الإلغاء، السيرفر يرفض أي قياس أو اعتماد جديد على هذا الاتفاق. الفحص هو `!exists(agreements/rev_<agreementId>)` على القياس، وعلى جسم الـ slot، وعلى `approveLabor`.
+بعد الإلغاء، السيرفر يرفض أي قياس أو اعتماد جديد على هذا الاتفاق. الفحص هو `!exists(agreements/rev_<agreementId>)` على القياس، وعلى جسم الـ slot، وعلى `approveLabor`. Q9 ما يلغي هذا الفحص.
 
-**3. فترة الكشف. جواب: أسبوعي أو شهري بس.**
+**Q10. فترة الكشف. جواب: `week` أو `month` بس.**
 
-القيمة المخزونة `week` أو `month`. الشاشة تعرض «أسبوعي» و«شهري». بداية الأسبوع من السبت تبقى بالشاشة.
+الشاشة تعرض «أسبوعي» و«شهري». بداية الأسبوع من السبت تبقى بالشاشة.
 
 **M2. جواب المهندس، مقبول.**
 
