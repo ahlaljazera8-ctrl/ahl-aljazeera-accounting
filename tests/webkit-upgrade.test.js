@@ -15,6 +15,7 @@ const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const ROOT = path.join(__dirname, '..');
 const NEW = process.env.AJ_NEW_ROOT || path.join(ROOT, 'public');
+// Q5: next free number at merge. The date fix is v59, so this v60 pin stays renumberable.
 const MARK = 'aj-p0-v60';
 const PROJECT_ID = 'p-webkit';
 const PASS = 'emulator-only-pass';

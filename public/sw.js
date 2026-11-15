@@ -1,3 +1,4 @@
+// Q5: next free number at merge. The date fix is v59, so this v60 pin stays renumberable.
 const VERSION = 'aj-p0-v60';
 const ASSETS = ['./index.html', './style.css', './print.css', './ledger.js', './sync.js', './sync-status.js', './dom-safe.js', './appcheck.js', './firebase-config.js', './session.js', './firebase-client.js', './foremen.js', './people-dir.js', './accounts.js', './render.js', './app.js', './manifest.json', './icon.svg'];
 /** @type {Readonly<Record<string, 1>>} */
