@@ -8,6 +8,8 @@ Base for the later code PR: `baf4f21fc54c156989334e826d19990b8e5e8a74` (v58, ser
 
 Arena was not run. Ameer's gate bans it (cost). Three shapes are compared below by hand. The chosen shape is the foremen screen module, applied to the approved v1 cut.
 
+Revision r2, against Architect NOTES on `5ab3cb3e` (review sha256 `1110e9c617fa318d8f355b33b05ce23ddbb19eebab2fa521e31b9c17068d59d1`). This revision also keeps the milestoneMode follow-up: PR D requires the field, so every milestone this screen writes sets `milestoneMode: 'amount'`.
+
 ## Scope
 
 Plan r2.28 section 13, the F row, and section 14. Order is A, B, C, then D merged and deployed by Ameer, then E, then F, then K, then G–J. This sketch does not start G–J or K.
@@ -46,7 +48,7 @@ Out of F. Phase 2 and the later action PRs stay out:
 | `tests/browser-check.js`                                              | The demo empty state and the site gate.                                                                                                                                                                                                |
 | `tests/shell-cache.test.js`                                           | Script order, the new precache name, and the three `VERSION` pins.                                                                                                                                                                     |
 | `tests/webkit-upgrade.test.js`                                        | `MARK` matches the same `VERSION`.                                                                                                                                                                                                     |
-| `package.json`                                                        | Append the new test file to `"test"`. Append `tsc --noEmit -p tsconfig.strict-accounts-view.json` to `"typecheck"`.                                                                                                                    |
+| `package.json`                                                        | Append the new test file to `"test"`. Append `tsc --noEmit -p tsconfig.strict-accounts-view.json` to `"typecheck"`. CI runs that script in the `lint, format, types` job (`.github/workflows/ci.yml` line 44).                         |
 | `.github/workflows/ci.yml`                                            | The same test-file string, in the same place, so the ledger job list and `package.json` `"test"` stay identical.                                                                                                                       |
 | `tsconfig.strict-accounts-view.json`                                  | New. Same shape as `tsconfig.strict-foremen.json`: extends `tsconfig.json`, `"strict": true`, include `public/accounts-view.js` and `types/checkjs.d.ts`.                                                                              |
 | `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`             | Drive steps for the two new ids. An unknown id still exits 3.                                                                                                                                                                          |
@@ -57,6 +59,8 @@ Out of F. Phase 2 and the later action PRs stay out:
 | `docs/PSTACK_INVENTORY.md`                                            | Evidence on the F rows named in section 16 of the plan: `principle-experience-first`, `maintain-verification-skill`. Do not flip a status word.                                                                                        |
 
 `style.css` is listed because the screen has to land in the existing shell. The expected diff is empty.
+
+At `baf4f21f` both unit-test lists are 34 files and they match: `package.json` `"test"` and the `node --test` list in `.github/workflows/ci.yml` (ledger job). F adds `tests/accounts-view.test.js` to both, in the same place. The count at merge is 35, or 36 if the approved CDP plan's test file lands first. The two lists stay identical. The new `tsc --noEmit -p tsconfig.strict-accounts-view.json` runs inside `npm run typecheck`, which the `lint, format, types` job calls. It is not a fifth job.
 
 ## Files the code PR must not touch
 
@@ -96,7 +100,7 @@ Third design considered: sum the overview in the view. Rejected. B's `personBala
 
 ## Types and signatures
 
-All of these live in `public/accounts-view.js`. `Accounts.balances` and `Accounts.statementLines` stay in `public/accounts.js`, written by C. F calls them. If C's names differ, the code PR maps them in the two functions below and nowhere else.
+All of these live in `public/accounts-view.js`. `Accounts.balances`, `Accounts.statementLines`, and `Accounts.periodBounds` stay in `public/accounts.js`, written by C. F calls them and prints what they return. It does not map the names.
 
 ```javascript
 /**
@@ -125,9 +129,10 @@ All of these live in `public/accounts-view.js`. `Accounts.balances` and `Account
  *   docType: 'party'
  * }} PartyRow
  * Plan section 6. No `roles`. No balance. `note` is omitted until Ameer
- * names a label (question 6). `docType` is local so `collectionFor` can
- * tell a party from a project (`public/sync.js` lines 23-31). E strips
- * it before the server write. The server row stays the plan's field list.
+ * names a label (the note question below). `docType` is local so
+ * `collectionFor` can tell a party from a project (`public/sync.js` lines 23-31).
+ * Whether the server row keeps `docType` is D's allowed-field list, not a
+ * choice F makes. See Data and rules.
  */
 
 /**
@@ -151,56 +156,17 @@ All of these live in `public/accounts-view.js`. `Accounts.balances` and `Account
  * PR D's rules require `milestoneMode` (EA, after Architect #80 review M2).
  * A missing mode would be a denied create. The default is `'amount'`.
  */
+```
 
-/**
- * @typedef {{
- *   net: number,
- *   payableGross: number,
- *   openAdvances: number,
- *   approvedLabor: number,
- *   laborPaid: number,
- *   advancesPaid: number,
- *   cashReturned: number,
- *   netAdvances: number,
- *   deductions: number,
- *   paymentRefunds: number,
- *   opening: number,
- *   closing: number
- * }} AccountFigures
- * C owns every field. Positive `payableGross`: the company owes the person.
- * Negative `payableGross`: the person holds the company's money.
- * `openAdvances` is «سلف قائمة عليه». `netAdvances` is «صافي السلف».
- * The overview prints `openAdvances` and does not print `netAdvances`.
- * The statement prints both. `closing` equals `net`. F does not recompute it.
- */
+F does not declare a second balance type, a second statement order, or a second `periodBounds`. It calls `Accounts.balances`, `Accounts.statementLines`, and `Accounts.periodBounds` as C specifies them in `docs/plans/contractor-pr-c-sketch.md` (PR #75). The screen prints that return value. It does not rename fields and it does not map them.
 
-/**
- * @typedef {{
- *   partyId: string,
- *   projectId?: string,
- *   periodStart: string,
- *   periodEnd: string
- * }} FiguresScope
- * `projectId` is omitted for «كل المشاريع». Dates are `YYYY-MM-DD`.
- */
+The overview reads `Balance` by C's names: `approvedLabor`, `payments`, `openAdvances`, `payable`, `recoverable`. `payable` and `recoverable` are already the split. The page does not call `max` itself. `netAdvances` is not on the overview.
 
-/**
- * @typedef {{
- *   id: string,
- *   purpose: string,
- *   amount: number|null,
- *   txnDate: string,
- *   projectId: string,
- *   pending: boolean,
- *   reversed: boolean,
- *   unreviewed: boolean,
- *   overLimit: boolean
- * }} MovementLine
- * `pending` is an unapproved `laborQty` or `deduct`. `unreviewed` is a live
- * cash row with no live `revw_`. `overLimit` is C's flag. The Arabic sentence
- * is chosen from `purpose`, in Strings.
- */
+The statement tab prints `statementLines(...).lines` in the order C returns, each row `label` and `amount`. F does not insert a line, drop a line, or move `openAdvances` above `closing`. A row id in `pendingIds` is listed under `بانتظار الاعتماد` and is not added into a total. A row id in `unreviewedCashIds` shows `غير مدقّق`. A row id in `overLimitIds` uses the sentence for that purpose, in Strings. Opening and closing are the numbers on C's return value, not a sum the page builds.
 
+`modelFor` passes C's `BalanceFilter` and `StatementFilter`. It does not declare a second filter type. `periodStart` and `periodEnd` are `Accounts.periodBounds(kind, today())`. A null from that function does not become a local calendar.
+
+```javascript
 /**
  * @typedef {{
  *   tab: AccountTab,
@@ -219,23 +185,10 @@ All of these live in `public/accounts-view.js`. `Accounts.balances` and `Account
  */
 
 /**
- * @param {PeriodKind} kind
- * @param {string} today
- * @returns {{ periodStart: string, periodEnd: string }}
- * Week starts Saturday (Q7). The function splits `today` and uses `Date.UTC`.
- * It does not call `new Date(today)`, which parses UTC midnight and can move
- * the civil day. It does not read the clock. The installed view passes
- * `today()` from `public/session.js` line 94, after the Baghdad-date fix.
- * 2026-11-15 is a Sunday, so the week is 2026-11-14 through 2026-11-20.
- * The month is 2026-11-01 through 2026-11-30.
- */
-function periodBounds(kind, today)
-
-/**
  * @param {string} name
  * @returns {string[]}
  * Empty when the trimmed name is 1 to 80 characters. Otherwise `['name']`.
- * The screen maps that token to «أدخل اسم الشخص» if Ameer accepts question 2.
+ * The screen maps that token to «أدخل اسم الشخص» if EA accepts that question.
  */
 function partyErrors(name)
 
@@ -273,14 +226,14 @@ function listHtml(model)
  * @param {string} partyId
  * @returns {string}
  * The `#account/<id>` page. Four tabs. The open tab comes from
- * `model.screen.tab`. Figures come from `model.figures`.
+ * `model.screen.tab`. Figures are C's `Balance` and `statementLines().lines`.
  */
 function accountHtml(model, partyId)
 
 /**
- * Reads the stores, calls `Accounts.balances` and `Accounts.statementLines`,
- * and returns the model `listHtml` and `accountHtml` already accept.
- * This is the only place those two C functions are called.
+ * Reads the stores and calls `Accounts.balances`, `Accounts.statementLines`,
+ * and `Accounts.periodBounds`. This is the only place those three are called.
+ * The model keeps C's objects. It does not copy them into new field names.
  * @param {{ role?: string, uid?: string }|null} user
  * @returns {AccountModel}
  */
@@ -325,7 +278,9 @@ Slot-loser rows, when E has stored them, render in their own block, read-only, w
 
 ## Data and rules
 
-Parties, agreements, and `accountTxns` are create-only on the server. F writes one party, and only through the path above. The party payload has `id`, `name`, `createdBy`, `createdAtServer: null`, `deviceId`, and local `docType: 'party'`. It has no `roles`, no `currency`, and no balance.
+Parties, agreements, and `accountTxns` are create-only on the server. F writes one party, and only through the path above. The local row has `id`, `name`, `createdBy`, `createdAtServer: null`, `deviceId`, and `docType: 'party'`. It has no `roles`, no `currency`, and no balance. D's party `hasOnly` list decides whether `docType` is on the server row. If that list omits `docType`, the write omits it, the same way `toRemote` keeps foremen fields and drops `docType` (`public/sync.js` lines 56-57) and the pull puts `docType` back (`public/sync.js` lines 225-226). If D's list includes `docType`, the write keeps it. F does not add a third rule. E's `toRemote` follows that same list.
+
+One party create is 1 write and 1 rule `get` (D's `partyCreate`, one read). The page reads local caches only. E owns the pulls. That is the Spark cost for this phase (plan section 16).
 
 `id` is `uuid()` (`public/session.js` lines 85-93), minted once when the form opens and kept until the save succeeds, same as `state.formId` (`public/render.js` line 40). A second click sees the id already in `K.parties` and does not append again. The button is disabled for that click, same as `#save` (`public/render.js` line 1235).
 
@@ -333,25 +288,11 @@ Name is trimmed, 1 to 80 characters. Over 80 or empty: `partyErrors` returns `na
 
 Owner gate on the screen is `Ledger.can(user, 'owner')`, the same check the people tab uses. It does not also test `active`. The server still requires `active == true` (`firestore.rules` line 11). F does not add a second client rule.
 
-IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. A negative figure uses U+2212. The recoverable and payable lines print the absolute value, so «مستحق عليه» is not also drawn with a minus. There is no `<select>` for currency and no `USD`.
+IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. `مستحق له` prints `Balance.payable`. `مستحق عليه` prints `Balance.recoverable`. The page does not compute either one. There is no `<select>` for currency and no `USD`.
 
-Overview, for the selected scope:
+The overview and the statement are the C calls named in Types and signatures. Weekly and monthly only choose the `kind` passed to `Accounts.periodBounds`. They do not write `statementApprovals`. The approve button is not drawn. While `unreviewedCashIds` names a cash row in the period, the page shows `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`. Those rows show `غير مدقّق`.
 
-- `عمل معتمد` = `figures.approvedLabor`
-- `مدفوع للعمل` = `figures.laborPaid`
-- `سلف قائمة عليه` = `figures.openAdvances`
-- `مستحق له` = `max(figures.payableGross, 0)`
-- `مستحق عليه` = `max(-figures.payableGross, 0)`
-
-`صافي السلف` is not on the overview. It is on the statement.
-
-Statement order, printed from `figures`, not added up on the page:
-
-opening, approved labor, payments minus `المُرجَع من الدفعة نقداً`, then `السلف المصروفة له` minus and `المُرجَع من السلف نقداً` plus and `صافي السلف`, then `الخصومات ومرتجعات المواد` minus, then `سلف قائمة عليه`, then closing. Settlements stay at 0. Closing is `figures.closing`.
-
-Weekly and monthly are view state. They change `periodStart` and `periodEnd` passed into C. They do not write `statementApprovals`. The approve button is not drawn. While `lines` contain an unreviewed cash row in the period, the page shows `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`. Cash rows show `غير مدقّق` until a live `revw_` names them.
-
-«هذا المشروع» limits `figures` and the lists to one `projectId`. «كل المشاريع» omits `projectId`. The project pills are the projects that already appear on this person's agreements or txns. They reuse `data-proj` (`public/render.js` line 598). Question 7 asks Ameer to confirm that set.
+«هذا المشروع» sets `projectId` on C's filter. «كل المشاريع» omits it. The project pills are the projects that already appear on this person's agreements or txns. They reuse `data-proj` (`public/render.js` line 598). The project-pill question asks EA to confirm that set.
 
 Hashes use `DomSafe` (`public/dom-safe.js` lines 8 and 27). An id that fails `isSafeId` renders `معرّف غير صالح`. A safe id with no party renders `الشخص غير متاح`.
 
@@ -359,15 +300,13 @@ Unknown hashes still fall through to home (`public/render.js` lines 1113-1114). 
 
 ## Strings
 
-Grouped by screen. `new` means the v1 inventory string is not in `public/` at baf4f21f. `reused` means it is already on screen. Question 2 asks Ameer to accept the set this page paints. He is not asked to accept the material strings.
-
-The plan's count of 88 is still open (`Q-strings`). PR B added one approved string, `الخصم أكبر من العمل المعتمد`, which this page shows and which is not in the app yet. v1 strings on this page go from that approved set to 89, plus `أدخل اسم الشخص` if question 2 says yes, plus the advance sentence if question 4 says yes.
+Grouped by screen. `new` means the string is one of the 88 Ameer approved on 2026-11-10 at 11:16 Baghdad and is not yet in `public/` at baf4f21f. The list is `strings-contractor-module-r2.22.md` (sha256 prefix `9d25840a`); `strings-contractor-module-r2.23.md` records that approval. Those 88, and the tab `حسابات`, are closed. `reused` means the words are already on a screen at baf4f21f. `awaiting` means the words are not in the 88. Those are questions for EA, with a default, in أسئلة لأمير.
 
 ### Tab and list
 
 | String                  | Mark               | Where it already is, or why it is here                              |
 | ----------------------- | ------------------ | ------------------------------------------------------------------- |
-| `حسابات`                | new, not approved  | Question 1. The tab and the `#title` on the list.                   |
+| `حسابات`                | approved           | The tab and the `#title` on the list. Approved 2026-11-10 11:16.    |
 | `حسابات الأشخاص`        | new                | List heading inside the card.                                       |
 | `+ شخص جديد`            | new                | The button. Absent in the demo and absent until E routes `parties`. |
 | `اسم الشخص`             | new                | The create field label.                                             |
@@ -381,15 +320,15 @@ The plan's count of 88 is still open (`Q-strings`). PR B added one approved stri
 
 ### Tabs and filters
 
-| String         | Mark                                                                              |
-| -------------- | --------------------------------------------------------------------------------- |
-| `نظرة عامة`    | new                                                                               |
-| `العقود`       | new. The shorter v1 name. The page does not say `عقود العمل`.                     |
-| `الحركات`      | new                                                                               |
-| `كشف الحساب`   | new                                                                               |
-| `الدفعات`      | reused. `public/render.js` line 754. Filter, not a tab.                           |
-| `السلف`        | reused. `public/foremen.js` line 157. Filter, not a tab.                          |
-| `قياسات العمل` | new as a filter label. It was a full-page tab name. Section 14 makes it a filter. |
+| String         | Mark                                                          |
+| -------------- | ------------------------------------------------------------- |
+| `نظرة عامة`    | new                                                           |
+| `العقود`       | new. The shorter v1 name. The page does not say `عقود العمل`. |
+| `الحركات`      | new                                                           |
+| `كشف الحساب`   | new                                                           |
+| `الدفعات`      | reused. `public/render.js` line 754. Filter, not a tab.       |
+| `السلف`        | reused. `public/foremen.js` line 157. Filter, not a tab.      |
+| `قياسات العمل` | awaiting. Not in the 88. Filter label. Default: use it.       |
 
 The page does not say `حركات المواد`, `المرفقات`, `الأدوار`, or any role name.
 
@@ -423,18 +362,18 @@ Method labels, new, read from the agreement: `مبلغ مقطوع`, `بسعر ا
 
 ### Movements
 
-| String                                | Mark                                                               |
-| ------------------------------------- | ------------------------------------------------------------------ |
-| `بانتظار الاعتماد`                    | new. Unapproved `laborQty` or `deduct`.                            |
-| `معتمد`                               | new. Live `approveLabor`.                                          |
-| `مرفوض`                               | new. A `rej_` with no live approval.                               |
-| `معكوس`                               | reused. `public/render.js` line 512.                               |
-| `غير مدقّق`                           | new. Q10 closed. Cash row with no live `revw_`.                    |
-| `لم يُرسل`                            | reused. The row id is in the outbox.                               |
-| `لا يوجد`                             | reused. `public/render.js` line 559. Empty filter.                 |
-| `المُرجَع أكبر من الدفعة`             | new. Approved. `overLimit` on `payLabor` or `refundLabor`.         |
-| `الخصم أكبر من العمل المعتمد`         | new. Approved by Ameer 2026-11-15 via EA. `overLimit` on `deduct`. |
-| `القيد موجود على الخادم بمحتوى مختلف` | reused. `SyncStatus.CONFLICT`. Slot-loser block.                   |
+| String                                | Mark                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| `بانتظار الاعتماد`                    | new. Unapproved `laborQty` or `deduct`.                                         |
+| `معتمد`                               | new. Live `approveLabor`.                                                       |
+| `مرفوض`                               | new. A `rej_` with no live approval.                                            |
+| `معكوس`                               | reused. `public/render.js` line 512.                                            |
+| `غير مدقّق`                           | new. Q10 closed. Cash row with no live `revw_`.                                 |
+| `لم يُرسل`                            | reused. The row id is in the outbox.                                            |
+| `لا يوجد`                             | reused. `public/render.js` line 559. Empty filter.                              |
+| `المُرجَع أكبر من الدفعة`             | new. Approved. `overLimit` on `payLabor` or `refundLabor`.                      |
+| `الخصم أكبر من العمل المعتمد`         | awaiting. Not in the 88. Ameer approved it 2026-11-15 via EA. Default: keep it. |
+| `القيد موجود على الخادم بمحتوى مختلف` | reused. `SyncStatus.CONFLICT`. Slot-loser block.                                |
 
 No `اعتماد`, `رفض السطر`, `عكس`, or `نسخة جديدة` button.
 
@@ -450,17 +389,17 @@ Not on this page: `فرق سعر الصرف`, `لا مرفقات في هذه ا�
 
 ## Tests
 
-`tests/accounts-view.test.js`. Each test asserts an Arabic string or a number from the fixture. None asserts a helper's source text. The figure tests call the real `Accounts.balances` once C is on the branch. A hardcoded 480,000 that disagrees with `balances` fails.
+`tests/accounts-view.test.js`. Each test asserts an Arabic string or a number C returned for the fixture. None asserts a helper's source text, and none restates C's line order. The figure tests call the real `Accounts.balances` and `Accounts.statementLines` once C is on the branch. A rendered closing that disagrees with `statementLines().closing` fails.
 
 Fixtures from the plan:
 
 - Spec 12 / the brick screen. `approveLabor` 600,000 and `payLabor` 600,000. Overview shows `عمل معتمد` 600,000, `مدفوع للعمل` 600,000, `مستحق له` 0, `مستحق عليه` 0.
 - Partial, spec 11. The same approval and `payLabor` 200,000. `مستحق له` 400,000. `مستحق عليه` 0.
 - Overpayment. `payLabor` 700,000 after `approveLabor` 600,000. `مستحق عليه` 100,000. The HTML has one `payLabor` row and no `advanceLabor` row. The 100,000 line does not contain U+2212.
-- Statement. Approval 600,000, deduct 50,000, `approveDeduct` of that deduct, advance 100,000, return 30,000. Closing 480,000. `صافي السلف` 70,000. `سلف قائمة عليه` 70,000.
-- Same rows plus `settle` 40,000. Closing stays 480,000. `صافي السلف` stays 70,000. `سلف قائمة عليه` is 30,000. The HTML does not contain 520,000.
-- Same rows without `approveDeduct`. The deduct shows `بانتظار الاعتماد`. Closing is 530,000.
-- `periodBounds('week', '2026-11-15')` is 2026-11-14 through 2026-11-20. `periodBounds('week', '2026-11-14')` and `periodBounds('week', '2026-11-20')` are that same week. `periodBounds('week', '2026-11-21')` is 2026-11-21 through 2026-11-27. `periodBounds('month', '2026-11-15')` is 2026-11-01 through 2026-11-30.
+- Statement. Approval 600,000, deduct 50,000, `approveDeduct` of that deduct, advance 100,000, return 30,000. The rendered lines equal `statementLines().lines` in that order, and the closing text equals `statementLines().closing`.
+- Same rows plus `settle` 40,000. The closing text still equals C's closing. The HTML does not contain 520,000.
+- Same rows without `approveDeduct`. The deduct id is in `pendingIds` and shows `بانتظار الاعتماد`. The closing text equals C's closing.
+- The statement's `من` and `إلى` equal `Accounts.periodBounds(kind, today)` for that same call. `accounts-view.js` does not define `periodBounds`.
 
 Behaviour:
 
@@ -556,9 +495,9 @@ A revert that touches `public/` bumps `VERSION` again, to whatever is free at th
 
 - A is on baf4f21f. `render.js` does not call `Accounts`. `accounts.js` exports `CONTRACTOR_COST_START`, `PURPOSES`, `unitPrice`, `workPosition`, `post`, `cashPointerErrors`, and `projectCost` (`public/accounts.js` line 187). It does not export `balances` or `statementLines`.
 - B adds the labor posts, `personBalance`, and the `cumulative` code. F does not call `post` or `personBalance`. The overview uses C's `payableGross`, because a negative net and «مستحق عليه» are not the same number as the open-advance split.
-- C adds `balances` and `statementLines` with the fields in `AccountFigures`. F is blocked on those names.
-- D is deployed before E. F does not edit rules and does not need them for the read-only demo. Create-person on a logged-in phone needs D's party create and E's route.
-- E routes `docType: 'party'` to `parties` and strips `docType` before the write. The local keys `K.parties`, `K.agreements`, and `K.accountTxns` are E's if E stores rows. At baf4f21f `K` (`public/session.js` line 5) does not have them. If they are still missing when F's code PR rebases onto E, F adds the missing keys and nothing else in that object.
+- C adds `balances`, `statementLines`, and `periodBounds`. F prints those return values and does not re-specify them.
+- D is deployed before E. F does not edit rules. D's party `hasOnly` list is what decides the `docType` strip. Create-person on a logged-in phone needs D's party create and E's route.
+- E routes `docType: 'party'` to `parties`. E's `toRemote` follows D's allowed-field list for whether `docType` is sent. The local keys `K.parties`, `K.agreements`, and `K.accountTxns` are E's if E stores rows. At baf4f21f `K` (`public/session.js` line 5) does not have them. If they are still missing when F's code PR rebases onto E, F adds the missing keys and nothing else in that object.
 - `projectCost` at baf4f21f still has the date loop and returns 0 while the constant is null (`public/accounts.js` lines 175-176). B's sketch replaces that loop with `return 0`. Either way F does not call it.
 
 ## Risks
@@ -599,62 +538,69 @@ These plan sentences are not true at baf4f21f:
 - `projectCost` is not yet `return 0` with the loop deleted. The loop is `public/accounts.js` lines 175-185. B's sketch removes it. F leaves it alone.
 - `README.md` line 22 still says `aj-p0-v41`. That stale sentence is still there. F does not edit it.
 - The plan's "open pull request #65" list is not a dependency of F. #72 is the commit this branch starts from.
+- Plan line 89 says `public/accounts.js` is the only new module in v1. F adds `public/accounts-view.js`. That is a deliberate deviation. Architect review of `5ab3cb3e` (M1) accepts the shape. With the file come the script tag, `ASSETS`, `SHELL`, `SHELL_FILES`, the shell-cache chain, `tsconfig.strict-accounts-view.json`, the `typecheck` entry, and `tests/accounts-view.test.js`.
 
 ## Accounting advisor
 
 Opinion only. This sketch does not ask the advisor again. PR B already recorded the opinion and Ameer's deferral of 2026-11-15 23:22 Baghdad (UTC+3) via EA.
 
-The advisor's label for a payment larger than approved work is `مستحق على الشخص (سلفة)`. The plan keeps one `payLabor` and a negative person balance. PR B left the on-screen words and any confirm step to this screens PR. The recommended words are the approved `مستحق عليه` plus `المتبقي سلفة`. Question 3 is that choice. The confirm step is a write. It belongs with the payment action, not on this read-only page.
+The advisor's label for a payment larger than approved work is `مستحق على الشخص (سلفة)`. The plan keeps one `payLabor` and a negative person balance. PR B left the on-screen words and any confirm step to this screens PR. The recommended words are the approved `مستحق عليه` plus `المتبقي سلفة`. Question 5 is that choice. The confirm step is a write. It belongs with the payment action, not on this read-only page.
 
 The statement layout the advisor already corrected stays the one in section 3 of the plan: advances paid minus, cash returned plus, net advances equal to that difference, deductions negative. F prints those lines from C. It does not put a cash return under `الخصومات ومرتجعات المواد`.
 
 ## أسئلة لأمير
 
-الجواب يقفل السؤال. الاقتراح تحت كل واحد.
+الثمانين والثمانية جملة، واسم التبويب «حسابات»، موافَق عليها بتاريخ 2026-11-10 الساعة 11:16 بتوقيت بغداد. الأسئلة الباقية لـ EA. الاقتراح تحت كل واحد.
 
-**1. اسم التبويب.**
+**1. فلتر القياسات.**
 
-التبويب الجديد اسمه «حسابات». هسه بعده مو موافق عليه.
+«قياسات العمل» مو من الـ 88. الصفحة تستخدمها اسم فلتر على «الحركات»، مو تبويب.
 
-**اقتراح:** موافق. الاسم «حسابات».
+**اقتراح:** نستخدم «قياسات العمل».
 
-**2. نصوص هالصفحة.**
+**2. الاسم الفاضي.**
 
-القسم «Strings» بي كل جملة هالصفحة راح تعرضها، جديدة لو قديمة. مو مطلوب توافق على نصوص المواد. جملة «أدخل اسم الشخص» جديدة ومو بالقائمة القديمة، وتطلع إذا الاسم فاضي أو أطول من 80 حرف.
+«أدخل اسم الشخص» مو من الـ 88. تطلع إذا الاسم فاضي أو أطول من 80 حرف.
 
-**اقتراح:** موافق على نصوص هالصفحة مثل ما مكتوبة، ونضيف «أدخل اسم الشخص».
+**اقتراح:** نضيفها.
 
-**3. إذا الدفع أكبر من الشغل المعتمد.**
+**3. جملة السلفة الزايدة.**
 
-المثال: شغل معتمد 600,000 ودفعة 700,000. الصفحة تبيّن 100,000. الكلمة المقترحة «مستحق عليه» ومعها «المتبقي سلفة». المحاسب اقترح «مستحق على الشخص (سلفة)». ما نفتح سلفة ثانية بالسجل. سؤال «تأكد قبل الحفظ» ماله بهالصفحة، لأن زر الدفع يجي بطلب لاحق.
+«المُرجَع والتسوية أكبر من السلفة» مو من الـ 88. جملة الدفعة ما تناسب السلفة.
 
-**اقتراح:** نبقى على «مستحق عليه» و«المتبقي سلفة»، وما نضيف جملة جديدة، والتأكيد يأجل لطلب الدفع.
+**اقتراح:** نضيفها.
 
-**4. إذا الإرجاع والتسوية أكبر من السلفة.**
+**4. جملة الخصم.**
 
-جملة «المُرجَع أكبر من الدفعة» للدفعة. جملة «الخصم أكبر من العمل المعتمد» للخصم، وموافقة من قبل. السلفة ما إلها جملة.
+«الخصم أكبر من العمل المعتمد» مو من الـ 88. أمير وافق عليها بتاريخ 2026-11-15 الساعة 23:22 عبر EA.
 
-**اقتراح:** نضيف «المُرجَع والتسوية أكبر من السلفة».
+**اقتراح:** تبقى، وهي زيادة على الـ 88 مو إعادة فتح لها.
 
-**5. زر الشخص الجديد بالتجربة.**
+**5. إذا الدفع أكبر من الشغل المعتمد.**
+
+المثال: شغل معتمد 600,000 ودفعة 700,000. الصفحة تبيّن `Balance.recoverable`. الكلمتان «مستحق عليه» و«المتبقي سلفة» من الـ 88. المحاسب اقترح «مستحق على الشخص (سلفة)»، وهي مو من الـ 88. ما نفتح سلفة ثانية. التأكيد قبل الحفظ يأجل لطلب الدفع.
+
+**اقتراح:** «مستحق عليه» و«المتبقي سلفة»، بدون جملة جديدة.
+
+**6. زر الشخص الجديد بالتجربة.**
 
 بالتجربة (`?role=owner`) الزر «+ شخص جديد» ما يبين، حتى ما ينحط معرف بالصادر. بعد تسجيل الدخول، وإذا إرسال الأشخاص موجود من طلب E، الزر يبين للمالك.
 
 **اقتراح:** أي. الزر للمسجّل بس، مو للتجربة.
 
-**6. ملاحظة الشخص.**
+**7. ملاحظة الشخص.**
 
 التخزين يسمح بملاحظة. ماكو نص موافق لها. الفورم بي اسم الشخص بس، والملاحظة ما تنرسل.
 
 **اقتراح:** الاسم بس بهالنسخة.
 
-**7. «هذا المشروع».**
+**8. «هذا المشروع».**
 
 الحبة تعرض المشاريع اللي بيها عقد أو حركة لهذا الشخص. ما تعرض كل مشاريع الشركة.
 
 **اقتراح:** أي، بس مشاريعه.
 
-مقفل من قبل، مو سؤال: أربعة تبويبات، دينار بس وبدون اختيار عملة، المالك بس، «مستحق عليه»، «غير مدقّق»، «لا يُعتمد الكشف وفيه مبلغ غير مدقّق»، و«الخصم أكبر من العمل المعتمد». الزر ما يبين قبل ما E تصير بنفس النسخة.
+مقفل من قبل، مو سؤال: اسم التبويب «حسابات»، والـ 88 جملة، وأربعة تبويبات، ودينار بس وبدون اختيار عملة، والمالك بس. الزر ما يبين قبل ما E تصير بنفس النسخة.
 
 ## pstack for the code PR
 
@@ -672,7 +618,7 @@ Skills this phase uses, from the plan and from the screen work: `architect` (thi
 ## Decisions only Ameer can make
 
 - Say go on this sketch before any code PR.
-- Answer the seven questions above. The code PR does not pick the tab name, the overpayment words, the advance sentence, the demo button, the note field, or the project pills.
+- EA answers the questions above. The code PR does not pick a string that is outside the 88, the demo button, the note field, or the project pills.
 - Merge, later, only after Architect's review of the code SHA and CI 4/4. This sketch does not merge itself.
 
-Already decided, and not reopened here: IQD only, four tabs, filters on `الحركات`, owner only, create-person absent until E is in the same build, the empty demo list, `مستحق عليه`, `غير مدقّق`, the statement sentence about an unreviewed cash row, and `الخصم أكبر من العمل المعتمد`.
+Already decided, and not reopened here: the tab `حسابات`, the 88 strings, IQD only, four tabs, filters on `الحركات`, owner only, create-person absent until E is in the same build, and the empty demo list.
