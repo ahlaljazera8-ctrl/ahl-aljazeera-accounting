@@ -315,3 +315,178 @@ test('enterSession accepts owner and site, and refuses another role', async () =
   await s.enterSession({}, 'u-ahmed', { active: true, role: 'site', displayName: 'Ahmed' });
   assert.equal(s.cache.sessionUser.role, 'site');
 });
+
+// Baghdad calendar day. The clock is injected before session.js runs.
+// Callers keep using today(); these tests do not read baghdadFmtFailed.
+function entryDateOk(s) {
+  return (
+    typeof s === 'string' &&
+    /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(s) &&
+    s >= '2000-01-01' &&
+    s <= '2100-12-31' &&
+    !/^[0-9]{4}-02-3[01]$/.test(s) &&
+    !/^[0-9]{4}-(04|06|09|11)-31$/.test(s)
+  );
+}
+
+function loadDatedSession(fixedMs, intl) {
+  const clock = { ms: fixedMs };
+  class FakeDate extends Date {
+    constructor(...args) {
+      super(...(args.length ? args : [clock.ms]));
+    }
+    static now() {
+      return clock.ms;
+    }
+  }
+  const found = {};
+  const context = {
+    console,
+    URLSearchParams,
+    queueMicrotask,
+    indexedDB: fakeIndexedDB({ keys: [], vals: [] }),
+    location: { search: '' },
+    document: {
+      querySelector(sel) {
+        return Object.prototype.hasOwnProperty.call(found, sel) ? found[sel] : null;
+      },
+      body: { dataset: {} },
+    },
+    navigator: { onLine: true },
+    crypto: { randomUUID: () => 'uuid-from-test' },
+    Ledger: {
+      can() {
+        return false;
+      },
+    },
+    HTMLFormElement: function HTMLFormElement() {},
+    HTMLInputElement: function HTMLInputElement() {},
+    disposeFirebase() {
+      return Promise.resolve();
+    },
+    render() {},
+    flushRemote() {},
+    Date: FakeDate,
+    Intl: intl || Intl,
+  };
+  context.window = context;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/session.js'), 'utf8'), context);
+  return { context, clock };
+}
+
+const BAGHDAD_DAYS = [
+  ['T-D1', '2026-11-15T21:30:00Z', '2026-11-16'],
+  ['T-D2', '2026-11-15T23:59:00Z', '2026-11-16'],
+  ['T-D3', '2026-11-16T00:00:00Z', '2026-11-16'],
+  ['T-D4', '2026-11-15T20:59:00Z', '2026-11-15'],
+  ['T-D5', '2026-12-31T21:10:00Z', '2027-01-01'],
+  ['T-D6', '2028-02-28T21:30:00Z', '2028-02-29'],
+];
+
+for (const [id, iso, expected] of BAGHDAD_DAYS) {
+  test(id + ' today() is the Baghdad day at ' + iso, () => {
+    const loaded = loadDatedSession(Date.parse(iso));
+    assert.equal(loaded.context.today(), expected);
+  });
+}
+
+// Guard against a future switch to device-local time. The old UTC slice
+// already ignores TZ, so this test does not separate the old body from the new one.
+test('T-D7 today() ignores the device zone', () => {
+  const previous = process.env.TZ;
+  const zones = ['UTC', 'America/Los_Angeles', 'Pacific/Kiritimati', 'Asia/Baghdad'];
+  const rows = [
+    ['2026-11-15T21:30:00Z', '2026-11-16'],
+    ['2026-11-15T23:59:00Z', '2026-11-16'],
+    ['2026-11-15T20:59:00Z', '2026-11-15'],
+  ];
+  try {
+    for (const zone of zones) {
+      process.env.TZ = zone;
+      for (const [iso, expected] of rows) {
+        const loaded = loadDatedSession(Date.parse(iso));
+        assert.equal(loaded.context.today(), expected, zone + ' ' + iso);
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+});
+
+test('T-D8 a throwing DateTimeFormat is not retried and the +3 h day is kept', () => {
+  let constructs = 0;
+  function DateTimeFormat() {
+    constructs += 1;
+    throw new RangeError('unsupported time zone');
+  }
+  const loaded = loadDatedSession(Date.parse('2026-11-15T21:30:00Z'), { DateTimeFormat });
+  assert.equal(loaded.context.today(), '2026-11-16');
+  loaded.clock.ms = Date.parse('2026-11-15T23:59:00Z');
+  assert.equal(loaded.context.today(), '2026-11-16');
+  loaded.clock.ms = Date.parse('2026-11-15T21:30:00Z');
+  assert.equal(loaded.context.today(), '2026-11-16');
+  assert.equal(constructs, 1);
+});
+
+test('T-D9 stepped instants match entryDateOk and the +3 h oracle', () => {
+  const start = Date.UTC(2026, 0, 1, 0, 0, 0);
+  const step = 26 * 60 * 60 * 1000;
+  const loaded = loadDatedSession(start);
+  for (let i = 0; i < 1000; i++) {
+    const t = start + i * step;
+    loaded.clock.ms = t;
+    const day = loaded.context.today();
+    assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(entryDateOk(day), true, day);
+    assert.equal(day, new Date(t + 3 * 3600e3).toISOString().slice(0, 10));
+  }
+  const monthEnd = Date.parse('2026-11-30T21:30:00Z');
+  loaded.clock.ms = monthEnd;
+  assert.equal(loaded.context.today(), '2026-12-01');
+  assert.equal(loaded.context.today(), new Date(monthEnd + 3 * 3600e3).toISOString().slice(0, 10));
+});
+
+test('T-D10 the formatter is constructed once across 10000 calls', () => {
+  let constructs = 0;
+  const Real = Intl.DateTimeFormat;
+  function DateTimeFormat(...args) {
+    constructs += 1;
+    return new Real(...args);
+  }
+  const loaded = loadDatedSession(Date.parse('2026-11-15T21:30:00Z'), { DateTimeFormat });
+  for (let i = 0; i < 10000; i++) assert.equal(loaded.context.today(), '2026-11-16');
+  assert.equal(constructs, 1);
+});
+
+test('T-D11 unparsable formatToParts digits use the +3 h day and the formatter stays cached', () => {
+  let constructs = 0;
+  let mode = 'arabic';
+  const Real = Intl.DateTimeFormat;
+  function DateTimeFormat(...args) {
+    constructs += 1;
+    const real = new Real(...args);
+    real.formatToParts = function formatToParts() {
+      if (mode === 'arabic') {
+        return [
+          { type: 'year', value: '٢٠٢٦' },
+          { type: 'month', value: '١١' },
+          { type: 'day', value: '١٦' },
+        ];
+      }
+      return [
+        { type: 'year', value: '1999' },
+        { type: 'month', value: '01' },
+        { type: 'day', value: '02' },
+      ];
+    };
+    return real;
+  }
+  const loaded = loadDatedSession(Date.parse('2026-11-15T21:30:00Z'), { DateTimeFormat });
+  assert.equal(loaded.context.today(), '2026-11-16');
+  assert.equal(constructs, 1);
+  mode = 'latn';
+  assert.equal(loaded.context.today(), '1999-01-02');
+  assert.equal(constructs, 1);
+});
