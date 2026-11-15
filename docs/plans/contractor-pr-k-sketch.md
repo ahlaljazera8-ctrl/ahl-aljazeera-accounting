@@ -10,13 +10,15 @@ Format follows the Architect-approved PR B sketch. PR B's types and functions ar
 
 Revision r2, against Architect NOTES on `b5624404` (review sha256 starts `84ddfb4e`). C lands first and exports `rowCounts(row, index)`. K calls that function. K does not define a second live-row rule.
 
+EA, 2026-11-16 00:52 Baghdad, approved the defaults in `QUESTIONS-FOR-EA-r1.md` (sha256 starts `13723e6e`). Where `answers-EA-delegated-0034.md` (sha256 starts `c14b9c84`) differs, the earlier answer wins. This lane records Q5 and Q23.
+
 ## Scope
 
 Plan r2.28 sections 10 and 13. Order is A, B, C, then D merged and deployed by Ameer, then E, F, K, then G-J. K is after C and before G-J. C's code, including the exported `rowCounts`, is on the base before K's code. K reuses it. K does not land against a C that still has the check inline.
 
 PR K puts `projectCost` on the owner home and the owner project screen. The owner's profit is received minus that number. Received stays the legacy income fold. Site `spent` stays the legacy figure. `CONTRACTOR_COST_START` stays `null`. An engineer sets that constant and deploys only after Ameer says go through EA, on the day the new section ships. While it is `null`, K adds no new cost. K does not edit legacy rows. K creates no new document kind.
 
-The open question in section 10 (a new legacy `عمالة/سلفة` or `مقاول` row on or after that later date) stays open. K implements none of options (1) through (5). The code PR does not filter legacy rows by `entryDate`, does not block a legacy save, and does not add a warning.
+Q23 is answered «بعدين» (EA, 2026-11-16 00:52 Baghdad; the 2026-11-10 deferral is the same answer). K implements none of options (1) through (5). `CONTRACTOR_COST_START` stays `null`. The code PR does not filter legacy rows by `entryDate`, does not block a legacy save, and does not add a warning.
 
 In K, once a test passes a real date:
 
@@ -35,15 +37,15 @@ The projects list already shows the same owner profit as the project screen (`pu
 
 ## Files the code PR edits
 
-| File                           | Change                                                                                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/accounts.js`           | Replace `projectCost` so it calls C's exported `rowCounts(row, index)`. Do not declare `rowCounts`. Keep `CONTRACTOR_COST_START` as `null`. |
-| `public/render.js`             | Owner home (lines 546-551), open project cards (lines 617-621), and the owner project screen (lines 631-634) call the helper below.         |
-| `tests/accounts.test.js`       | The behaviour tests below. The null-date test at lines 78-81 is rewritten for the new signature and still expects no new cost.              |
-| `public/sw.js`                 | `VERSION` only, the next free value at merge time. At this base it is `aj-p0-v58` (`public/sw.js` line 1). Do not reserve the next number.  |
-| `tests/shell-cache.test.js`    | The three pins at lines 43, 65, and 93, same string as `VERSION`.                                                                           |
-| `tests/webkit-upgrade.test.js` | `MARK` at line 18, same string as `VERSION`.                                                                                                |
-| `docs/PSTACK_INVENTORY.md`     | A next-step sentence on the «ناقصة» redesign row (line 41). Evidence links only on the two «مطبّقة» rows (lines 29 and 58).                 |
+| File                           | Change                                                                                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/accounts.js`           | Replace `projectCost` so it calls C's exported `rowCounts(row, index)`. Do not declare `rowCounts`. Keep `CONTRACTOR_COST_START` as `null`.                      |
+| `public/render.js`             | Owner home (lines 546-551), open project cards (lines 617-621), and the owner project screen (lines 631-634) call the helper below.                              |
+| `tests/accounts.test.js`       | The behaviour tests below. The null-date test at lines 78-81 is rewritten for the new signature and still expects no new cost.                                   |
+| `public/sw.js`                 | `VERSION` only, the next free value at merge time (Q5). The date fix is `aj-p0-v59` and merges first. K reserves no number. At `baf4f21f` line 1 is `aj-p0-v58`. |
+| `tests/shell-cache.test.js`    | The three pins at lines 43, 65, and 93, same string as `VERSION`.                                                                                                |
+| `tests/webkit-upgrade.test.js` | `MARK` at line 18, same string as `VERSION`.                                                                                                                     |
+| `docs/PSTACK_INVENTORY.md`     | A next-step sentence on the «ناقصة» redesign row (line 41). Evidence links only on the two «مطبّقة» rows (lines 29 and 58).                                      |
 
 Behaviour lives in `public/accounts.js` and `public/render.js`. `public/ledger.js` is not one of them.
 
@@ -155,7 +157,7 @@ Rejection-wins, marker detection (id prefix or pointer field), and rev-of-rev st
 
 `slotLosers` and `linkRefusals` are not arguments. The adopted snapshot has one approval row. The loser's copy is absent. K does not read those maps.
 
-Legacy rows are every counted expense `totals().spent` already includes, including a row whose `entryDate` is on or after a future start. That is the open question left unanswered.
+Legacy rows are every counted expense `totals().spent` already includes, including a row whose `entryDate` is on or after a future start. Q23 leaves that as «بعدين». The constant stays `null`.
 
 ## Tests (behaviour)
 
@@ -210,7 +212,7 @@ The later code PR is sequential where the files overlap:
 
 - `public/accounts.js` with PR B and PR C. B replaces the loop at lines 175-185 with `return 0`. C lands first and exports `rowCounts(row, index)`. K rebases onto that export and replaces B's stub. K does not move an inlined check and does not declare `rowCounts`.
 - `public/render.js` with the Baghdad-date fix (`session.js` and `render.js`; that fix merges first) and with the foreman export (`ledger.js` and `render.js`). K does not edit `session.js` or `ledger.js`. The overlap is `render.js`.
-- `public/sw.js`, `tests/shell-cache.test.js`, and `tests/webkit-upgrade.test.js` with every public PR that bumps `VERSION`. The code PR takes the next free value at merge time.
+- `public/sw.js`, `tests/shell-cache.test.js`, and `tests/webkit-upgrade.test.js` with every public PR that bumps `VERSION`. Q5: the code PR takes the next free value at merge time. The date fix merges first as `aj-p0-v59`. K does not claim that number or any later one. The pins copy `VERSION` at merge.
 - `docs/PSTACK_INVENTORY.md` with any PR that edits the same evidence cells. The code PR only.
 
 K is after E and F. E's `K.accountTxns` is required on the code PR's base. K does not create the store and does not treat a missing key as `[]`. G-J come after K, so an approval can move this figure. K does not build those actions.
@@ -276,7 +278,7 @@ The code PR reverts with `git revert`. Revert puts the screens back on `totals` 
 - A second live-row check inside `projectCost` will drift from C. The code PR calls `rowCounts` and does not grow a copy.
 - `render.js` will conflict with the date fix and the foreman export. Rebase those hunks. Do not take their date or export edits out.
 - Assigning `CONTRACTOR_COST_START` in the code PR turns cost on before the ship-day go.
-- Dropping a legacy row because its `entryDate` is on or after `start` answers the open question. K does not.
+- Dropping a legacy row because its `entryDate` is on or after `start` would pick an option Q23 left as «بعدين». K does not.
 - Calling `ownerSpent` from lines 555-558, 621, or 635 changes the site figure.
 - Reading `slotLosers` would add a copy E already removed from the fold.
 - Summing home only over open projects would drop archived projects from إجمالي المصروف even while the date is `null`. Home uses `data().projects`, which includes archived projects for the owner.
@@ -295,7 +297,7 @@ This docs PR is the architect sketch. Arena was not run. The code PR is the `fea
 
 **1. بعد ما ينحط تاريخ البداية، شنسوي بقيود «عمالة/سلفة» و«مقاول» الجديدة؟**
 
-هسه التاريخ فاضي. بهالنسخة ما تنضاف كلفة جديدة، والسؤال هذا يبقى مفتوح. يوم ينحط التاريخ، إذا انكتب قيد جديد نوعه «عمالة/سلفة» أو «مقاول» وتاريخه بنفس اليوم أو بعده، شنو يصير؟
+هسه التاريخ فاضي. بهالنسخة ما تنضاف كلفة جديدة. يوم ينحط التاريخ، إذا انكتب قيد جديد نوعه «عمالة/سلفة» أو «مقاول» وتاريخه بنفس اليوم أو بعده، شنو يصير؟ الجواب تحت، سؤال 23.
 
 1. نمنعهن كلهن. دفع المقاول الحالي يوقف. و«من عهدة» ما تنزل من الخلفة إلا إذا انكتبت مصروف.
 2. نمنع «عمالة/سلفة» بس. دفع المقاول يبقى. المصروف، ومقاول بلا عقد، يكدّرن يتكرران، والخلفة تنضرب.
@@ -303,7 +305,7 @@ This docs PR is the architect sketch. Arena was not run. The code PR is the `fea
 4. نخليهن وينحسبن، وطلّع تنبيه. الشغل كله يبقى، والتكرار يبقى.
 5. رأي المحاسب، مو قرار: المنع يصير على الشخص، وهذا أوسع من النسخة الأولى. إذا ربط العهدة مو جاهز، نأجّل التاريخ.
 
-**الاقتراح:** اكتب «بعدين». ما نختار خيار بهالنسخة. نرجعلك قبل لا ينحط التاريخ.
+**الجواب، سؤال 23:** «بعدين». EA وافق على الافتراضي بتاريخ 2026-11-16 الساعة 00:52 بتوقيت بغداد. جواب 2026-11-10 نفسه، وهو اللي يغلب إذا اختلفت الصياغة. `CONTRACTOR_COST_START` يبقى `null`. ما نختار خيار من 1 إلى 5. نرجع للسؤال قبل لا ينحط التاريخ.
 
 هالمرحلة ما تطبق ولا خيار من الخمسة. القيد القديم المحسوب يبقى داخل الكلفة، والدالة ما تشوف تاريخه.
 
@@ -312,6 +314,7 @@ This docs PR is the architect sketch. Arena was not run. The code PR is the `fea
 ## Decisions only Ameer can make
 
 - Say go on this sketch before any code PR.
-- Answer the question above, or leave it as «بعدين». This sketch does not pick an option.
-- Do not set `CONTRACTOR_COST_START` in the code PR. The constant stays `null` until an engineer changes it and deploys, after Ameer says go through EA, on the ship day.
+- Q23 is answered «بعدين». This sketch does not pick option 1, 2, 3, 4, or 5. Ask again before the constant is set.
+- Q5: the code PR sets `VERSION` to the next free number at merge time. The date fix is `aj-p0-v59`. K does not claim a number.
+- Do not set `CONTRACTOR_COST_START` in the code PR (Q23). The constant stays `null` until an engineer changes it and deploys, after Ameer says go through EA, on the ship day.
 - Merge the later code PR only after the Architect's review of that SHA and CI 4/4. This sketch does not merge itself.
