@@ -1,8 +1,8 @@
 # PLAN ONLY: contractor PR D sketch
 
-Revision r2, against Architect NOTES on `22f00d41` (review sha256 `dd9ed13ad0758f0bbcf5f621e063453633da5d1b729abaa83b9c66508f0417b5`). r1 blob `8a90b306099ec2fa6511f98c40f36dc26c39ad57`. Ameer's answers of 2026-11-16 00:34 Baghdad, and the 00:36 follow-up, via EA, are recorded in «أجوبة أمير». QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) Q5, Q8, Q9, and Q10 are approved as their defaults (00:52 via EA). Where `answers-EA-delegated-0034` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, that earlier answer wins.
+Revision r3, against Architect NOTES on `4d082a06` (review sha256 `b7f0c2af3c373ee9baa5dd7cdce67761081807068791f4c967e19cb42f4f1d1f`). r2 blob `0fb5651ba095af415e6caf1c1b325b02063b924e`. r1 blob `8a90b306099ec2fa6511f98c40f36dc26c39ad57`. Ameer's answers of 2026-11-16 00:34 Baghdad, and the 00:36 follow-up, via EA, are recorded in «أجوبة أمير». QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) Q5, Q8, Q9, and Q10 are approved as their defaults (00:52 via EA). The answers file is `answers-EA-delegated-0034.md`. Cite it at sha256 `10554dbb`. Its D sections are unchanged since `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`. Where that earlier file differs from a later default, the earlier answer wins.
 
-No code in this pull request. No edit to `firestore.rules`, `public/`, or `public/sw.js`. The code PR comes after the Architect reviews this r2 and Ameer says go. Merging the rules and deploying them need the real-data conditions below. This sketch does not merge and does not deploy.
+No code in this pull request. No edit to `firestore.rules`, `public/`, or `public/sw.js`. The code PR comes after the Architect reviews this r3 and Ameer says go. Merging the rules and deploying them need the real-data conditions below. This sketch does not merge and does not deploy.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Base for the citations below: `baf4f21fc54c156989334e826d19990b8e5e8a74` (PR #72, service worker `aj-p0-v58`). `public/accounts.js` from PR A (#71) is already on that commit.
 
@@ -31,12 +31,12 @@ Not in D: `inv_`, `hashing.sha256`, `lockId`, `invoiceKey`, `invoiceNumber`, `at
 
 ## Files the code PR may edit
 
-| File                                   | Change                                                                                                                                                                                                                                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `firestore.rules`                      | Append the four matches and the functions below. Do not edit the ledger match, `shapeOk` (line 83), `projectOpen` (lines 52-54), `isOwner` (line 11), or `idOk` (line 19). Those stay for the rows that already use them.                                                                                   |
-| `tests/emulator/account-rules.test.js` | New. The behaviour tests and the length, budget, and `PURPOSES` source checks below.                                                                                                                                                                                                                        |
-| `.github/workflows/ci.yml`             | Two edits. On line 181, add `tests/emulator/account-rules.test.js` immediately after `tests/emulator/rules.test.js`. On line 188, raise `"$pass" -lt 45` to the pass total of one green full emulator run, so a skipped `describe` fails CI. Do not guess the number.                                       |
-| `docs/PSTACK_INVENTORY.md`             | Evidence on `principle-prove-it-works` and `blast-radius`. `tdd` gets a link only when the code PR's history shows a failing emulator run committed before the rules that make it pass. Do not flip a status word. `setup-pstack` stays «ناقصة» (`docs/PSTACK_INVENTORY.md` line 77). Do not edit that row. |
+| File                                   | Change                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `firestore.rules`                      | Append the four matches and the functions below. Do not edit the ledger match, `shapeOk` (line 83), `projectOpen` (lines 52-54), `isOwner` (line 11), or `idOk` (line 19). Those stay for the rows that already use them.                                                                                                                                               |
+| `tests/emulator/account-rules.test.js` | New. The behaviour tests and the length, budget, and `PURPOSES` source checks below.                                                                                                                                                                                                                                                                                    |
+| `.github/workflows/ci.yml`             | Insert `tests/emulator/account-rules.test.js` into the emulator `node --test` command that `main` has at the code PR's base, and raise that file's pass floor to the pass total of one green full emulator run. At `baf4f21` the command is line 181 and the floor is line 188 (`45`). #74 and #83 move those lines. Do not copy the `baf4f21` numbers after they land. |
+| `docs/PSTACK_INVENTORY.md`             | Evidence on `principle-prove-it-works` and `blast-radius`. `tdd` gets a link only when the code PR's history shows a failing emulator run committed before the rules that make it pass. Do not flip a status word. `setup-pstack` stays «ناقصة» (`docs/PSTACK_INVENTORY.md` line 77). Do not edit that row.                                                             |
 
 `tests/rules-constant.test.js` lines 8-30 stay the ceiling check. D does not edit that file. The `PURPOSES` source check lives in the new emulator file.
 
@@ -46,9 +46,9 @@ Not in D: `inv_`, `hashing.sha256`, `lockId`, `invoiceKey`, `invoiceNumber`, `at
 
 No service-worker bump (Q5). D edits no file under `public/`, so `scripts/sw-version-guard.sh` has nothing to bump. The version at this base is `aj-p0-v58` (`public/sw.js` line 1). D does not reserve a number. A later PR that edits `public/` takes the next free version at its own merge, and that number stays renumberable until then.
 
-`package.json` `test:emulator` (line 7) is a different command from ci.yml line 181. At this base it also lists `tests/emulator/offline-cold-start.test.js`, which the CI line does not. D does not edit `package.json` and does not try to make those two strings identical. The unit lists at `ci.yml` line 68 and `package.json` line 5 are the same 34 files. D adds no unit file, so both stay at 34.
+`package.json` `test:emulator` (line 7 at `baf4f21`) is a different command from the CI emulator line. At this base it also lists `tests/emulator/offline-cold-start.test.js`, which the CI line at `baf4f21` does not. D does not edit `package.json`. The unit lists at `ci.yml` line 68 and `package.json` line 5 are the same 34 files on `baf4f21`. #83 makes those lists 35. D adds no unit file, so it does not change that count. The code PR reads the lists on `main` at its own base.
 
-The local command that runs the new file is the CI command with that one path added:
+The local command below is the `baf4f21` CI command with the new file added. After #74 the code PR copies `main`'s emulator command, which already includes `offline-cold-start`, and inserts the new path there.
 
 ```bash
 bash scripts/emulators-exec.sh --only auth,firestore,hosting --project ahl-aljazeera-accounting \
@@ -180,16 +180,29 @@ function accountTxnCreate()
 function partyCreate()
 
 /**
+ * Dispatcher for `agreements/{id}`. No `get` and no `exists`.
+ * An id that starts with `rev_` calls `agreementReversalCreate`. Any other id calls `agreementCreate`.
+ * @returns {boolean}
+ */
+function agreementsCreate()
+
+/**
  * @returns {boolean}
  * Reads: 3. `user`, project, party.
+ * The document id must pass `uuidOk`. `reversesId` is absent. `reversalReason` is absent.
+ * A create at `agreements/rev_<uuid>` never reaches this function.
  */
 function agreementCreate()
 
 /**
  * @returns {boolean}
- * Reads: 3. `user`, the original agreement, project.
- * Id is `rev_` plus the agreement uuid (Q9). Same keys as an agreement, plus `reversesId`.
- * Answered, 2026-11-16 00:34 via EA. The original id must be a uuid, not a `rev_`.
+ * Reads: 3. `user`, the original agreement, project. Field equality uses that one `get`.
+ * The document id equals `'rev_' + reversesId` (Q9). `uuidOk(reversesId)` is required.
+ * `reversesId` does not itself start with `rev_`.
+ * `partyId`, `projectId`, `method`, `currency`, `description`, and the method group
+ * equal `get(original)`. That is «القواعد تقارن الحقول بالأصل».
+ * `reversalReason` is a string of length 1–500, the same bound as an `accountTxns` `rev_`.
+ * The screen reuses «سبب التصحيح». No new string. G-J's Q28 button writes this shape.
  */
 function agreementReversalCreate()
 
@@ -218,6 +231,8 @@ function laborQtyCreate()
  * the old body, `exists` of `appr_` of that body, and, when `agreementId` is
  * present, `!exists(agreements/rev_<agreementId>)`. That check is an
  * `exists` behind `&&`, not a `get` of a document that may be absent.
+ * `purpose`, `ledger`, `partyId`, `projectId`, `agreementId`, `currency`, and `fxRate`
+ * equal the old body already read. No extra `get`.
  * Allowed only when the old purpose has `needsApproval` (`laborQty` or `deduct`)
  * and the old id is not a slot id. Depth 5 is denied. A stored `agreementId` must pass `uuidOk`.
  */
@@ -228,6 +243,9 @@ function supCreate()
  * Reads: 8. `user`, target, agreement, project, party, `exists` of `rej_` of
  * the target, `exists` of `sup_` of the target, `!exists(agreements/rev_<agreementId>)`.
  * `agreementId` must pass `uuidOk`. A cancelled agreement denies the approval.
+ * When the agreement method is `lump` or `milestone`, `targetId` is the slot id
+ * built from that `agreementId`. When the method is `unit` or `daily`, `targetId`
+ * is not a slot id. Both checks use the agreement and the id already in hand.
  */
 function approveLaborCreate()
 
@@ -378,7 +396,7 @@ A running total of several refunds, several deducts, or `returnAdvance` plus `se
 
 `payLabor` and `advanceLabor` have no `targetId`, `settlesId`, `supersedesId`, or `reversesId`. `عن عمل معتمد` is a label, not a pointer. `sup_` of either purpose is denied. `refundLabor` requires `targetId` at a live `payLabor`. That pointer is legal.
 
-`approveLabor` id is `appr_` plus the measurement id. The measurement id matches `^(sup_){0,4}[0-9a-f-]{36}$`. Identity fields equal to `get(target)`: `partyId`, `projectId`, `agreementId`, `ledger`, `currency`, `fxRate`. The target's purpose is `laborQty`. For `unit` and `daily`, `qty` is on the measurement and on the approval, and those two `qty` values are equal. The formula then uses that `qty` and the agreement:
+`approveLabor` id is `appr_` plus the measurement id. Identity fields equal to `get(target)`: `partyId`, `projectId`, `agreementId`, `ledger`, `currency`, `fxRate`. The target's purpose is `laborQty`. For `lump` and amount `milestone`, `targetId` is the slot id for that agreement (`'000' + agreementId` with hyphens removed + the generation character). A uuid, or a `sup_` chain, on a lump or milestone agreement is denied, so one agreement cannot be approved once in the slot and again outside it. For `unit` and `daily`, `targetId` is not a slot id, and `qty` is on the measurement and on the approval, and those two `qty` values are equal. The formula then uses that `qty` and the agreement:
 
 - `unit`: `amount * unitQty == qty * unitRate`, every operand an int. `qty` and `unitRate` and `dayRate` each at most 100000000. `unitQty` at most 1000000. Each product at most 10000000000000000.
 - `daily`: `amount == qty * dayRate`
@@ -387,7 +405,7 @@ A running total of several refunds, several deducts, or `returnAdvance` plus `se
 
 `unitQty` 1000001 is denied. `unitQty` 1000000 with `amount` 10000000000 is allowed. The product 10000000000000000 is inside the rules bound. The phone checks that product with `BigInt` because it is above `Number.MAX_SAFE_INTEGER`. D does not change the phone.
 
-Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-', '') + gen` with `gen` one character `1`–`9`, length 36. The plan's expression is the one the code PR writes. The test vector locks it: agreement `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee` produces `000aaaaaaaabbbbccccddddeeeeeeeeeeee1`. If the emulator replaces only the first hyphen, that test fails and the code PR stops. It does not ship a second formula in advance. Generation `n` greater than 1 is allowed when `rev_` of `appr_` of slot `n-1` exists, or when `rej_` of slot `n-1` exists. A uuid body on that agreement is denied. `sup_` of a slot id is denied. There is no generation 10.
+Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-', '') + gen` with `gen` one character `1`–`9`, length 36. In rules, `string.replace` is a regex replace-all, so every hyphen goes. The test vector locks it: agreement `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee` produces `000aaaaaaaabbbbccccddddeeeeeeeeeeee1`. If the emulator replaces only the first hyphen, that test fails and the code PR stops. The phone must not copy the rules call with JavaScript `replace`, which removes one hyphen. E's slot id uses `replaceAll`. Generation `n` greater than 1 is allowed when `rev_` of `appr_` of slot `n-1` exists, or when `rej_` of slot `n-1` exists. It is denied while slot `n-1` is still pending, and while that slot is approved and its `appr_` is not reversed. A uuid body on that agreement is denied. `sup_` of a slot id is denied. There is no generation 10.
 
 `stl_` id is `stl_` plus the measurement id plus `_` plus one generation character. It does not contain `appr_`. Generation past 1 requires `rev_` of the previous `stl_`. The approval `appr_` plus the measurement id must be live: the approval exists and `rev_` of it does not. The advance named by `settlesId` must be a live `advanceLabor`. `rej_` of the measurement must be absent. Same party, project, and currency on the measurement, the approval, and the advance. Currency is `IQD` on both sides.
 
@@ -395,7 +413,7 @@ Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-
 
 `statementApprovals` stores only the `StatementApproval` keys. `periodKind` is `week` or `month` (Q10). Anything else is denied. The server accepts the document while cash rows are still unreviewed. Two owners can each create one, because each id is a fresh uuid. `periodStart` and `periodEnd` pass `entryDateOk`, and `periodStart <= periodEnd`. A start after the end is denied. An extra key, including `includedIds` or a figure, is denied. A missing party is denied. The week starting on Saturday is a screen rule. It is not a rules predicate. The project `get` lives only in `statementWithProjectCreate`. `statementConsolidatedCreate` does not get a project.
 
-The reversal document is `agreements/rev_<agreementId>` (Q9). Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. `rev_` plus a uuid does not pass `uuidOk`, so the reversal itself cannot be named as the agreement. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read). Deny tests cover each of those paths.
+The reversal document is `agreements/rev_<agreementId>` (Q9). `agreementsCreate` picks the leaf from the id before any `get`. A normal agreement cannot be written at a `rev_` id, and `agreementCreate` requires `uuidOk` on its own id and no `reversesId`. The reversal's `partyId`, `projectId`, `method`, `currency`, `description`, and method group equal the original already read. `reversalReason` is 1–500 characters. Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. None of the r3 checks adds a read. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read), and its identity fields equal the old body. Deny tests cover each of those paths.
 
 `rej_` is a marker: shared header plus `targetId`. No `amount` and no `purpose`. It is denied when `appr_` of that target is already stored. The target purpose has `needsApproval`. A slot may be rejected. That rejection is what frees the next slot generation.
 
@@ -483,7 +501,8 @@ Header spoof, one leaf per collection. Each of these denies `createdBy` other th
 - `header: partyCreate denies a spoofed header and an extra key`
 - `header: agreementCreate denies a spoofed header and an extra key`
 - `header: cashBodyCreate denies a spoofed header and an extra key`
-- `header: statementWithProjectCreate denies a spoofed header and an extra key`
+- `header: statementWithProjectCreate denies a spoofed createdBy, createdAtServer, and createdByName, and denies deviceId as an extra key`. `StatementApproval` has no `deviceId`, so a length of 0 or 129 fails `hasOnly`, not a length rule
+- `header: agreementReversalCreate denies a spoofed header and an extra key`
 
 Project state, on a create that has `projectId`:
 
@@ -506,7 +525,14 @@ Section 7, v1 rows. The plan's item numbers stay in the name.
 - `s7.1 inactive owner cannot read or write the four collections`
 - `s7.2 party create once; second setDoc, update, and delete fail`
 - `s7.2 agreement create once; second setDoc, update, and delete fail`
-- `s7.2 agreementReversalCreate allows rev_<agreementId> with the same fields plus reversesId; a second setDoc, an update, and a delete fail`
+- `s7.2 agreementReversalCreate allows rev_<agreementId> when partyId, projectId, method, currency, description, and the method group equal the original, with reversalReason 1–500; a second setDoc, an update, and a delete fail`
+- `reversal: a partyId, projectId, method, currency, description, or method-group value that differs from the original is denied`
+- `reversal: a missing original is denied`
+- `reversal: a doc id that is not rev_ plus reversesId is denied`
+- `reversal: reversesId that itself starts with rev_ is denied`
+- `reversal: agreementCreate at id rev_<uuid> is denied`
+- `reversal: a closed or archived project is denied`
+- `reversal: reversalReason missing, empty, or longer than 500 is denied`
 - `s7.2 an accountTxn update and delete fail`
 - `s7.3 lump, unit, daily, and amount milestone each succeed with only their fields`
 - `s7.3 a mixed method fails; amount 0, a fraction, and 10000000001 fail`
@@ -519,8 +545,12 @@ Section 7, v1 rows. The plan's item numbers stay in the name.
 - `s7.5 a second body with the same slot id fails; a uuid body on a lump agreement fails`
 - `s7.5 generation n succeeds when rev_ of appr_ of slot n-1 exists`
 - `s7.5 generation n succeeds when rej_ of slot n-1 exists`
+- `s7.5 generation n is denied while slot n-1 is approved and not reversed, and while it is pending`
 - `s7.5 sup_ of a slot body fails`
 - `s7.5 sup_ denies when appr_ of the old body exists`
+- `sup: a sup_ whose purpose, ledger, partyId, projectId, agreementId, currency, or fxRate differs from the old body is denied`
+- `s7.5 approveLabor of a non-slot target on a lump or milestone agreement is denied`
+- `s7.5 approveLabor of a slot target on a unit or daily agreement is denied`
 - `s7.5 depth 5 sup_ is denied as a create, not only as a length`
 - `s7.5 update and delete of a labor stl_ fail`
 - `s7.6 generation-1 labor stl_ is allowed when its 8 documents are in the allowing state`
@@ -538,6 +568,7 @@ Section 7, v1 rows. The plan's item numbers stay in the name.
 - `s7.9 a deduct body with no appr_ succeeds`
 - `s7.9 an appr_ of that deduct whose purpose is approveLabor fails`
 - `s7.9 approveDeduct with no amount succeeds; a second one fails`
+- `s7.9 approveDeduct denies when rej_ of the deduct exists, and when sup_ of the deduct exists`
 - `s7.10 a labor deduct whose target is not a live approveLabor fails`
 - `s7.10 a labor deduct larger than that approval fails`
 - `s7.10 a deduct whose partyId, projectId, or currency differs from the approval fails`
@@ -545,6 +576,7 @@ Section 7, v1 rows. The plan's item numbers stay in the name.
 - `s7.11 returnAdvance above that advance fails; a party, project, or currency mismatch fails; a rev_ of the advance fails`
 - `s7.11 refundLabor against a live payLabor succeeds and has no entryType`
 - `s7.11 refundLabor with no payLabor target fails`
+- `s7.11 refundLabor denies when rev_ of the named payLabor exists`
 - `s7.12 one deduct above the approval fails; a second deduct that itself fits the approval succeeds`
 - `s7.13 payLabor succeeds while no revw_ exists`
 - `s7.13 revw_ of that payLabor succeeds with no amount; rev_ of that revw_ succeeds`
@@ -556,7 +588,7 @@ Section 7, v1 rows. The plan's item numbers stay in the name.
 - `rej: a rej_ of a cash row is denied`
 - `rev: owner-b may rev_ owner-a's payLabor`
 - `rev: a rev_ of a rev_ is denied`
-- `rev: a rev_ whose purpose, amount, partyId, projectId, or currency differs from the original is denied`
+- `rev: a rev_ whose purpose, ledger, amount, partyId, projectId, agreementId, currency, or fxRate differs from the original is denied`
 - `statement: week with projectId is allowed; month with projectId is allowed; week without projectId is allowed`
 - `statement: a periodKind other than week or month is denied`
 - `statement: periodStart after periodEnd is denied`
@@ -568,7 +600,7 @@ Two owners, rules half. The adopt step stays in E. These are creates only:
 
 - `two owners: the same slot id, appr_, rej_, sup_, rev_, labor stl_, and revw_ — the first create is allowed and the second is denied`
 - `two owners: two payLabor rows with fresh uuids both land`
-- `two owners: an appr_ and a rej_ of one body, with neither stored first, both land`
+- `two owners: one writeBatch holds an appr_ and a rej_ of one body, and both land` [U]. `get` and `exists` see the state before the batch, so each check still passes. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. The mark stays until the emulator run confirms that. Two separate requests are not this test: the first to land would deny the second
 - `two owners, distinct uids, each create a party as themselves, and each can read the other's party`
 - `a site user cannot read or create any of the four collections`
 
@@ -605,8 +637,10 @@ Parallel work, and the files that make D wait:
 | PR C                           | balances in `public/accounts.js`                                            | none, aside from the inventory file if C also appends it                                                                                                                                   |
 | Another phase sketch           | a different file under `docs/plans/`                                        | none. This sketch is `docs/plans/contractor-pr-d-sketch.md` only                                                                                                                           |
 | Receipt-photo PR-R             | `firestore.rules`, `firestore.indexes.json`, `tests/emulator/rules.test.js` | `firestore.rules`. D merges first. PR-R rebases onto that merge.                                                                                                                           |
+| #74                            | `ci.yml` emulator command                                                   | Adds `tests/emulator/offline-cold-start.test.js` and shifts the command and the pass floor by one line. The code PR reads `main`, it does not keep the `baf4f21` line numbers.             |
+| #83                            | unit-test lists in `ci.yml` and `package.json`                              | Those lists become 35 files. D adds no unit file.                                                                                                                                          |
 
-The one code file that can make the code PR sequential is `.github/workflows/ci.yml` line 181, and the pass floor on line 188, if another PR edits that same command. Rebase and keep both paths.
+The code PR inserts its emulator path into whatever command `main` has at that base, and sets the pass floor from one green run of that command.
 
 Merge and deploy order:
 
@@ -615,11 +649,13 @@ Merge and deploy order:
 3. A revert is a revert of D's commit on `main`, then a deploy of that new `main`. Never deploy an older file by hand.
 4. If E is already live, turn E's writer off before reverting D. Otherwise every new account write fails closed.
 
-Q8 approves the sketch and leaves the deploy for later. The earlier 00:34 answer is the list that wins: no rules deploy without a fresh Drive backup, an emulator restore test of that backup against the new rules, CI 4/4, Architect APPROVE on the SHA, and EA's go. Ameer still deploys (`README.md` line 24). Q8's shorter list (green code, backup, emulator) is inside that one. It does not drop the Architect APPROVE or EA's go.
+Q8 approves the sketch and leaves the deploy for later. The earlier 00:34 answer is the list that wins: no rules deploy without a fresh Drive backup, an emulator restore of that backup, CI 4/4, Architect APPROVE on the SHA, and EA's go. Ameer still deploys (`README.md` line 24). Q8's shorter list (green code, backup, emulator) is inside that one. It does not drop the Architect APPROVE or EA's go. The restore itself writes through REST, and a server client bypasses rules, so the restore is not the rules drill. After it, on that restored copy, the drill reads the four collections with the client SDK as `owner-a` and as `site-1`, then one allowed create and one denied create.
 
 The four new collections are create-only, so a backup cannot delete them. The backup-gaps seed list does not name `parties`, `agreements`, `accountTxns`, or `statementApprovals`. That list gains these four, and a restore keeps create-only. The daily full dump adds about one read per account document to the Spark count. D does not edit the backup script.
 
 Service worker version for this phase: none (Q5). The rule is the next free number at merge time. D does not edit `public/`, so it claims no number, and nothing here is a reservation that a later merge would have to keep. The earlier date-fix answer (00:38) wins on one point Q5 leaves open: the date fix merges first as v59. Every later `public/` bump renumbers after that. D takes no number.
+
+Sibling follow-up, no extra rules read. B, C, E, F, K, and G-J do not yet name `agreements/rev_<id>`. E's `collectionFor` routes that reversal to `agreements`. C and F treat it as a cancellation, not as an agreement, in pickers and folds. F and G-J refuse new work and a new approval on a cancelled agreement on the phone, or the server deny shows «رُفض الإرسال». G-J writes this shape, including `reversalReason`, which is what Q28's "follow D" means. The phone builds a slot id with `replaceAll('-', '')`, not `replace`.
 
 ## Accounting advisor
 
@@ -648,7 +684,7 @@ The code PR reverts with `git revert` of that commit on `main`, then a deploy of
 - A leaf that calls `isOwner()` or `projectOpen()` adds an `exists` plus a second `get`. The 9-read `stl_` would go over 10. The source test counts one user `get` per leaf so that call is visible.
 - `accountTxnCreate` must be one `allow create`. Thirteen `allow create` lines, or an `||` of the leaves, can evaluate more than one leaf's gets.
 - `let` laziness is not documented. The budget is the call sites in the function. A binding that is not on every allow path is an `exists`, never a `get` of a document that may be missing. Helpers stay pure, so a `get` is not hidden. `laborStlCreate` has 9 `let` bindings. The documented cap is 10.
-- `agreementId.replace('-', '')` is the plan's expression. The slot vector is the check. A first-only replace fails that test.
+- Rules `string.replace` removes every hyphen. JavaScript `replace` removes one. The slot vector catches a rules engine that is first-only. The phone uses `replaceAll`.
 - The cumulative sum is a real hole on the server. Two phones can each write a legal refund or deduct. Closing it in rules would need a query or a running-total document, which v1 does not add. The code PR must not "fix" it.
 - A site user who could read `agreements` could infer a contract amount. `accountRead` is owner-only. The site labour create on `ledgerEntries` (rules line 156) stays. The legacy-after-date question is not this PR.
 - A denied create is still billed for the gets it performed. None of these allow paths is above 9. D does not turn on a paid Firebase plan.
@@ -717,7 +753,7 @@ Recorded from EA, on Ameer's delegation, 2026-11-16 00:34 Baghdad, and the 00:36
 
 **Q9. عكس الاتفاق. جواب: إي. الوثيقة في `agreements`.**
 
-إذا انكتب اتفاق وطلع بيه غلط، ما ينمسح وما يتعدّل. تنكتب وثيقة إلغاء في `agreements`، والمعرّف `rev_` زائد معرّف الاتفاق، بنفس الحقول زائد `reversesId`. معرّف الاتفاق يبقى uuid.
+إذا انكتب اتفاق وطلع بيه غلط، ما ينمسح وما يتعدّل. تنكتب وثيقة إلغاء في `agreements`، والمعرّف `rev_` زائد معرّف الاتفاق، بنفس الحقول زائد `reversesId` وسبب من 1 إلى 500 حرفاً. القواعد تقارن قيم الحقول بالأصل. اتفاق عادي ما ينكتب بمعرّف يبدأ بـ `rev_`. معرّف الاتفاق يبقى uuid.
 
 **س٢-ب. جواب 00:36، ويبقى فوق Q9.**
 
