@@ -1,6 +1,7 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
 const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
+const { createCdpSession, openCdpSocket, isCdpTimeout, isCdpSocketError } = require('./cdp-session.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function assertHashLanded(expected, actual) {
@@ -13,15 +14,13 @@ let chrome;
   const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
   chrome = opened.chrome;
   const tgt = opened.page;
-  const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
-  let id = 0; const pend = {}; const navLoaders = [];
-  ws.onmessage = m => {
-    const d = JSON.parse(m.data);
-    if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
-    if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; }
-  };
-  const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
-  const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
+  const ws = await openCdpSocket(tgt.webSocketDebuggerUrl);
+  const navLoaders = [];
+  const { send, ev } = createCdpSession(ws, {
+    onEvent(d) {
+      if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
+    }
+  });
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   fs.mkdirSync('/tmp/aj-dl', { recursive: true });
@@ -43,7 +42,10 @@ let chrome;
       try {
         const now = await ev(`({o:performance.timeOrigin,r:document.body&&document.body.dataset.ready==='1'})`);
         return !!(now && now.o !== origin && now.r);
-      } catch (e) { return false; }
+      } catch (e) {
+        if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
+        return false;
+      }
     };
     if (roleDemo(url)) {
       await sleep(900);
@@ -62,6 +64,7 @@ let chrome;
       const href = await ev('location.href');
       return !!href && new URL(href).href === new URL(target).href;
     } catch (e) {
+      if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
       return false;
     }
   };
@@ -77,6 +80,7 @@ let chrome;
         try {
           actual = String((await ev('location.href')) || '');
         } catch (e) {
+          if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
           actual = '';
         }
         let expectedHref = url;

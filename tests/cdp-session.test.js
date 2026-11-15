@@ -22,6 +22,7 @@ function fakeSocket() {
     send(data) {
       this.sent.push(data);
     },
+    close() {},
     /** @type {((event: { data: string }) => void) | null} */
     onmessage: null,
     /** @type {((event?: object) => void) | null} */
@@ -57,6 +58,8 @@ class FakeWebSocket {
   send(data) {
     this.sent.push(data);
   }
+
+  close() {}
 }
 
 /** @type {FakeWebSocket | undefined} */
@@ -84,7 +87,8 @@ function arm(t) {
  * @param {Promise<unknown>} promise
  */
 function watch(promise) {
-  const state = { settled: false, value: /** @type {any} */ (undefined), error: /** @type {any} */ (undefined) };
+  /** @type {{ settled: false | 'resolved' | 'rejected', value: any, error: any }} */
+  const state = { settled: false, value: undefined, error: undefined };
   promise.then(
     value => {
       state.settled = 'resolved';
