@@ -382,6 +382,16 @@ test('a second live refund, deduct, or advance draw that passes the line is cumu
   });
   assert.equal(overApprove.doc, null);
   assert.deepEqual(overApprove.errors, ['cumulative']);
+  const exactDeduct = posted(Accounts.post('deduct', {
+    id: 'ded-exact', targetId: approval.id, target: approval, amount: 200000,
+  }));
+  const exactApprove = posted(Accounts.post('approveDeduct', {
+    id: 'ad-exact',
+    targetId: exactDeduct.id,
+    target: exactDeduct,
+    siblings: [approval, deduct1, approvedDeduct],
+  }));
+  assert.equal(exactApprove.purpose, 'approveDeduct');
 
   const reversedOk = posted(Accounts.post('refundLabor', {
     id: 'rf-c5',
