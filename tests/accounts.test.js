@@ -98,6 +98,33 @@ test('an amount milestone earns its amount, and percent stays refused', () => {
   assert.deepEqual(old.errors, ['milestone']);
 });
 
+test('every built milestone payload has milestoneMode', () => {
+  const bare = { method: 'milestone', milestoneAmount: 250000 };
+  const qty = posted(Accounts.post('laborQty', { id: 'ms-qty', agreement: bare }));
+  const approved = posted(Accounts.post('approveLabor', {
+    id: 'ms-appr',
+    targetId: qty.id,
+    target: qty,
+    agreement: bare,
+  }));
+  /** @type {{ method: string, milestoneMode: 'amount', milestoneAmount: number }} */
+  const named = { method: 'milestone', milestoneMode: 'amount', milestoneAmount: 250000 };
+  const explicit = posted(Accounts.post('laborQty', { id: 'ms-named', agreement: named }));
+  for (const doc of [qty, approved, explicit]) {
+    assert.equal(doc.agreement && doc.agreement.milestoneMode, 'amount');
+  }
+  assert.equal(Object.prototype.hasOwnProperty.call(bare, 'milestoneMode'), false);
+  assert.equal(Accounts.workPosition(bare, { approved: true }).earned, 250000);
+  const percent = Accounts.post('approveLabor', {
+    id: 'ms-pct',
+    targetId: qty.id,
+    target: qty,
+    agreement: { method: 'milestone', milestoneMode: 'percent', milestoneAmount: 250000 },
+  });
+  assert.equal(percent.doc, null);
+  assert.deepEqual(percent.errors, ['percent']);
+});
+
 test('the nine purposes are labor, and a cash pointer targets only an effective purpose', () => {
   assert.deepEqual(Object.keys(Accounts.PURPOSES), [
     'laborQty', 'approveLabor', 'advanceLabor', 'payLabor', 'returnAdvance', 'refundLabor', 'deduct', 'approveDeduct', 'settle',

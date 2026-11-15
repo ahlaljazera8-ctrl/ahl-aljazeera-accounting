@@ -39,6 +39,7 @@
    *   paidAs?: 'payLabor' | 'advanceLabor',
    *   targetId?: string,
    *   settlesId?: string,
+   *   agreement?: LaborAgreement,
    *   effect: Effect
    * }} AccountDoc
    * @typedef {{
@@ -360,6 +361,9 @@
       effect: purpose.effect,
     };
     if (action === 'approveLabor') doc.targetId = body.targetId;
+    if (body.agreement.method === 'milestone') {
+      doc.agreement = Object.assign({}, body.agreement, { milestoneMode: 'amount' });
+    }
     return { doc, errors: [] };
   }
 
