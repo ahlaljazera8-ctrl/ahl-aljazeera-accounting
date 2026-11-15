@@ -985,13 +985,14 @@ test('custody export uses Western digits for amounts, dates, and a negative bala
     amount: 3500,
     entryDate: '٢٠٢٦-١١-١٦',
     entryType: 'expense',
-    description: 'ملاحظة',
+    description: 'ملاحظة \u06F4\u06F5\u06F6',
   })];
   const custody = L.foremanCustodyToCSV(people, [], entries, projects, {});
   const summary = L.foremanSummaryToCSV(people, [], entries, {});
   const whole = custody + summary;
   assert.equal(/[\u0660-\u0669]/.test(whole), false);
   assert.equal(/[\u06F0-\u06F9]/.test(whole), false);
+  assert.equal(whole.includes('456'), true);
   assert.equal(whole.includes('3500'), true);
   assert.equal(whole.includes('-3500'), true);
   assert.equal(whole.includes('2026-11-16'), true);
