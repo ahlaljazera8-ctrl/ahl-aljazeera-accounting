@@ -138,9 +138,8 @@ jobs:
       - name: secret-guard
         run: bash scripts/secret-guard.sh
       - name: install
+        timeout-minutes: 10
         run: npm ci
-      - name: install chromium
-        run: npx --no-install playwright install chromium
       - name: install webkit
         timeout-minutes: 15
         run: |
