@@ -30,7 +30,7 @@ F is the owner screen `#accounts` and the read-only person page `#account/<id>`.
 Out of F. Phase 2 and the later action PRs stay out:
 
 - Materials, invoices, USD, attachments, the role list, percent milestones, `fxRate` other than 1.
-- The write actions that belong to G–J: new agreement, completed work, approve measurement, payment, settle, statement approval, return, labor refund, deduct, approve deduct, reject, supersede, and reversal. This page draws none of those buttons.
+- The twelve saves belong to G–J. F does not implement them. F paints a button only for an action that is already in `AccountActions`. With none registered, no write button is drawn.
 - `projectCost`, home totals, the owner project spent figure, site `spent`. Those are K, and K stays gated while `CONTRACTOR_COST_START` is null.
 - Rules, the adopt path, and `accounts.js`.
 
@@ -38,27 +38,27 @@ Out of F. Phase 2 and the later action PRs stay out:
 
 ## Files the code PR may edit
 
-| File                                                                  | Change                                                                                                                                                                                                                                 |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/accounts-view.js`                                             | New module. The list, the four tabs, the filters, the live statement, and the create-person form. Same wrapper as `public/foremen.js`.                                                                                                 |
-| `public/render.js`                                                    | Call `install`, `syncTab`, and `onClick`. Point `#accounts` and `#account` at the accounts tab. Set the heading from the party name. No markup for the four tabs in this file.                                                         |
-| `public/index.html`                                                   | One script tag for `accounts-view.js` after `accounts.js` and before `render.js`.                                                                                                                                                      |
-| `public/sw.js`                                                        | Add the file to `ASSETS` and `SHELL`. `VERSION` is the next free value at merge time (Q5). The date fix is v59. This file does not claim a number.                                                                                     |
-| `public/session.js`                                                   | Add `accounts-view.js` to `SHELL_FILES` only. Add `K.parties`, `K.agreements`, or `K.accountTxns` only if E has not already added them.                                                                                                |
-| `public/style.css`                                                    | No new class is expected. Reuse `.card`, `.kv`, `.pill`, `.pills`, `.note`, `.field`, `.msg`, `.btn`. Edit this file only if a row needs a class that is not already there. A comment-only edit still bumps `VERSION`. Prefer no edit. |
-| `tests/accounts-view.test.js`                                         | New behaviour tests below.                                                                                                                                                                                                             |
-| `tests/browser-check.js`                                              | The demo empty state and the site gate.                                                                                                                                                                                                |
-| `tests/shell-cache.test.js`                                           | Script order, the new precache name, and the three `VERSION` pins.                                                                                                                                                                     |
-| `tests/webkit-upgrade.test.js`                                        | `MARK` matches the same `VERSION`.                                                                                                                                                                                                     |
-| `package.json`                                                        | Append the new test file to `"test"`. Append `tsc --noEmit -p tsconfig.strict-accounts-view.json` to `"typecheck"`. CI runs that script in the `lint, format, types` job (`.github/workflows/ci.yml` line 44).                         |
-| `.github/workflows/ci.yml`                                            | The same test-file string, in the same place, so the ledger job list and `package.json` `"test"` stay identical.                                                                                                                       |
-| `tsconfig.strict-accounts-view.json`                                  | New. Same shape as `tsconfig.strict-foremen.json`: extends `tsconfig.json`, `"strict": true`, include `public/accounts-view.js` and `types/checkjs.d.ts`.                                                                              |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`             | Drive steps for the two new ids. An unknown id still exits 3.                                                                                                                                                                          |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`   | Two new lines.                                                                                                                                                                                                                         |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts.md` | New feature file.                                                                                                                                                                                                                      |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/account.md`  | New feature file.                                                                                                                                                                                                                      |
-| `scripts/verify-aj.js`                                                | `drive` accepts `accounts` and `account`. Every other id still throws exit 3 (`scripts/verify-aj.js` lines 1308-1310).                                                                                                                 |
-| `docs/PSTACK_INVENTORY.md`                                            | Evidence on the F rows named in section 16 of the plan: `principle-experience-first`, `maintain-verification-skill`. Do not flip a status word.                                                                                        |
+| File                                                                  | Change                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/accounts-view.js`                                             | New module. The list, the four tabs, the filters, the live statement, and the create-person form. Same wrapper as `public/foremen.js`.                                                                                                       |
+| `public/render.js`                                                    | Call `AccountsView.install`, `syncTab`, and `onClick`. Add the four guarded `install` calls in the F to G–J contract. Point `#accounts` and `#account` at the accounts tab. Set the heading from the party name. No tab markup in this file. |
+| `public/index.html`                                                   | One script tag for `accounts-view.js` after `accounts.js` and before `render.js`.                                                                                                                                                            |
+| `public/sw.js`                                                        | Add the file to `ASSETS` and `SHELL`. `VERSION` is the next free value at merge time (Q5). The date fix is v59. This file does not claim a number.                                                                                           |
+| `public/session.js`                                                   | Add `accounts-view.js` to `SHELL_FILES` only. Add `K.parties`, `K.agreements`, or `K.accountTxns` only if E has not already added them.                                                                                                      |
+| `public/style.css`                                                    | No new class is expected. Reuse `.card`, `.kv`, `.pill`, `.pills`, `.note`, `.field`, `.msg`, `.btn`. Edit this file only if a row needs a class that is not already there. A comment-only edit still bumps `VERSION`. Prefer no edit.       |
+| `tests/accounts-view.test.js`                                         | New behaviour tests below.                                                                                                                                                                                                                   |
+| `tests/browser-check.js`                                              | The demo empty state and the site gate.                                                                                                                                                                                                      |
+| `tests/shell-cache.test.js`                                           | Script order, the new precache name, and the three `VERSION` pins.                                                                                                                                                                           |
+| `tests/webkit-upgrade.test.js`                                        | `MARK` matches the same `VERSION`.                                                                                                                                                                                                           |
+| `package.json`                                                        | Append the new test file to `"test"`. Append `tsc --noEmit -p tsconfig.strict-accounts-view.json` to `"typecheck"`. CI runs that script in the `lint, format, types` job (`.github/workflows/ci.yml` line 44).                               |
+| `.github/workflows/ci.yml`                                            | The same test-file string, in the same place, so the ledger job list and `package.json` `"test"` stay identical.                                                                                                                             |
+| `tsconfig.strict-accounts-view.json`                                  | New. Same shape as `tsconfig.strict-foremen.json`: extends `tsconfig.json`, `"strict": true`, include `public/accounts-view.js` and `types/checkjs.d.ts`.                                                                                    |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`             | Drive steps for the two new ids. An unknown id still exits 3.                                                                                                                                                                                |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`   | Two new lines.                                                                                                                                                                                                                               |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts.md` | New feature file.                                                                                                                                                                                                                            |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/account.md`  | New feature file.                                                                                                                                                                                                                            |
+| `scripts/verify-aj.js`                                                | `drive` accepts `accounts` and `account`. Every other id still throws exit 3 (`scripts/verify-aj.js` lines 1308-1310).                                                                                                                       |
+| `docs/PSTACK_INVENTORY.md`                                            | Evidence on the F rows named in section 16 of the plan: `principle-experience-first`, `maintain-verification-skill`. Do not flip a status word.                                                                                              |
 
 `style.css` is listed because the screen has to land in the existing shell. The expected diff is empty.
 
@@ -84,7 +84,111 @@ AccountsView.syncTab(user);
 if (AccountsView.onClick(button)) return;
 ```
 
+The four action modules install through the contract below. They do not edit `render.js`.
+
 `install` registers `views.accounts` and `views.account` the way `ForemenUI.install` registers the foremen views (`public/foremen.js` lines 17-27). `render.js` stays the shell: hash, heading, tab highlight, click dispatch.
+
+## F to G-J contract
+
+G–J copy this section as it stands. Names here do not change. F owns the registry, the stored scope, and the four guarded calls. G, H, I, and J do not edit `public/render.js`.
+
+Script order: `accounts.js`, `accounts-view.js`, then `accounts-work.js`, `accounts-payment.js`, `accounts-correct.js`, `accounts-statement.js`, then `render.js`. `accounts-view.js` creates the registry at load. An action script pushes only inside its `install`.
+
+`render.js`, in the same block as `ForemenUI.install` (`public/render.js` lines 1423-1430), after `AccountsView.install(api)`:
+
+```javascript
+if (window.AccountWork) AccountWork.install(api);
+if (window.AccountPayment) AccountPayment.install(api);
+if (window.AccountCorrect) AccountCorrect.install(api);
+if (window.AccountStatement) AccountStatement.install(api);
+```
+
+`api` is the object already passed to `ForemenUI.install`: `views`, `titles`, `state`, `render`, `esc`, `money`, `queueDoc`, `confirmShell`, `lastSyncAt`, `formatSyncTime`. `get`, `set`, `uuid`, `me`, and `today` stay the existing globals. F does not add them to `api`. G–J call those globals. They do not extend `RenderApi`.
+
+```javascript
+/**
+ * @typedef {'agreements'|'movements'|'statement'} ActionTab
+ * F's screen tab `الحركات` is `movements`. It is not `moves`.
+ */
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   tab: ActionTab,
+ *   label: string,
+ *   buttonId: string,
+ *   renderForm: () => string,
+ *   onClick: (button: HTMLButtonElement) => boolean,
+ *   save: (input: object) => { doc: object | null, errors: string[] }
+ * }} AccountAction
+ * renderForm returns '' when that action's form is closed.
+ * onClick returns true when this action handled the button.
+ * save does not call Firestore and does not call queueDoc. The action appends
+ * the doc, then calls the global queueDoc, the same way create-person does.
+ */
+
+/** @type {AccountAction[]} */
+globalThis.AccountActions = [];
+```
+
+Each `install` pushes its own actions onto `globalThis.AccountActions` and does not replace the array. A second push of the same `id` is a no-op. Reverting one script removes its buttons. The other three stay.
+
+Stable action ids and tabs. The label is that PR's approved string. `buttonId` is `act-` plus the id.
+
+| id                   | tab          | module             |
+| -------------------- | ------------ | ------------------ |
+| `new-agreement`      | `agreements` | `AccountWork`      |
+| `labor-qty`          | `movements`  | `AccountWork`      |
+| `approve-labor`      | `movements`  | `AccountWork`      |
+| `pay-labor`          | `movements`  | `AccountPayment`   |
+| `advance-labor`      | `movements`  | `AccountPayment`   |
+| `return-advance`     | `movements`  | `AccountPayment`   |
+| `refund-labor`       | `movements`  | `AccountPayment`   |
+| `review-cash`        | `movements`  | `AccountPayment`   |
+| `supersede`          | `movements`  | `AccountCorrect`   |
+| `reject`             | `movements`  | `AccountCorrect`   |
+| `deduct`             | `movements`  | `AccountCorrect`   |
+| `approve-deduct`     | `movements`  | `AccountCorrect`   |
+| `reverse`            | `movements`  | `AccountCorrect`   |
+| `settle`             | `statement`  | `AccountStatement` |
+| `statement-approval` | `statement`  | `AccountStatement` |
+
+`accountHtml` paints, inside the open tab only, one `<button type="button" class="btn" id="...">` per action whose `tab` equals that tab, then that action's `renderForm()`. The overview tab has no action. F does not hardcode these labels. An empty registry paints no write button.
+
+`AccountsView.onClick` walks `AccountActions` in order and returns on the first `onClick` that returns true. Party-create handling runs only when none of them returns true.
+
+Scope is not view state and not a field of `AccountScreen`. One module flag, written by the project pills and the week/month pills, read by J:
+
+```javascript
+/**
+ * @typedef {{
+ *   scope: 'project' | 'all',
+ *   projectId: string,
+ *   periodKind: 'week' | 'month'
+ * }} AccountScopeFlag
+ * projectId is '' when scope is 'all'. Default: { scope: 'all', projectId: '', periodKind: 'week' }.
+ */
+
+/**
+ * @returns {AccountScopeFlag}
+ */
+function readAccountScope()
+
+/**
+ * @param {AccountScopeFlag} next
+ */
+function writeAccountScope(next)
+
+/**
+ * @returns {{ periodStart: string, periodEnd: string } | null}
+ * Accounts.periodBounds(readAccountScope().periodKind, today()).
+ * C's function. accounts-view.js does not define periodBounds.
+ * There is no statementPeriod.
+ */
+function accountPeriod()
+```
+
+`AccountsView` exports `readAccountScope`, `writeAccountScope`, and `accountPeriod`. J reads those three. It does not keep a second toggle and it does not compute a week or a month. A null `accountPeriod` means the statement dates are not shown and `statement-approval` does not save.
 
 Create-person, once E can route a party:
 
@@ -174,9 +278,6 @@ The statement tab prints `statementLines(...).lines` in the order C returns, eac
  * @typedef {{
  *   tab: AccountTab,
  *   filter: MovementFilter,
- *   scope: AccountScope,
- *   projectId: string,
- *   periodKind: PeriodKind,
  *   creating: boolean,
  *   formId: string,
  *   name: string,
@@ -185,6 +286,8 @@ The statement tab prints `statementLines(...).lines` in the order C returns, eac
  * }} AccountScreen
  * Held in this module, the way `foremen.js` holds `draft`. It is not added
  * to `ScreenState` in `render.js` (`public/render.js` line 40).
+ * Scope, projectId, and periodKind are not here. They are AccountScopeFlag
+ * in the F to G-J contract.
  */
 
 /**
@@ -293,7 +396,7 @@ Owner gate on the screen is `Ledger.can(user, 'owner')`, the same check the peop
 
 IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. `مستحق له` prints `Balance.payable`. `مستحق عليه` prints `Balance.recoverable`. The page does not compute either one. There is no `<select>` for currency and no `USD`.
 
-The overview and the statement are the C calls named in Types and signatures. Weekly and monthly only choose the `kind` passed to `Accounts.periodBounds`. They do not write `statementApprovals`. The approve button is not drawn. While `unreviewedCashIds` names a cash row in the period, the page shows `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`. Those rows show `غير مدقّق`.
+The overview and the statement are the C calls named in Types and signatures. The week and month pills call `writeAccountScope`. Dates are `accountPeriod()`, which is `Accounts.periodBounds`. F does not write `statementApprovals`. That save is the `statement-approval` action, painted only after `AccountStatement.install`. While `unreviewedCashIds` names a cash row in the period, the page shows `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`. Those rows show `غير مدقّق`.
 
 «هذا المشروع» sets `projectId` on C's filter. «كل المشاريع» omits it. Q22: the project pills are the projects that already appear on this person's agreements or txns, not every company project. They reuse `data-proj` (`public/render.js` line 598).
 
@@ -414,7 +517,7 @@ Behaviour:
 - Bad id: `معرّف غير صالح`. Unknown safe id: `الشخص غير متاح`.
 - Filters. A `laborQty` is under `قياسات العمل` and not under `الدفعات`. A `payLabor` is under `الدفعات`. An `advanceLabor` is under `السلف`. A `deduct` is on `all` and on neither of those three.
 - The four tab strings are present. `حركات المواد`, `المرفقات`, and `العملة` are absent. There is no `<select`.
-- The statement HTML has no `#save-statement` and no button labelled `اعتماد`.
+- With `AccountActions` empty, the statement HTML has no `act-statement-approval` button. After that action is registered, the button id is `act-statement-approval`.
 - An `overLimit` payment shows `المُرجَع أكبر من الدفعة`. An `overLimit` deduct shows `الخصم أكبر من العمل المعتمد`. An `overLimit` advance shows `المُرجَع والتسوية أكبر من السلفة` (Q19).
 - A reversed payment shows `معكوس`. `مستحق له` still matches `balances` for those docs.
 - The overview HTML does not contain `إجمالي المصروف`.
