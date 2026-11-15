@@ -916,7 +916,8 @@ test('foreman custody export keeps the balance equation and drops refused rows',
     assert.equal(String(advances).includes(','), false);
   }
   const adv = custody.find(row => row[at('الرقم')] === 'adv');
-  assert.equal(adv[at('نوع الصف')], 'move');
+  assert.equal(adv[at('نوع الصف')], 'حركة');
+  assert.equal(adv[at('قيد عكسي')], 'لا');
   assert.equal(adv[at('النوع')], 'سلفة');
   assert.equal(adv[at('رقم المشروع')], '');
   assert.equal(adv[at('اسم المشروع')], '');
@@ -929,10 +930,12 @@ test('foreman custody export keeps the balance equation and drops refused rows',
   const rev = custody.find(row => row[at('الرقم')] === 'rev_adv');
   assert.equal(rev[at('المبلغ بإشارته')], '-100000');
   assert.equal(rev[at('المبلغ بإشارته')].startsWith("'"), false);
-  assert.equal(rev[at('قيد عكسي')], 'true');
+  assert.equal(rev[at('قيد عكسي')], 'نعم');
+  assert.equal(rev[at('نوع الصف')], 'حركة');
   assert.equal(rev[at('رقم المعكوس')], 'adv');
   const exp = custody.find(row => row[at('الرقم')] === 'exp');
-  assert.equal(exp[at('نوع الصف')], 'expense');
+  assert.equal(exp[at('نوع الصف')], 'مصروف من عهدة');
+  assert.equal(exp[at('قيد عكسي')], 'لا');
   assert.equal(exp[at('النوع')], L.ENTRY_TYPES.materials.label);
   assert.equal(exp[at('رقم المشروع')], 'a');
   assert.equal(exp[at('اسم المشروع')], 'مشروع أ');
@@ -995,4 +998,10 @@ test('custody export uses Western digits for amounts, dates, and a negative bala
   const fig = L.foremanBalance('fN', [], entries, {});
   assert.equal(fig.held, -3500);
   assert.equal(summary.includes(String(fig.owedToForeman)), true);
+  const table = parseForemanCsv(custody);
+  const only = table[1];
+  assert.equal(only[foremanCol(table, 'نوع الصف')], 'مصروف من عهدة');
+  assert.equal(only[foremanCol(table, 'قيد عكسي')], 'لا');
+  assert.equal(whole.includes('حركة'), false);
+  assert.equal(/[\u0660-\u0669\u06F0-\u06F9]/.test(only.join(',')), false);
 });

@@ -100,6 +100,11 @@ Tests: `tests/foremen-ui.test.js`. `tests/ledger.test.js` from `foremanBalance`.
 
 The list has «تصدير العهدة (CSV)» for an active owner. One tap builds `Ledger.foremanCustodyToCSV` and `Ledger.foremanSummaryToCSV`, then `saveCsvFiles` shares both files. The names are `aj-foreman-custody-YYYY-MM-DD.csv` and `aj-foreman-summary-YYYY-MM-DD.csv`. Amounts, dates, and ids in those two files use Western digits. The `#csv` ledger file is not part of that tap.
 
+Custody strings, approved by EA on 2026-11-16 01:17. Headers stay as written in `FOREMAN_CUSTODY_COLS` and `FOREMAN_SUMMARY_COLS`. The other Arabic cells are:
+
+- نوع الصف: «حركة» for a move, «مصروف من عهدة» for an expense.
+- قيد عكسي: «نعم» or «لا».
+
 ## Bell, outbox, and flush
 
 `paintBell` is `public/render.js` lines 881-922. «إرسال الآن» is line 1036. The demo calls `sendNow` (line 278). A signed-in user calls `flushRemote`.

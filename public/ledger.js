@@ -775,6 +775,10 @@
   ];
   /** @type {Readonly<Record<'advance' | 'settle' | 'return', string>>} */
   const MOVE_KIND_LABEL = { advance: 'سلفة', settle: 'تسديد', return: 'استلام' };
+  const CUSTODY_ROW_MOVE = 'حركة';
+  const CUSTODY_ROW_EXPENSE = 'مصروف من عهدة';
+  const CUSTODY_YES = 'نعم';
+  const CUSTODY_NO = 'لا';
 
   /**
    * @param {unknown} value
@@ -830,7 +834,7 @@
    *   signedAmount: string,
    *   custodyEffect: string,
    *   note: string,
-   *   isReversal: boolean,
+   *   isReversal: string,
    *   reversesId: string,
    *   reversalReason: string,
    *   createdBy: string,
@@ -879,7 +883,7 @@
       rows.push({
         foremanId: move.foremanId,
         foremanName: foremanNames.has(move.foremanId) ? /** @type {string} */ (foremanNames.get(move.foremanId)) : '',
-        rowType: 'move',
+        rowType: CUSTODY_ROW_MOVE,
         kind: bucket ? MOVE_KIND_LABEL[bucket] : '',
         bucket,
         id: plainText(move.id),
@@ -890,7 +894,7 @@
         signedAmount: money.signedAmount,
         custodyEffect: money.custodyEffect,
         note: plainText(move.note),
-        isReversal: move.isReversal === true,
+        isReversal: move.isReversal === true ? CUSTODY_YES : CUSTODY_NO,
         reversesId: plainText(move.reversesMoveId),
         reversalReason: plainText(move.reversalReason),
         createdBy: plainText(move.createdBy),
@@ -909,7 +913,7 @@
       rows.push({
         foremanId: entry.foremanId,
         foremanName: foremanNames.has(entry.foremanId) ? /** @type {string} */ (foremanNames.get(entry.foremanId)) : '',
-        rowType: 'expense',
+        rowType: CUSTODY_ROW_EXPENSE,
         kind: typeInfo ? typeInfo.label : '',
         bucket: 'expense',
         id: plainText(entry.id),
@@ -920,7 +924,7 @@
         signedAmount: money.signedAmount,
         custodyEffect: money.custodyEffect,
         note: plainText(entry.description),
-        isReversal: entry.isReversal === true,
+        isReversal: entry.isReversal === true ? CUSTODY_YES : CUSTODY_NO,
         reversesId: plainText(entry.reversesEntryId),
         reversalReason: plainText(entry.reversalReason),
         createdBy: plainText(entry.createdBy),
