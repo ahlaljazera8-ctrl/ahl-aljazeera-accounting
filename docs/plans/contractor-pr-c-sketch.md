@@ -8,7 +8,9 @@ Base for the citations below: `baf4f21fc54c156989334e826d19990b8e5e8a74` (v58, P
 
 Arena was not run. Ameer's gate bans it (cost). The shape is the one already approved in r2.28 sections 3, 9, and 13. This file is the sketch those gates asked for before code.
 
-Revision r2, against Architect NOTES on `17e8c678` (review sha256 starts `d17c5ebd`). M1, L1, L2, and L4 are in the fold below. The 88 strings are approved. The reversal question is a confirmation of Q1, not a new decision.
+Revision r2, against Architect NOTES on `17e8c678` (review sha256 starts `d17c5ebd`). M1, L1, L2, and L4 are in the fold below. The 88 strings are approved.
+
+EA, 2026-11-16 00:52 Baghdad, on Ameer's delegation. QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) defaults Q1 through Q47 are approved. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, the earlier answer wins. This lane folds in Q5 and Q7 only. Q7 here is that file's reversal question, not plan Q7.
 
 ## Scope
 
@@ -34,7 +36,7 @@ Not in C: material purposes, `refundPayment`, invoices, USD, `fxRate` other than
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public/accounts.js`                                        | Split the shared `statementLine` tokens. Add `balances`, `statementLines`, and `periodBounds`. Change B's `personBalance` so its body is `balances(...).net`. One fold.                                                         |
 | `tests/accounts.test.js`                                    | The behaviour tests below. Spec 1, 2, 6, and 7 stay green. B's payment, cap, and `personBalance` tests stay green.                                                                                                              |
-| `public/sw.js`                                              | `VERSION` only, the next free value at merge time. See Sequencing.                                                                                                                                                              |
+| `public/sw.js`                                              | `VERSION` only, the next free value at merge time (Q5). This sketch does not pick the number. See Sequencing.                                                                                                                   |
 | `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | The same version pins, after that bump.                                                                                                                                                                                         |
 | `docs/PSTACK_INVENTORY.md`                                  | Evidence on the PR C rows: `principle-explain-the-number`, `principle-prove-it-works`, `tdd`. Do not flip a status word. Those three rows are already «مطبّقة» (`docs/PSTACK_INVENTORY.md` lines 29, 40, and 82 at `baf4f21f`). |
 
@@ -285,7 +287,7 @@ Unapproved rows are `pendingIds`. They are listed by the later screen under «ب
 
 - `syncErrors` is a record keyed by id, the same input `countedEntries` already takes (`public/ledger.js` lines 305-309 at `baf4f21f`). `index.syncErrors[id]` present means the id is refused. The stored value is ignored. Callers pass `get(K.syncErrors, {})`. They do not pass a Set.
 - It is not superseded. A doc whose id is `sup_` plus this id, or whose `supersedesId` is this id, supersedes it. The replacement row counts if it itself passes these rules. The old amount does not also count.
-- It is not reversed by a live `rev_`. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. That `rev_` is live only when no further `rev_` names the reversal. rev-of-rev puts the original back. Both marker rows stay out. The original drops out while the reversal is live. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. That reading confirms Q1. See «أسئلة لأمير».
+- It is not reversed by a live `rev_`. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. That `rev_` is live only when no further `rev_` names the reversal. rev-of-rev puts the original back. Both marker rows stay out. The original drops out while the reversal is live. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. Q7 is approved: the balance returns to zero (EA, 00:52 Baghdad). That is the same reading as plan Q1.
 - The row itself is not a marker. `kind` of `rev`, `sup`, `rej`, or `revw`, or an id with those prefixes, is not a money row. `approveLabor` and `approveDeduct` are money rows only through the purpose table, and `approveDeduct` has zeros.
 - `needsApproval` is false, or a live approval points at this id. Live means the approval doc exists, its id is `appr_` plus the body id or its `targetId` is the body id, and `rowCounts` is true for that approval.
 - Rejection wins for approvals, not only for deducts (Q7, plan line 1054). An `approveLabor` whose target body also has a live `rej_` is out of every bucket, even though `needsApproval` on `approveLabor` is false (`public/accounts.js` line 30). Two offline phones can each land one create before the other commits. Rules close the sequential orders. The fold is the side that sees both. A `deduct` aimed at that approval is out too, because its target does not count.
@@ -383,7 +385,7 @@ Parallel work, and what makes the later code PR sequential:
 - PR B code. Files `public/accounts.js` and `tests/accounts.test.js`. C is sequential after B on those two files. Rebase C's code onto B. Do not edit them in parallel.
 - Other phase sketches. Other files under `docs/plans/`. This file's name is only C. No sequential dependency for this docs PR.
 
-`VERSION` at `baf4f21f` is `aj-p0-v58` (`public/sw.js` line 1). The code PR sets the next free value at merge time. It does not reserve `aj-p0-v59`. Whoever merges last takes the next integer.
+`VERSION` at `baf4f21f` is `aj-p0-v58` (`public/sw.js` line 1). Q5 is approved: the code PR takes the next free number at merge time and does not pin one now. The date fix merges first as `aj-p0-v59` (earlier answer, 00:38 Baghdad, which wins over the proposed table that numbered C as v62). C does not claim v59, v62, or any other number. If a later edit of this lane does bump `public/sw.js`, that pin stays renumberable until merge. This docs PR does not bump it.
 
 `accounts.js` is already on the page (`public/index.html` line 71) and on `SHELL_FILES` (`public/session.js` line 271). C does not add a script tag.
 
@@ -481,15 +483,9 @@ After the Architect's review and Ameer's go, rebase onto PR B's `public/accounts
 
 ## أسئلة لأمير
 
-سؤال تأكيد، مو قرار جديد. النصوص الـ 88 واسم «حسابات» موافق عليها بتاريخ 2026-11-10 الساعة 11:16 بتوقيت بغداد. ماكو نص جديد بهالمرحلة.
+Q7 انحسم: عكس اعتماد 600,000 يرجّع الرصيد صفر. السؤال الباقي بس.
 
-**1. تأكيد على جوابك الأول، قيد العكس.**
-
-جوابك الأول يقول التصحيح قيد عكس وبعده سطر جديد. إذا انعكس اعتماد بمبلغ 600,000، الرصيد المقترح يرجع صفر. السطر الأصلي يطلع من الحساب، وصف العكس ما ينطرح مرة ثانية. لو طرحنا صف العكس وياه يصير الرصيد سالب 600,000، وهذا غلط.
-
-الاقتراح: «تأكيد». اكتب «تأكيد»، أو اكتب الرقم اللي تريده.
-
-**2. «مستحق له» على شاشة الشخص.**
+**1. «مستحق له» على شاشة الشخص.**
 
 هالجملة مو رقم مستقل بالقائمة الـ 88. هي داخل الجملة 87، ومكتوبة اليوم على شارة الخلفة. الاقتراح: نعيد استخدامها للمستحق، وما نضيف جملة جديدة.
 
