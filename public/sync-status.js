@@ -12,6 +12,7 @@
   const REJECTED = 'رُفض الإرسال';
   const CONFLICT = 'القيد موجود على الخادم بمحتوى مختلف';
   const UNVERIFIED = 'القيد موجود مسبقاً وتعذر مطابقة محتواه';
+  const PROJECT_DELETED = 'رُفض الإرسال لأن المشروع محذوف';
 
   /**
    * @param {unknown} s
@@ -146,6 +147,20 @@
   }
 
   /**
+   * Leave every base message alone except the generic refusal.
+   * Relabel only when the project document is missing and this phone is not still holding an unsent project.
+   * @param {string} baseMessage
+   * @param {ProjectProbe | null | undefined} probe
+   * @param {boolean} [neverSent]
+   * @returns {string}
+   */
+  function messageAfterProjectProbe(baseMessage, probe, neverSent) {
+    if (baseMessage !== REJECTED || neverSent) return baseMessage;
+    if (!probe || probe.exists !== false) return baseMessage;
+    return PROJECT_DELETED;
+  }
+
+  /**
    * @param {readonly string[] | null | undefined} outbox
    * @param {SyncErrorMap | null | undefined} errors
    * @param {FlushResult | null | undefined} result
@@ -197,8 +212,8 @@
   }
 
   return {
-    FB_VER, FIRESTORE_URL, REJECTED, CONFLICT, UNVERIFIED,
-    sameContent, sameReversal, isTransient, isAlreadyExists, isDeadAuth, failureMessage,
+    FB_VER, FIRESTORE_URL, REJECTED, CONFLICT, UNVERIFIED, PROJECT_DELETED,
+    sameContent, sameReversal, isTransient, isAlreadyExists, isDeadAuth, failureMessage, messageAfterProjectProbe,
     applyFlush, badgeHtml, readRemote,
   };
 });

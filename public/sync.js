@@ -576,6 +576,10 @@
     const finance = Object.assign({}, src.finance || {});
     delete finance[projectId];
     const projects = (src.projects || []).filter(row => !row || row.id !== projectId);
+    /** @type {GoneProjectNames} */
+    const goneProjectNames = Object.assign({}, src.goneProjectNames || {});
+    const dropped = (src.projects || []).find(row => row && row.id === projectId);
+    if (dropped && typeof dropped.name === 'string' && dropped.name) goneProjectNames[projectId] = dropped.name;
     /** @type {Record<string, unknown>} */
     const syncErrors = Object.assign({}, src.syncErrors || {});
     removed.forEach(id => { delete syncErrors[id]; });
@@ -583,11 +587,11 @@
     const statusPending = (src.statusPending || []).filter(id => id !== projectId);
     const foremen = (src.foremen || []).slice();
     const foremanMoves = (src.foremanMoves || []).slice();
-    return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves };
+    return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves, goneProjectNames };
   }
 
   /** @param {FlushCall} opts */
-  async function flushOutbox({ ids, load, write, exists, readServer }) {
+  async function flushOutbox({ ids, load, write, exists, readServer, projectProbe }) {
     const Status = statusApi();
     /** @type {string[]} */
     const synced = [];
@@ -633,7 +637,24 @@
           adopted.push({ id, remote });
           continue;
         }
-        failed.push({ id, message: Status.failureMessage(/** @type {SyncFailure} */ (err), local, remote, unverified && !remote) });
+        let message = Status.failureMessage(/** @type {SyncFailure} */ (err), local, remote, unverified && !remote);
+        if (message === Status.REJECTED && local.entryType && typeof projectProbe === 'function') {
+          /** @type {ProjectProbe | null} */
+          let probe;
+          try {
+            probe = await projectProbe(local);
+          } catch (probeErr) {
+            if (Status.isDeadAuth(/** @type {SyncFailure} */ (probeErr))) {
+              kept.push(id);
+              return { synced, kept, failed, adopted, authDead: true };
+            }
+            probe = null;
+          }
+          const project = load(/** @type {string} */ (local.projectId));
+          const neverSent = !!(project && !project.createdAtServer && project.id && synced.indexOf(project.id) === -1);
+          message = Status.messageAfterProjectProbe(message, probe, neverSent);
+        }
+        failed.push({ id, message });
       }
     }
     return { synced, kept, failed, adopted, authDead: false };

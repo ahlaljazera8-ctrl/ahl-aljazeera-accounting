@@ -446,6 +446,36 @@ function saveEntryFile(csv, filename) {
   }
   downloadCsv(csv, filename);
 }
+/**
+ * No title. The click calls this with no earlier await, and share runs before this function's first await.
+ * @param {string} csv
+ * @param {string} filename
+ * @returns {Promise<'shared' | 'downloaded' | 'aborted'>}
+ */
+function saveCsvFile(csv, filename) {
+  const file = new File([csv], filename, { type: 'text/csv' });
+  const payload = { files: [file] };
+  let can;
+  try {
+    can = !!(/** @type {Navigator['share'] | undefined} */ (navigator.share) && typeof navigator.canShare === 'function' && navigator.canShare(payload));
+  } catch (err) { can = false; }
+  if (can) {
+    try {
+      const pending = navigator.share(payload);
+      return Promise.resolve(pending).then(() => /** @type {'shared'} */ ('shared'), err => {
+        if (err && err.name === 'AbortError') return /** @type {'aborted'} */ ('aborted');
+        downloadCsv(csv, filename);
+        return /** @type {'downloaded'} */ ('downloaded');
+      });
+    } catch (err) {
+      if (err && /** @type {{ name?: string }} */ (err).name === 'AbortError') return Promise.resolve(/** @type {'aborted'} */ ('aborted'));
+      downloadCsv(csv, filename);
+      return Promise.resolve(/** @type {'downloaded'} */ ('downloaded'));
+    }
+  }
+  downloadCsv(csv, filename);
+  return Promise.resolve(/** @type {'downloaded'} */ ('downloaded'));
+}
 function printCurrentEntry() {
   const built = currentEntryExport();
   if (!built) return;
@@ -492,6 +522,22 @@ function phoneSyncNote() {
   if (demoRole()) return 'لم تُرسل بعد. اضغط «إرسال الآن» للمحاكاة (لا يوجد خادم حقيقي).';
   return navigator.onLine ? 'يُرسل تلقائياً عند الاتصال.' : 'محفوظ على الهاتف. يُرسل عند عودة الاتصال.';
 }
+/** @param {LedgerUser | null | undefined} u */
+function rejectedRows(u) {
+  return L.deletedProjectEntries(u, get(K.entries, []), get(K.syncErrors, {}) || {}, SyncStatus.PROJECT_DELETED);
+}
+/** @param {LedgerUser | null | undefined} u */
+function rejectedHomeLink(u) {
+  const rows = rejectedRows(u);
+  if (!rows.length) return '';
+  return `<a class="btn ghost" id="rejected-link" href="#rejected">${esc(SyncStatus.PROJECT_DELETED)} ${rows.length}</a>`;
+}
+function rejectedLogoutBlock() {
+  /** @type {{ id: string }[]} */
+  const listed = [];
+  rejectedRows(me()).forEach(row => { if (typeof row.id === 'string' && row.id) listed.push({ id: row.id }); });
+  return L.rejectedLogoutBlocked(listed, get(K.rejectedExportedIds, []) || []);
+}
 const views = {
   home() {
     const { u, projects, entries } = data();
@@ -503,6 +549,7 @@ const views = {
         <div class="kv"><span>إجمالي المقبوض</span>${money(t.received)}</div>
         <div class="kv"><span>إجمالي المصروف</span>${money(t.spent)}</div>
         <div class="kv"><span>صافي الربح</span><span class="${/** @type {number} */ (t.profit) < 0 ? 'bad' : 'ok'}">${money(/** @type {number} */ (t.profit))}</span></div></div>
+        ${rejectedHomeLink(u)}
         <a class="btn" href="#entry">+ قيد جديد</a><button class="btn ghost" id="csv">تصدير نسخة (CSV)</button>`;
     }
     const mine = entries.filter(e => e.createdBy === u.uid).slice(-3).reverse();
@@ -510,6 +557,7 @@ const views = {
         const s = counts(entries.filter(e => e.projectId === p.id && e.entryDate === today()));
         return `<div class="kv"><span>${esc(p.name)}</span><b>مصروف اليوم: <span class="num">${L.fmt(L.totals(s).spent)}</span></b></div>`; }).join('')}</div>
       <div class="card"><h2>آخر قيودي</h2>${mine.map(e => entryRow(e, u, entries)).join('') || '<div class="note">لا يوجد</div>'}</div>
+      ${rejectedHomeLink(u)}
       <a class="btn" href="#entry">+ قيد جديد</a>`;
   },
   /** @param {any} [pid] */
@@ -754,8 +802,40 @@ const views = {
         <div class="note">الملحق يُضاف فقط. لا تعديل ولا حذف.</div>
       </div>`;
   },
+  rejected() {
+    const u = me();
+    const back = `<button type="button" class="mini" id="back">رجوع</button>`;
+    const rows = rejectedRows(u);
+    if (!rows.length) return back + '<div class="card">لا قيود مرفوضة بسبب حذف مشروع</div>';
+    const projects = get(K.projects, []);
+    const gone = get(K.goneProjectNames, {}) || {};
+    const errors = get(K.syncErrors, {}) || {};
+    const cards = rows.map(e => {
+      const dir = e.direction === 'income' ? 'مقبوض' : 'مصروف';
+      const kind = L.ENTRY_TYPES[/** @type {string} */ (e.entryType)];
+      const label = kind ? kind.label : '';
+      return `<div class="card"><h2>${esc(L.rememberedProjectName(String(e.projectId || ''), projects, gone))}</h2>
+        <div>${esc(dir)} · ${esc(label)} · ${esc(e.entryDate || '')}</div>
+        ${money(e.amount)}
+        <div>${esc(errors[/** @type {string} */ (e.id)] || '')}</div></div>`;
+    }).join('');
+    /** @type {Record<string, number>} */
+    const sums = { expense: 0, income: 0 };
+    rows.forEach(e => {
+      const n = typeof e.amount === 'number' ? e.amount : 0;
+      if (e.direction === 'income') sums.income += n;
+      else if (e.direction === 'expense') sums.expense += n;
+    });
+    const sumLines = [];
+    if (sums.expense) sumLines.push(`<div class="kv"><span>مصروف</span>${money(sums.expense)}</div>`);
+    if (sums.income) sumLines.push(`<div class="kv"><span>مقبوض</span>${money(sums.income)}</div>`);
+    const button = L.canExportRejected(u) ? '<button type="button" class="btn" id="rejected-csv">تصدير القيود المرفوضة</button>' : '';
+    return `${back}<div class="card"><h2>${esc(SyncStatus.PROJECT_DELETED)}</h2></div>${cards}
+      <div class="card"><div id="rejected-count">${rows.length}</div>${sumLines.join('')}
+      <p>هذه المبالغ غير محسوبة بأرصدة المشاريع</p>${button}</div>`;
+  },
 };
-const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص', sub:'عقد مقاول', subnew:'عقد مقاول', amend:'ملحق' };
+const titles = { home:'الرئيسية', entry:'قيد جديد', projects:'المشاريع', project:'', entries:'كل القيود', detail:'تفاصيل القيد', people:'الأشخاص', person:'شخص', sub:'عقد مقاول', subnew:'عقد مقاول', amend:'ملحق', rejected:'رُفض الإرسال لأن المشروع محذوف' };
 
 function tabGlyph() {
   const ns = 'http://www.w3.org/2000/svg';
@@ -1070,6 +1150,7 @@ function renderScreen() {
     heading = person && person.name ? person.name : 'خلفة';
   } else if (v === 'foremen') heading = 'العُهد';
   else if (v === 'foremannew') heading = 'خلفة جديد';
+  if (v === 'rejected' && !rejectedRows(u).length) heading = 'لا قيود مرفوضة بسبب حذف مشروع';
   $('#title').textContent = heading;
   $('#main').innerHTML = /** @type {Record<string, (arg?: string) => string>} */ (views)[v](arg) + confirmDialog();
   if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person')) refreshDirectory('render');
@@ -1129,7 +1210,7 @@ document.addEventListener('click', ev => {
   else if (b.id === 'logout') {
     peopleLoader.reset();
     peopleUid = '';
-    closeSession().then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
+    closeSession(rejectedLogoutBlock).then(ok => { if (ok) showLogin(); }).catch(() => { if (!db) showLogin(); });
   }
   else if (b.id === 'back') { location.hash = state.backStack.pop() || '#home'; }
   else if (b.id === 'back-sub') {
@@ -1193,6 +1274,21 @@ document.addEventListener('click', ev => {
   } else if (b.id === 'entry-file') {
     const built = currentEntryExport();
     if (built && built.csv) saveEntryFile(built.csv, built.filename);
+  } else if (b.id === 'rejected-csv') {
+    if (!L.canExportRejected(u)) return;
+    const rows = rejectedRows(u);
+    if (!rows.length) return;
+    const csv = L.rejectedEntriesToCSV(rows, get(K.projects, []), get(K.goneProjectNames, {}) || {}, get(K.syncErrors, {}) || {});
+    const filename = 'aj-rejected-' + today() + '.csv';
+    const pending = saveCsvFile(csv, filename);
+    const ids = rows.map(row => /** @type {string} */ (row.id));
+    pending.then(result => {
+      if (result !== 'shared' && result !== 'downloaded') return;
+      const prev = /** @type {string[]} */ (get(K.rejectedExportedIds, []) || []);
+      const next = prev.slice();
+      ids.forEach(id => { if (next.indexOf(id) < 0) next.push(id); });
+      set(K.rejectedExportedIds, next);
+    });
   } else if (b.id === 'csv') {
     if (!L.canExportCSV(u)) return;
     const rows = L.countedEntries(get(K.entries, []), get(K.syncErrors, {}) || {});
