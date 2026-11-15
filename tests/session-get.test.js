@@ -332,8 +332,9 @@ function entryDateOk(s) {
 function loadDatedSession(fixedMs, intl) {
   const clock = { ms: fixedMs };
   class FakeDate extends Date {
-    constructor(...args) {
-      super(...(args.length ? args : [clock.ms]));
+    constructor() {
+      const value = arguments.length ? arguments[0] : clock.ms;
+      super(value);
     }
     static now() {
       return clock.ms;
