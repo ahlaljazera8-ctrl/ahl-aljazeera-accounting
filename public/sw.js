@@ -1,4 +1,4 @@
-const VERSION = 'aj-p0-v58';
+const VERSION = 'aj-p0-v59';
 const ASSETS = ['./index.html', './style.css', './print.css', './ledger.js', './sync.js', './sync-status.js', './dom-safe.js', './appcheck.js', './firebase-config.js', './session.js', './firebase-client.js', './foremen.js', './people-dir.js', './accounts.js', './render.js', './app.js', './manifest.json', './icon.svg'];
 /** @type {Readonly<Record<string, 1>>} */
 const SHELL = { '/': 1, '/index.html': 1, '/style.css': 1, '/print.css': 1, '/ledger.js': 1, '/sync.js': 1, '/sync-status.js': 1, '/dom-safe.js': 1, '/appcheck.js': 1, '/firebase-config.js': 1, '/session.js': 1, '/firebase-client.js': 1, '/foremen.js': 1, '/people-dir.js': 1, '/accounts.js': 1, '/render.js': 1, '/app.js': 1, '/manifest.json': 1, '/icon.svg': 1 };
