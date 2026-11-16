@@ -4,7 +4,7 @@ Plan only. No application code in this change. Nothing under `public/`, `tests/`
 
 - **Repo.** `ahl-aljazeera-accounting`, read at `main` = `d40535a68714dafff60a8fed0481eb37ce751874`.
 - **Gates.** Ameer approves every merge and every behaviour or rules change. All 4 CI checks stay, with no skips and no retries. No spending. `arena` is banned, so the two shapes below were written by hand, not spawned.
-- **محاسب أهل الجزيرة was not asked.** This sketch does not change which amounts count, an advance, a ledger rule, an export, or `firestore.rules`. The display questions are for Ameer in the last section. If he wants a refused contract taken out of the profit figure, that later change asks the advisor before it is treated as a house rule.
+- **محاسب أهل الجزيرة was not asked.** This sketch does not change which amounts count, an advance, a ledger rule, an export, or `firestore.rules`. Section 9 records the display answers, EA 21:02, delegated. If a later change takes a refused contract out of the profit figure, that change asks the advisor before it is treated as a house rule.
 
 ## 0. What the next agent is building
 
@@ -120,7 +120,7 @@ This yields a task, so CDP and paint can run. It does not stop the quota burn. T
 | `tests/emulator/flush-retry.test.js`     | The rules denial, the committed bare-pending write count, and the restore. Add the file to the emulator job's explicit list and to `package.json` `"test:emulator"`.                                    |
 | `docs/PSTACK_INVENTORY.md`               | No row in this plan. The code pull request can add a section then. `setup-pstack` stays «ناقصة».                                                                                                        |
 
-`queuePendingFinance` and `queuePendingSubcontracts` keep their predicate. `applyFlush` stays the only writer of the outbox filter. `public/render.js` stays, unless Ameer chooses a new sentence in the questions below. `shownContract` (`public/render.js:154-157`) still returns the integer and does not read `syncErrors`. This sketch does not change that.
+`queuePendingFinance` and `queuePendingSubcontracts` keep their predicate. `applyFlush` stays the only writer of the outbox filter. `public/render.js` stays. EA 21:02, delegated: no new sentence. `shownContract` (`public/render.js:154-157`) still returns the integer and does not read `syncErrors`. This sketch does not change that.
 
 ```javascript
 // public/sync.js, inside flushOutbox, where isSeed is handled today
@@ -173,12 +173,12 @@ All four jobs stay: `lint, format, types`, `ledger tests`, `browser checks`, `em
 
 ## 9. Questions for Ameer
 
-No new sentence is in this sketch. The strings already on the screen are `رُفض الإرسال`, `لم يُرسل`, `القيد موجود على الخادم بمحتوى مختلف`, and `القيد موجود مسبقاً وتعذر مطابقة محتواه`. The bell already speaks the first error (`public/render.js` `failedMessages`). The subcontract card already prints `syncErrors[id]` (`:751`). The contract figure still shows the integer when an error is set, because `shownContract` does not read `syncErrors`.
+Answered by EA 21:02, delegated. These are plan decisions only. The strings already on the screen stay: `رُفض الإرسال`, `لم يُرسل`, `القيد موجود على الخادم بمحتوى مختلف`, and `القيد موجود مسبقاً وتعذر مطابقة محتواه`. The bell already speaks the first error (`public/render.js` `failedMessages`). The subcontract card already prints `syncErrors[id]` (`:751`). The contract figure still shows the integer when an error is set, because `shownContract` does not read `syncErrors`.
 
-1. For a refused contract amount, is the bell's existing `رُفض الإرسال` enough, with the typed number still shown as `قيمة العقد`?
-2. For a refused subcontract, is the string the card already prints enough?
-3. If the answer to either is no, what sentence should the owner see? Nothing below is approved copy. Candidates, only if he wants a new sentence: `تعذر إرسال قيمة العقد` and `تعذر إرسال مبلغ العقد`.
-4. A demo phone that leaves `?role=` with the example school contract still pending will show that existing refusal and stop, instead of flushing in a loop. Is that acceptable for the example project?
+1. Yes. EA 21:02, delegated. The existing bell message `رُفض الإرسال` is enough, and the typed number stays shown under `قيمة العقد`.
+2. Yes. EA 21:02, delegated. The message the card shows now is enough for a rejected subcontract.
+3. Moot. EA 21:02, delegated. No new sentence. The candidate strings `تعذر إرسال قيمة العقد` and `تعذر إرسال مبلغ العقد` are rejected. Do not add them.
+4. Yes. EA 21:02, delegated. On the demo device, a pending contract amount in the sample project shows the existing rejection message and stops instead of retrying. That is acceptable.
 
 ## 10. Accounting
 
