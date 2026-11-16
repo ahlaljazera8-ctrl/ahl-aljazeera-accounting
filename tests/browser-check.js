@@ -771,7 +771,7 @@ let chrome;
   })()`);
   console.log('owner tabs ' + JSON.stringify(tabs));
   const green = 'rgb(15, 92, 77)';
-  check('owner home fills the home tab and keeps five tappable tabs', tabs && tabs.order === 'home,entry,projects,people,foremen' && tabs.labels === 'الرئيسية|قيد جديد|المشاريع|الأشخاص|العُهد' && tabs.icons === true && tabs.rtl === true && tabs.on === 'home' && tabs.bg === green && tabs.color === 'rgb(255, 255, 255)' && tabs.others.indexOf(green) === -1 && tabs.boxes.every(b => b.w >= 44 && b.h >= 44) && tabs.radius >= 20 && tabs.shadow && tabs.shadow !== 'none' && tabs.side >= 8 && tabs.bottom >= 46 && tabs.pad >= 170 && tabs.hz === false);
+  check('owner home fills the home tab and keeps six tappable tabs', tabs && tabs.order === 'home,entry,projects,people,foremen,accounts' && tabs.labels === 'الرئيسية|قيد جديد|المشاريع|الأشخاص|العُهد|حسابات' && tabs.icons === true && tabs.rtl === true && tabs.on === 'home' && tabs.bg === green && tabs.color === 'rgb(255, 255, 255)' && tabs.others.indexOf(green) === -1 && tabs.boxes.every(b => b.w >= 44 && b.h >= 44) && tabs.radius >= 20 && tabs.shadow && tabs.shadow !== 'none' && tabs.side >= 8 && tabs.bottom >= 46 && tabs.pad >= 170 && tabs.hz === false);
   const entryBox = await ev(`(()=>{
     const a = document.querySelector('.tabs a[data-tab="entry"]');
     const r = a.getBoundingClientRect();
@@ -1769,6 +1769,18 @@ let chrome;
   await ev(`location.hash='#foremen'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
   check('a site user has no custody export button', await ev(`!document.querySelector('[data-fm="export"]') && ((document.querySelector('#main') && document.querySelector('#main').innerText) || '').includes('تصدير العهدة') === false`));
+  await go(`${BASE}index.html?role=owner#accounts`);
+  await sleep(250);
+  check('demo owner accounts list is empty and has no create button', await ev(`(() => {
+    const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    return text.includes('لا توجد حسابات أشخاص.') && text.includes('+ شخص جديد') === false && !!document.querySelector('a[data-tab="accounts"]');
+  })()`));
+  await go(`${BASE}index.html?role=site#accounts`);
+  await sleep(250);
+  check('a site user has no accounts tab and sees the owner sentence', await ev(`(() => {
+    const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    return !document.querySelector('a[data-tab="accounts"]') && text.includes('هذه الشاشة للمالك.');
+  })()`));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

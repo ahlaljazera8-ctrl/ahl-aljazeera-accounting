@@ -2,7 +2,7 @@
 // IndexedDB "aj-p0" / "aj-u-<uid>" (stores: projects, entries, outbox, meta).
 // Loaded into memory at boot; every write is persisted (write-through, serialized).
 // Outbox = ids not sent yet (no syncState). Login and logout live here too.
-var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending', peopleSynced:'peopleSynced', goneProjectNames:'goneProjectNames', rejectedExportedIds:'rejectedExportedIds' };
+var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', parties:'parties', agreements:'agreements', accountTxns:'accountTxns', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending', peopleSynced:'peopleSynced', goneProjectNames:'goneProjectNames', rejectedExportedIds:'rejectedExportedIds' };
 /** @type {Record<string, 1>} */
 var LIST = { projects:1, entries:1, outbox:1 };
 /** @type {SessionCache} */
@@ -313,7 +313,7 @@ async function outboxEmpty() {
   } catch (e) { return false; }
 }
 /** @type {Record<string, 1>} */
-var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'accounts-view.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
 /**
  * @param {string} raw
  * @returns {boolean}

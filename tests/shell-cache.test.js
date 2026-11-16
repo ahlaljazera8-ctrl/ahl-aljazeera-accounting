@@ -41,7 +41,7 @@ test('session.js is a classic script loaded before app.js and precached with the
   assert.ok(sessionAt > 0 && appAt > sessionAt);
   assert.equal(html.includes('type="module"'), false);
   // Q5: next free number at rebase. Date fix is v59 and export is v60, so this pin is v61 and stays renumberable.
-  assert.match(sw, /const VERSION = 'aj-p0-v62'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v63'/);
   assert.match(sw, /\.\/session\.js/);
   assert.match(sw, /'\/session\.js': 1/);
   assert.match(session, /window\.AJ/);
@@ -64,7 +64,7 @@ test('firebase-client.js is a classic script between session.js and app.js and i
   assert.match(sw, /\.\/firebase-client\.js/);
   assert.match(sw, /'\/firebase-client\.js': 1/);
   // Q5: next free number at rebase. Date fix is v59 and export is v60, so this pin is v61 and stays renumberable.
-  assert.match(sw, /const VERSION = 'aj-p0-v62'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v63'/);
   assert.equal(cacheControl('/firebase-client.js'), 'no-cache');
 });
 
@@ -76,10 +76,12 @@ test('render.js is a classic script between firebase-client.js and app.js and is
   const foremenAt = html.indexOf('src="foremen.js"');
   const peopleAt = html.indexOf('src="people-dir.js"');
   const accountsAt = html.indexOf('src="accounts.js"');
+  const accountsViewAt = html.indexOf('src="accounts-view.js"');
   const renderAt = html.indexOf('src="render.js"');
   const appAt = html.indexOf('src="app.js"');
-  assert.ok(clientAt > 0 && foremenAt > clientAt && peopleAt > foremenAt && accountsAt > peopleAt && renderAt > accountsAt && appAt > renderAt);
+  assert.ok(clientAt > 0 && foremenAt > clientAt && peopleAt > foremenAt && accountsAt > peopleAt && accountsViewAt > accountsAt && renderAt > accountsViewAt && appAt > renderAt);
   assert.match(sw, /\.\/accounts\.js/);
+  assert.match(sw, /\.\/accounts-view\.js/);
   assert.match(sw, /'\/accounts\.js': 1/);
   assert.match(sw, /\.\/foremen\.js/);
   assert.match(sw, /'\/foremen\.js': 1/);
@@ -93,6 +95,6 @@ test('render.js is a classic script between firebase-client.js and app.js and is
   assert.match(sw, /\.\/render\.js/);
   assert.match(sw, /'\/render\.js': 1/);
   // Q5: next free number at rebase. Date fix is v59 and export is v60, so this pin is v61 and stays renumberable.
-  assert.match(sw, /const VERSION = 'aj-p0-v62'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v63'/);
   assert.equal(cacheControl('/render.js'), 'no-cache');
 });

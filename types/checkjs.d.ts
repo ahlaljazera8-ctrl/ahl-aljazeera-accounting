@@ -481,6 +481,13 @@ interface LedgerApi {
     foremen: readonly Foreman[] | null | undefined,
     errors: Record<string, unknown> | null | undefined,
   ): string;
+  personProjectDeleteBlock(
+    projectId: string,
+    docs: readonly FoldDoc[] | null | undefined,
+    parties: readonly { id?: string; name?: string }[] | null | undefined,
+    syncErrors: Record<string, unknown> | null | undefined,
+    balancesFn: ((docs: readonly FoldDoc[], filter: BalanceFilter) => { net: number }) | null | undefined,
+  ): string;
   rememberedProjectName(
     projectId: string,
     projects: readonly LedgerProject[] | null | undefined,
@@ -753,6 +760,89 @@ interface ForemenUiApi {
   syncLine(lastSyncMs: number, format?: (ms: number) => string): string;
 }
 
+type ActionTab = 'agreements' | 'movements' | 'statement';
+type AccountTab = 'overview' | 'agreements' | 'movements' | 'statement';
+type MovementFilter = 'all' | 'payments' | 'advances' | 'measurements';
+
+interface AccountAction {
+  id: string;
+  tab: ActionTab;
+  label: string;
+  buttonId: string;
+  renderForm: () => string;
+  onClick: (button: HTMLButtonElement) => boolean;
+  save: (input: object) => { doc: object | null; errors: string[] };
+}
+
+interface AccountScopeFlag {
+  scope: 'project' | 'all';
+  projectId: string;
+  periodKind: 'week' | 'month';
+  anchorDate: string;
+}
+
+interface AccountScreen {
+  tab: AccountTab;
+  filter: MovementFilter;
+  creating: boolean;
+  formId: string;
+  name: string;
+  msg: string;
+  today: string;
+}
+
+interface PendingRow {
+  id: string;
+  label: string;
+  amount: number;
+}
+
+interface AccountModel {
+  user: { role?: string; uid?: string } | null;
+  parties: Array<{ id: string; name: string }>;
+  agreements: Array<{
+    id: string;
+    partyId?: string;
+    projectId?: string;
+    method?: string;
+    description?: string;
+    reversesId?: string;
+  }>;
+  txns: FoldDoc[];
+  projects: Array<{ id: string; name?: string }>;
+  figures: Balance | null;
+  lines: StatementLine[];
+  pending: PendingRow[];
+  canCreate: boolean;
+  screen: AccountScreen;
+  index: RowIndex | null;
+  statement: ReturnType<AccountsApi['statementLines']> | null;
+}
+
+interface AccountModule {
+  install(api: RenderApi): void;
+}
+
+interface AccountsViewApi {
+  install(api: RenderApi): void;
+  syncTab(user: { role?: string } | null | undefined): void;
+  onClick(button: HTMLButtonElement): boolean;
+  onInput(el: HTMLElement): boolean;
+  readAccountScope(): AccountScopeFlag;
+  writeAccountScope(next: AccountScopeFlag): void;
+  accountPeriod(): { periodStart: string; periodEnd: string } | null;
+  modelFor(user: { role?: string; uid?: string } | null): AccountModel;
+  accountHtml(model: AccountModel, partyId: string): string;
+  listHtml(model: AccountModel): string;
+  statementFor(
+    user: { role?: string; uid?: string } | null,
+    partyId: string,
+  ): ReturnType<AccountsApi['statementLines']>;
+  commitDoc(id: string, doc: object, rows: readonly { id: string }[], write: (next: object[]) => void): void;
+  partyErrors(name: string): string[];
+  canCreateParty(user: { role?: string } | null | undefined): boolean;
+}
+
 interface PeopleRow {
   uid?: string;
   displayName?: string;
@@ -963,6 +1053,13 @@ interface Window {
   AppCheck: AppCheckApi;
   ForemenUI: ForemenUiApi;
   PeopleDir: PeopleDirApi;
+  AccountsView?: AccountsViewApi;
+  AccountWork?: AccountModule;
+  AccountPayment?: AccountModule;
+  AccountCorrect?: AccountModule;
+  AccountStatement?: AccountModule;
+  AccountShare?: AccountModule;
+  AccountActions?: AccountAction[];
   __loginSeen?: boolean;
   __forceOffline?: boolean;
   __unhandled?: string[];
@@ -972,11 +1069,15 @@ interface Window {
 declare const Ledger: Window['Ledger'];
 declare const Accounts: Window['Accounts'];
 declare const AJ: Window['AJ'];
+declare const Sync: Window['Sync'];
 declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
 declare const AppCheck: AppCheckApi;
+declare const AccountsView: AccountsViewApi;
 declare const ForemenUI: ForemenUiApi;
 declare const PeopleDir: PeopleDirApi;
+declare var AccountActions: AccountAction[];
+declare function queueDoc(id: string): void;
 
 // session.js and app.js are classic scripts. checkJs treats each file as a module,
 // so the names they share are declared here. Nothing here is loaded by the app.
