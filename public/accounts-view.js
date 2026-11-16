@@ -377,8 +377,7 @@
       owed,
     ];
     const body = lines.map(([label, amount]) => '<div class="kv"><span>' + label + '</span>' + money(/** @type {number} */ (amount)) + '</div>').join('');
-    const advance = net < 0 ? '<div class="kv"><span>المتبقي سلفة</span>' + money(-net) + '</div>' : '';
-    return scopePills(model, partyId) + '<div class="card"><div class="note">' + projectWord + '</div>' + body + advance + '</div>';
+    return scopePills(model, partyId) + '<div class="card"><div class="note">' + projectWord + '</div>' + body + '</div>';
   }
 
   /**

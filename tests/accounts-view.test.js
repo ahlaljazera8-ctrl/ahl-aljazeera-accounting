@@ -213,7 +213,8 @@ test('the 480000 fixture shows 480,000 under مستحق له, not 550,000', () =
   assert.equal(kvAmount(html, 'مستحق له'), '480,000 د.ع');
   assert.equal(html.includes('550,000'), false);
   assert.equal(kv(html, 'مستحق عليه'), '');
-  assert.equal(kv(html, 'المتبقي سلفة'), '');
+  assert.equal(html.includes('المتبقي سلفة'), false);
+  assert.equal(kvAmount(html, 'سلف قائمة عليه'), '70,000 د.ع');
 });
 
 test('an advance-only person shows مستحق عليه 100,000', () => {
@@ -226,7 +227,9 @@ test('an advance-only person shows مستحق عليه 100,000', () => {
   const html = UI.accountHtml(model, 'p1');
   assert.equal(kvAmount(html, 'مستحق عليه'), '100,000 د.ع');
   assert.equal(kv(html, 'مستحق له'), '');
-  assert.equal(kvAmount(html, 'المتبقي سلفة'), '100,000 د.ع');
+  assert.equal(html.includes('المتبقي سلفة'), false);
+  assert.equal(html.includes('(سلفة)'), false);
+  assert.equal(kvAmount(html, 'سلف قائمة عليه'), '100,000 د.ع');
 });
 
 test('a net of 0 shows مستحق له 0 and no remaining-advance figure', () => {
@@ -240,7 +243,45 @@ test('a net of 0 shows مستحق له 0 and no remaining-advance figure', () =>
   const html = UI.accountHtml(model, 'p1');
   assert.equal(kvAmount(html, 'مستحق له'), '0 د.ع');
   assert.equal(kv(html, 'مستحق عليه'), '');
-  assert.equal(kv(html, 'المتبقي سلفة'), '');
+  assert.equal(html.includes('المتبقي سلفة'), false);
+  assert.equal(kvAmount(html, 'سلف قائمة عليه'), '100,000 د.ع');
+});
+
+test('an overpayment shows مستحق عليه 100,000 and سلف قائمة عليه', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'pay', purpose: 'payLabor', amount: 700000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-02', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'overview';
+  const html = UI.accountHtml(model, 'p1');
+  assert.equal(kvAmount(html, 'مستحق عليه'), '100,000 د.ع');
+  assert.equal(kv(html, 'مستحق له'), '');
+  assert.equal(html.includes('المتبقي سلفة'), false);
+  assert.equal(html.includes('(سلفة)'), false);
+  assert.equal(kvAmount(html, 'سلف قائمة عليه'), '0 د.ع');
+  assert.equal(html.includes('\u2212'), false);
+});
+
+test('a rendered negative balance does not contain (سلفة)', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  const advance = [{ id: 'adv', purpose: 'advanceLabor', amount: 100000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' }];
+  const overpay = [
+    { id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'pay', purpose: 'payLabor', amount: 700000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-02', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'overview';
+  for (const rows of [advance, overpay]) {
+    store.accountTxns = rows;
+    const html = UI.accountHtml(model, 'p1');
+    const block = Ledger.personProjectDeleteBlock('job', /** @type {readonly FoldDoc[]} */ (rows), store.parties, {}, Accounts.balances);
+    assert.equal(html.includes('مستحق عليه'), true);
+    assert.equal(html.includes('(سلفة)'), false);
+    assert.equal(block.includes('مستحق عليه'), true);
+    assert.equal(block.includes('(سلفة)'), false);
+  }
 });
 
 function movementCard(html, purpose) {

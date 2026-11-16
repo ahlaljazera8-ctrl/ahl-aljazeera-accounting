@@ -466,7 +466,7 @@ Name is trimmed, 1 to 80 characters. Over 80 or empty: `partyErrors` returns `na
 
 Owner gate on the screen is `Ledger.can(user, 'owner')`, the same check the people tab uses. It does not also test `active`. The server still requires `active == true` (`firestore.rules` line 11). F does not add a second client rule.
 
-IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. Ameer, 2026-11-16 15:02 Baghdad, recorded in `answers-EA-delegated-0034.md` (sha256 `7f51d9bf5241e639cec666c5c8115afe191395cb79f8e7059c1a9194cdcdbcc5`) lines 55-57: C Q1 is (a) net only. `مستحق له` prints `Balance.net` when `net` is above 0. `مستحق عليه` prints `-net` when `net` is below 0. That is the same number as the project-delete sentence. `net` 0 prints `مستحق له` 0 and does not print `مستحق عليه`. `المتبقي سلفة` prints `-net` when `net` is below 0 and is omitted otherwise, so it does not print `recoverable`. The page does not compute the figure. There is no `<select>` for currency and no `USD`.
+IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. Ameer, 2026-11-16 15:02 Baghdad, recorded in `answers-EA-delegated-0034.md` (sha256 `7f51d9bf5241e639cec666c5c8115afe191395cb79f8e7059c1a9194cdcdbcc5`) lines 55-57: C Q1 is (a) net only. `مستحق له` prints `Balance.net` when `net` is above 0. `مستحق عليه` prints `-net` when `net` is below 0. That is the same number as the project-delete sentence. `net` 0 prints `مستحق له` 0 and does not print `مستحق عليه`. Ameer, 2026-11-16 15:35 Baghdad, recorded in `answers-EA-delegated-0034.md` (sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`), section "Ameer answers, 2026-11-16 15:35": the overview does not print `المتبقي سلفة`. `سلف قائمة عليه` stays. A negative person balance is `مستحق عليه` only, with no `(سلفة)` after it. The page does not compute the figure. There is no `<select>` for currency and no `USD`.
 
 The overview and the statement are the C calls named in Types and signatures. The week and month pills call `writeAccountScope`. Dates are `accountPeriod()`, which is `Accounts.periodBounds(periodKind, anchorDate)`, and `anchorDate` defaults to `today()`. F does not write `statementApprovals`. That save is the `statement-approval` action, painted only after `AccountStatement.install`. While `unreviewedCashIds` or `overLimitIds` names a row in the period, the page shows `لا يُعتمد الكشف وفيه مبلغ غير مدقّق` (`contractor-pr-c-sketch.md` line 372 at `604d734`, share plan line 577). Those cash rows show `غير مدقّق`.
 
@@ -585,16 +585,16 @@ The page does not say `حركات المواد`, `المرفقات`, `الأدو
 
 ### Overview
 
-| String           | Mark                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `هذا المشروع`    | new                                                                                                                        |
-| `كل المشاريع`    | new                                                                                                                        |
-| `عمل معتمد`      | new                                                                                                                        |
-| `مدفوع للعمل`    | new                                                                                                                        |
-| `سلف قائمة عليه` | new. The overview uses this, not the shorter `سلف قائمة`.                                                                  |
-| `مستحق له`       | reused. `public/foremen.js` lines 148 and 181. Line 174 is the owner gate.                                                 |
-| `مستحق عليه`     | new. Q9 closed on this word.                                                                                               |
-| `المتبقي سلفة`   | new. Q18. Shown with `مستحق عليه` when `net` is below 0. The amount is `-net`, not `recoverable`. No new advisor sentence. |
+| String           | Mark                                                                                                                                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `هذا المشروع`    | new                                                                                                                                                                                                   |
+| `كل المشاريع`    | new                                                                                                                                                                                                   |
+| `عمل معتمد`      | new                                                                                                                                                                                                   |
+| `مدفوع للعمل`    | new                                                                                                                                                                                                   |
+| `سلف قائمة عليه` | new. The overview uses this, not the shorter `سلف قائمة`.                                                                                                                                             |
+| `مستحق له`       | reused. `public/foremen.js` lines 148 and 181. Line 174 is the owner gate.                                                                                                                            |
+| `مستحق عليه`     | new. Q9 closed on this word.                                                                                                                                                                          |
+| `المتبقي سلفة`   | Not painted. Ameer, 2026-11-16 15:35, `answers-EA-delegated-0034.md` sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`. `سلف قائمة عليه` stays. `مستحق عليه` has no `(سلفة)`. |
 
 Do not reuse `مستحق للخلفة` or `المتبقي معه` (`public/foremen.js` lines 149, 189, and 191).
 
@@ -651,7 +651,7 @@ Fixtures from the plan:
 
 - Spec 12 / the brick screen. `approveLabor` 600,000 and `payLabor` 600,000. Overview shows `عمل معتمد` 600,000, `مدفوع للعمل` 600,000, and `مستحق له` 0. It does not show `مستحق عليه`.
 - Partial, spec 11. The same approval and `payLabor` 200,000. `مستحق له` 400,000. It does not show `مستحق عليه`.
-- Overpayment. `payLabor` 700,000 after `approveLabor` 600,000. `مستحق عليه` 100,000 and `المتبقي سلفة` 100,000. The HTML has one `payLabor` row and no `advanceLabor` row. The 100,000 line does not contain U+2212.
+- Overpayment. `payLabor` 700,000 after `approveLabor` 600,000. `مستحق عليه` 100,000. `سلف قائمة عليه` stays. The HTML does not contain `المتبقي سلفة` or `(سلفة)`. The 100,000 line does not contain U+2212.
 - Statement. Approval 600,000, deduct 50,000, `approveDeduct` of that deduct, advance 100,000, return 30,000. The rendered lines equal `statementLines().lines` in that order. The closing text is the digits 480,000, and that is `statementLines().closing` on this fixture (C line 321 at `604d734`).
 - Same rows plus `settle` 40,000. The closing text still equals C's closing. The HTML does not contain 520,000.
 - Same rows without `approveDeduct`. The deduct id is in `pendingIds` and shows `بانتظار الاعتماد`. The closing text equals C's closing.
@@ -808,7 +808,7 @@ These plan sentences are not true at baf4f21f:
 
 Opinion only. This sketch does not ask the advisor again. PR B already recorded the opinion and Ameer's deferral of 2026-11-15 23:22 Baghdad (UTC+3) via EA.
 
-The advisor's label for a payment larger than approved work is `مستحق على الشخص (سلفة)`. Q18 keeps `مستحق عليه` (the earlier answer in `c14b9c84` names that word) plus `المتبقي سلفة`, both inside the 88. The advisor's sentence is not added. The confirm step stays with the payment action, not on this page. One `payLabor` stays one row.
+The advisor's label for a payment larger than approved work is `مستحق على الشخص (سلفة)`. That sentence is not added. Ameer, 2026-11-16 15:35 Baghdad, `answers-EA-delegated-0034.md` (sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`), section "Ameer answers, 2026-11-16 15:35": the screen prints `مستحق عليه` with no `(سلفة)`, and it does not print `المتبقي سلفة`. `سلف قائمة عليه` stays. The confirm step stays with the payment action, not on this page. One `payLabor` stays one row.
 
 The statement layout the advisor already corrected stays the one in section 3 of the plan: advances paid minus, cash returned plus, net advances equal to that difference, deductions negative. F prints those lines from C. It does not put a cash return under `الخصومات ومرتجعات المواد`.
 
@@ -821,7 +821,7 @@ Q16–Q22 and Q47 are closed. EA approved those defaults at 00:52 Baghdad on 202
 | Q5       | `VERSION` is the next free number at merge time. At `24fb8395` it is v61. The next free number is v62 unless the receipt lane, E, or S takes it. F claims no number. |
 | Q16      | The tab is `حسابات`.                                                                                                                                                 |
 | Q17      | The page strings stand, including `أدخل اسم الشخص`.                                                                                                                  |
-| Q18      | `مستحق عليه` and `المتبقي سلفة`. No new advisor sentence. No confirm step on this page.                                                                              |
+| Q18      | `مستحق عليه` with no `(سلفة)`. `المتبقي سلفة` is not painted (Ameer 2026-11-16 15:35). `سلف قائمة عليه` stays. No confirm step on this page.                         |
 | Q19      | The sentence is under strings for Ameer. The screen does not paint it.                                                                                               |
 | Q20      | The create button is absent in the demo.                                                                                                                             |
 | Q21      | The create form is the name only. `note` is not sent.                                                                                                                |
@@ -868,4 +868,4 @@ Skills this phase uses, from the plan and from the screen work: `architect` (thi
 - Say go on this sketch before any code PR.
 - Merge, later, only after Architect's review of the code SHA and CI 4/4. This sketch does not merge itself.
 
-Already decided: Q5, Q16–Q22, Q47, and C Q1 (net only, Ameer 2026-11-16 15:02, `answers-EA-delegated-0034.md` lines 55-57), plus the tab `حسابات`, the 88 strings, IQD only, four tabs, filters on `الحركات`, owner only, create-person absent until E is in the same build, and the empty demo list. Strings outside the 88 are listed under strings for Ameer and are not renumbered into the 88. The person unchecked sentence is approved as written by that same 15:02 answer.
+Already decided: Q5, Q16–Q22, Q47, and C Q1 (net only, Ameer 2026-11-16 15:02, `answers-EA-delegated-0034.md` lines 55-57). Ameer, 2026-11-16 15:35, same file sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`: the overview does not print `المتبقي سلفة`, and `مستحق عليه` has no `(سلفة)`. Plus the tab `حسابات`, the 88 strings, IQD only, four tabs, filters on `الحركات`, owner only, create-person absent until E is in the same build, and the empty demo list. Strings outside the 88 are listed under strings for Ameer and are not renumbered into the 88. The person unchecked sentence is approved as written by the 15:02 answer.
