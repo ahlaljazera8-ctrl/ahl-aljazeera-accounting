@@ -448,33 +448,45 @@ function saveEntryFile(csv, filename) {
 }
 /**
  * No title. The click calls this with no earlier await, and share runs before this function's first await.
- * @param {string} csv
- * @param {string} filename
+ * One share carries every file. A failed share downloads them in order.
+ * @param {readonly { csv: string, filename: string }[]} list
  * @returns {Promise<'shared' | 'downloaded' | 'aborted'>}
  */
-function saveCsvFile(csv, filename) {
-  const file = new File([csv], filename, { type: 'text/csv' });
-  const payload = { files: [file] };
+function saveCsvFiles(list) {
+  /** @type {File[]} */
+  const files = [];
+  for (let i = 0; i < list.length; i++) files.push(new File([list[i].csv], list[i].filename, { type: 'text/csv' }));
+  const payload = { files };
   let can;
   try {
     can = !!(/** @type {Navigator['share'] | undefined} */ (navigator.share) && typeof navigator.canShare === 'function' && navigator.canShare(payload));
   } catch (err) { can = false; }
+  /** @returns {'downloaded'} */
+  const downloadAll = () => {
+    for (let i = 0; i < list.length; i++) downloadCsv(list[i].csv, list[i].filename);
+    return /** @type {'downloaded'} */ ('downloaded');
+  };
   if (can) {
     try {
       const pending = navigator.share(payload);
       return Promise.resolve(pending).then(() => /** @type {'shared'} */ ('shared'), err => {
         if (err && err.name === 'AbortError') return /** @type {'aborted'} */ ('aborted');
-        downloadCsv(csv, filename);
-        return /** @type {'downloaded'} */ ('downloaded');
+        return downloadAll();
       });
     } catch (err) {
       if (err && /** @type {{ name?: string }} */ (err).name === 'AbortError') return Promise.resolve(/** @type {'aborted'} */ ('aborted'));
-      downloadCsv(csv, filename);
-      return Promise.resolve(/** @type {'downloaded'} */ ('downloaded'));
+      return Promise.resolve(downloadAll());
     }
   }
-  downloadCsv(csv, filename);
-  return Promise.resolve(/** @type {'downloaded'} */ ('downloaded'));
+  return Promise.resolve(downloadAll());
+}
+/**
+ * @param {string} csv
+ * @param {string} filename
+ * @returns {Promise<'shared' | 'downloaded' | 'aborted'>}
+ */
+function saveCsvFile(csv, filename) {
+  return saveCsvFiles([{ csv, filename }]);
 }
 function printCurrentEntry() {
   const built = currentEntryExport();
@@ -1426,6 +1438,7 @@ if (window.ForemenUI) {
     views, titles, state, render, esc, money, queueDoc, confirmShell,
     lastSyncAt: () => lastSyncAt,
     formatSyncTime,
+    saveCsvFiles,
   };
   ForemenUI.install(renderApi);
 }
