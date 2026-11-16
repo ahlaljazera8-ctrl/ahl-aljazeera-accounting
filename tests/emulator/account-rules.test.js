@@ -34,6 +34,8 @@ function localHost(name) {
 
 let testEnv;
 let chain = Promise.resolve();
+/** @type {Map<string, import('firebase/firestore').Firestore>} */
+const contexts = new Map();
 
 function testSeq(name, fn, timeout) {
   test(name, { timeout: timeout || 30000 }, async () => {
@@ -54,9 +56,28 @@ test.before(async () => {
   });
 });
 
-test.after(async () => { if (testEnv) await testEnv.cleanup(); });
+test.after(async () => {
+  // cleanup() drops each Firebase app without awaiting delete(). Those
+  // cancellations then make the next file's clearFirestore return CANCELLED.
+  const closing = [];
+  for (const fs of contexts.values()) {
+    const app = /** @type {{ delete?: () => Promise<void> }} */ (/** @type {any} */ (fs).app);
+    if (app && typeof app.delete === 'function') closing.push(Promise.resolve(app.delete()).catch(() => {}));
+  }
+  contexts.clear();
+  await Promise.all(closing);
+  if (testEnv) await testEnv.clearFirestore();
+});
 
-const db = uid => (uid ? testEnv.authenticatedContext(uid) : testEnv.unauthenticatedContext()).firestore();
+function db(uid) {
+  const key = uid || '';
+  const cached = contexts.get(key);
+  if (cached) return cached;
+  const ctx = uid ? testEnv.authenticatedContext(uid) : testEnv.unauthenticatedContext();
+  const fs = ctx.firestore();
+  contexts.set(key, fs);
+  return fs;
+}
 
 function uuid(n) {
   return 'aaaaaaaa-bbbb-cccc-dddd-' + n.toString(16).padStart(12, '0');
@@ -1459,6 +1480,7 @@ testSeq('length table', () => {
   assert.equal(uuidRow.length, 36);
   const body52 = 'sup_'.repeat(4) + uuidRow;
   const depth5 = 'sup_'.repeat(5) + uuidRow;
+  /** @type {Array<[string, number, boolean]>} */
   const checks = [
     [uuidRow, 36, true],
     ['rev_' + uuidRow, 40, true],
