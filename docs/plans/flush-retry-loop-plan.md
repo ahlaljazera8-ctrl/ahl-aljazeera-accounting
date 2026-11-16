@@ -1,10 +1,10 @@
 # Plan: the hot flush loop (r3)
 
-Revision after AgentLab Architect NOTES on the plan at `172f6f55`. Not an approval. This text sits on `bec4aeee`, which records EA's answers of 21:20. Plan only. No application code in this change. Nothing under `public/`, `tests/`, or `firestore.rules`. The code pull request waits until Architect and EA have read this revision. Ameer approves the merge and any behaviour change.
+The code for the plan at `7c7fb287` is in this pull request, together with this text. Not an approval. EA 21:52, delegated, is the go for that code. `main` is still `aj-p0-v63`, so this pull request sets `aj-p0-v64`. Ameer approves the merge and any behaviour change.
 
 - **Repo.** `ahl-aljazeera-accounting`, read at `main` = `d40535a68714dafff60a8fed0481eb37ce751874`.
 - **Gates.** Ameer approves every merge and every behaviour or rules change. All 4 CI checks stay, with no skips and no retries. No spending. `arena` is banned, so the shapes below were written by hand, not spawned.
-- **محاسب أهل الجزيرة was not asked.** This sketch does not change which amounts count, an advance, a ledger rule, an export, or `firestore.rules`. Section 9 records the display answers, EA 21:02, delegated. Section 11 records the behaviour answers, EA 21:20, delegated, and one line for EA to confirm. Any change to the profit figure asks the advisor before it is treated as a house rule.
+- **محاسب أهل الجزيرة was not asked.** This sketch does not change which amounts count, an advance, a ledger rule, an export, or `firestore.rules`. Section 9 records the display answers, EA 21:02, delegated. Section 11 records the behaviour answers, EA 21:20, 21:36, and 21:52, delegated. Any change to the profit figure asks the advisor before it is treated as a house rule.
 
 ## 0. What the next agent is building
 
@@ -12,7 +12,7 @@ A bound on the immediate `flushRemote()` tail in `public/firebase-client.js`, an
 
 r1 named two endless paths and three changes: refuse a seed, clear a bare `pending` flag, and a 0ms timer. Those three do not stop a third path. Architect's model, which is not the app and not the emulator, still did a project write on every round of that path (445 writes in 1,023ms; the review summary is 449 rounds/s). The 0ms timer only stops the page freezing. It does not cap the rate. r2 adds the cap and the general refusal. The timer stays as defence in depth.
 
-The service-worker `VERSION` in `public/sw.js` is `aj-p0-v63` at this base. The file's own comment says the next free number is chosen at merge. The open pull requests at this writing do not edit `public/sw.js`. The code pull request sets `const VERSION` to the next free `aj-p0-vN` at merge, which is `aj-p0-v64` unless a `public/` change merges first. Check the open pull requests again at merge. This pull request does not bump it.
+The service-worker `VERSION` in `public/sw.js` was `aj-p0-v63` on `main` when this code was written. No other file in the repo used `aj-p0-v64`. This pull request sets `const VERSION` to `aj-p0-v64`.
 
 Deploy that code pull request only when nobody is entering data, and only after the emulator restore in section 6 has passed.
 
@@ -115,6 +115,8 @@ Screened against the architect red flags. The next reader sees one file and copi
 - The bell: the `#bell-send` click (`public/render.js:1243`).
 - App open: the login path (`public/app.js:176`) and `enterSession` (`public/session.js:417`).
 
+`public/foremen.js:360` is not in that list. EA 21:52, delegated. The foremen refresh still calls `flushRemote()` with no argument, so it still starts a flush, and it does not reset the count.
+
 The counter never resets on the flush's own writes or acks, on the 0ms timer, or on anything that arrives through the pull or a snapshot. A change from another device does not reset the count, or two devices could chain each other. The loop cannot restart itself. Within that same cap of one, the tail may arm one `setTimeout(flushRemote, 0)` when any of these is true: an outbox id was not in this round's `ids`; `statusPending` gained an id this round (`freshStatus`, the check already at `:752-760`); or an id this round did try to send, and its pending amount now differs from the amount this round sent. It does not arm for an id this flush marked `failed` or `kept`. The timer does not count as a new trigger. No backoff. A backoff would be a poll.
 
 Only those outside callers pass an argument, `flushRemote({ fromOutside: true })`. The timer's module-local starter, `writeLocal`, `applyFlush`, and any ack or snapshot callback do not pass it. The argument is not stored. There is no new exported function and no new stored field. When the timer fires it checks `sessionEpoch` and does nothing if the session changed. `disposeFirebase` (`:505`) and a session change clear both the count and the timer.
@@ -147,12 +149,12 @@ Shapes that were not chosen: r1's clear of a bare flag, because it rewrites stor
 | File                                 | Change                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public/firebase-client.js`          | After `applyFlush`, refuse only an id in this round's `ids` that was not sent, including the non-owner return at `:270`. The amount just sent is a per-round local map. The tail is the one rule in section 4. Only the outside events listed there pass `{ fromOutside: true }`. Clear the count and the timer on session change. |
-| `public/sw.js`                       | At merge, the next free `aj-p0-vN` as section 0 says. Required because `public/` changes.                                                                                                                                                                                                                                          |
+| `public/sw.js`                       | `aj-p0-v64`, as section 0 says. Required because `public/` changes.                                                                                                                                                                                                                                                                |
 | `tests/flush-retry.test.js`          | The behaviour in section 8 that does not need the emulator, with fake timers. Add the file to the ledger job's `node --test` list in `.github/workflows/ci.yml` and to `package.json` `"test"`.                                                                                                                                    |
 | `tests/emulator/flush-retry.test.js` | The rules denial, the one project write then stop for path (c), and the restore. Add the file to the emulator job's explicit list and to `package.json` `"test:emulator"`.                                                                                                                                                         |
 | `docs/PSTACK_INVENTORY.md`           | No row in this plan. The code pull request can add a section then. `setup-pstack` stays «ناقصة».                                                                                                                                                                                                                                   |
 
-`queuePendingFinance` and `queuePendingSubcontracts` keep their predicate. `applyFlush` stays the writer of the outbox filter; the refusal adds the error before the tail, by the same `failed` shape `applyFlush` already understands. `public/render.js` stays. EA 21:02, delegated: no new sentence. `shownContract` (`public/render.js:154-157`) still returns the integer and does not read `syncErrors`. This sketch does not change that.
+`queuePendingFinance` and `queuePendingSubcontracts` keep their predicate. `applyFlush` stays the writer of the outbox filter; the refusal adds the error before the tail, by the same `failed` shape `applyFlush` already understands. The named callers in section 4 pass `{ fromOutside: true }`. `public/foremen.js:360` does not. EA 21:52, delegated. It still starts a flush and it does not reset the count. `public/render.js` gains no new sentence. EA 21:02, delegated. `shownContract` (`public/render.js:154-157`) still returns the integer and does not read `syncErrors`. This sketch does not change that.
 
 There is no second statement of the tail rule in this section.
 
@@ -200,7 +202,10 @@ These stay green on the fix, and the mutations below must turn the matching ones
 17. A contract re-saved during the re-flush is sent.
 18. A contract saved on a second project during the flush is not refused and is sent.
 19. A non-owner return at `writeLocal` `:270`, with a pending finance row on that id: the row is refused, the amount stays, and `pending` is not cleared.
-20. Under fake timers, a write that keeps failing with no user save stays at most 2 rounds and at most 2 writes. An amount that changes every round with no user save stays at most 2 rounds, at most 2 project writes, and at most 2 finance writes. The flush's own acks, and anything that arrives through the pull or a snapshot, do not reset the count. This test fails on `d40535a6`.
+
+**20a.** An amount that changes every round with no user save: at most 2 rounds, 2 project writes, and 2 finance writes. This fails on `d40535a6`.
+
+**20b.** A write that keeps failing with no user save: at most 2 rounds and 2 writes. This also passes on `d40535a6`. It is a regression guard. The fails-on-base proof is the seed, the bare pending row, and the out-of-range integer (tests 1, 2, and 3), plus 20a. The flush's own acks, and anything that arrives through the pull or a snapshot, do not reset the count.
 
 Mutations, each of which must make a green test red: remove the one-re-arm cap (test 4 exceeds 2 rounds); drop only the unsent-pending refusal (tests 1, 2, and 3 no longer stop); remove only the cap, with the refusal left in place (test 4 still exceeds 2 rounds); restore `return flushRemote()` and drop the refusal together (tests 1, 2, and 3 no longer stop); refuse a legacy project-level amount (test 11 goes red). The refusal-only mutation and the cap-only mutation are run on their own, not only as a pair.
 
@@ -240,6 +245,8 @@ Yes. EA 21:20, delegated. Demo or sample projects with a pending amount become t
 Yes. EA 21:20, delegated. One extra re-flush per trigger, only when the pending amount differs from what was sent. At most two rounds, no backoff. In the Architect's model, not an emulator run, about 449 writes a second drops to 2 rounds, and a normal contract stays at 1 round.
 
 Yes. EA 21:36, delegated. The widened cap is confirmed, with this condition. The counter resets only on these named events: a user save, the online event, a bell tap, and app open or session entry, at the call sites in section 4. The counter never resets on the flush's own writes or acks, on the 0ms timer, or on anything that arrives through the pull or a snapshot. A change from another device does not reset the count. The loop cannot restart itself. Still at most one extra round per trigger. The same cap also re-arms for an outbox id that was not in this round and for a new status change.
+
+`public/foremen.js:360`, the foremen refresh, is not one of those reset events. EA 21:52, delegated. It still calls `flushRemote()` and starts a flush. It does not reset the count.
 
 ### Profit
 
