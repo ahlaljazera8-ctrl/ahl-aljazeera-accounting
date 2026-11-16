@@ -89,7 +89,7 @@ function subcontractSection(project, entries) {
 function queueDoc(id) {
   const out = get(K.outbox, []);
   if (!out.includes(id)) set(K.outbox, out.concat([id]));
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
 }
 /** @param {any} u @param {any} | null | undefined} button */
 function saveSubcontract(u, button) {
@@ -200,7 +200,7 @@ function saveContract(u) {
   set(K.finance, fin);
   const out = get(K.outbox, []);
   if (!out.includes(id)) set(K.outbox, out.concat([id]));
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
   render();
 }
 function readPersonForm() {
@@ -333,7 +333,7 @@ function commit(entry) {
   const lg = ledger();
   lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY, subcontracts: get(K.subcontracts, []), foremen: get(K.foremen, []) });
   set(K.entries, lg.all()); set(K.outbox, [...get(K.outbox, []), entry.id]);
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
 }
 function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending the same id is a no-op.
   const out = new Set(get(K.outbox, [])); if (!out.size) return;
@@ -1056,7 +1056,7 @@ function finishConfirm(c) {
     if (location.hash !== '#projects') { location.hash = '#projects'; }
     else render();
   } else render();
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
 }
 function lastSyncMillis() {
   if (lastSyncAt) return lastSyncAt;
@@ -1240,7 +1240,7 @@ document.addEventListener('click', ev => {
     render();
   }
   else if (b.id === 'outbox') { bellOpen = !bellOpen; paintBell(); }
-  else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote(); }
+  else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote({ fromOutside: true }); }
   else if (b.id === 'logout') {
     peopleLoader.reset();
     peopleUid = '';
@@ -1379,7 +1379,7 @@ document.addEventListener('click', ev => {
     const name = prompt('اسم المشروع:'); if (!name) return; const clientName = prompt('اسم الزبون:') || '';
     const p = { id: uuid(), name, clientName, location: '', currency: 'IQD', status: 'active', createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
     set(K.projects, [...get(K.projects, []), p]); set(K.outbox, [...get(K.outbox, []), p.id]); render();
-    if (!demoRole()) flushRemote();
+    if (!demoRole()) flushRemote({ fromOutside: true });
   } else if (b.id === 'save-contract') saveContract(u);
   else if (b.id === 'save-person') savePerson(u);
   else if (b.id === 'people-retry') ensureDirectory('retry').then(() => render()).catch(() => render());
@@ -1483,7 +1483,7 @@ if (window.ForemenUI) {
 }
 addEventListener('hashchange', render);
 addEventListener('online', () => {
-  if (!demoRole() && get(K.sessionUser)) { flushRemote(); refreshDirectory('online'); }
+  if (!demoRole() && get(K.sessionUser)) { flushRemote({ fromOutside: true }); refreshDirectory('online'); }
   else if (!$('#shell').hidden) render();
 });
 addEventListener('offline', () => { if (!$('#shell').hidden) render(); });

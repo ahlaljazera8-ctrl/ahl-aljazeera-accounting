@@ -414,7 +414,7 @@ async function enterSession(fb, uid, data) {
   set(K.sessionUser, profile);
   showApp();
   render();
-  flushRemote();
+  flushRemote({ fromOutside: true });
 }
 // Classic-script globals app.js calls. The var and function bindings are already
 // the same window properties; naming them here keeps the cross-file use visible.
