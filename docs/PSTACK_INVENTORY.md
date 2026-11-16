@@ -142,3 +142,15 @@ Statuses above stay as they are. This file does not say the app is pstack-compli
 | `principle-prove-it-works`              | `tests/accounts.test.js` asserts closing equals `balances().net`, including the reversed-list and superseded-row cases. |
 | `tdd`                                   | Those tests name the 480,000 and 530,000 figures and call `balances` in `public/accounts.js`.                           |
 | `principle-encode-lessons-in-structure` | `public/sw.js` is `aj-p0-v62`. The five pins moved together. v61 stays PR B's number.                                   |
+
+## Browser-check hang
+
+Statuses above stay as they are. `setup-pstack` stays «ناقصة». This file does not say the app is pstack-compliant. Only the rows this pull request touches are listed here. `arena` stays banned.
+
+| Skill                                        | This pull request                                                                                                                                                                                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `principle-fix-root-causes`                  | The harness bug is an offline flag left on, and a navigation that does not say so. The fix is `setNetwork` plus the throw in `tests/browser-check.js`. A longer CDP deadline and a poll retry are not the fix.                                    |
+| `principle-prove-it-works`                   | One full run throws `navigating while offline` at the rejected-screen `go` before `setNetwork(false)`. After it, the run prints `226/226 passed`. Then 60 sequential runs, 0 hangs.                                                               |
+| `principle-test-behavior-not-implementation` | The throw is the behaviour: navigating while `netOffline` is set, without `{offline:true}`, fails the process. Passing `{offline:true}` while online throws too. The source guard is not that test.                                               |
+| `principle-explain-the-number`               | 60 runs because P(0/30) at 2/30 is 12.6% and Fisher p for 0/30 against 2/30 is 0.25. P(0/60) at 6.7% is 1.6%. The CI watch is 30 attempts because P(0/30) at 10% is about 4%. The 30.91s gap is 900ms + 30000ms + about 12ms.                     |
+| `principle-encode-lessons-in-structure`      | `Network.emulateNetworkConditions` lives only in `setNetwork`. `Page.navigate` and `Page.reload` live only in `go` and `reload`. Those two refuse an undeclared offline navigation, so the next block after an offline section cannot repeat #72. |

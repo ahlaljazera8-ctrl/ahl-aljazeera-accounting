@@ -10,7 +10,7 @@ Revision after AgentLab Architect NOTES on PR #85 at `8b372a10`. Not an approval
 
 A harness invariant in `tests/browser-check.js`, plus the two calls that make `:1589` legal under it. Nothing under `public/` changes, so the service-worker `VERSION` stays.
 
-`setNetwork(offline)` is the only sender of `Network.emulateNetworkConditions`, and it remembers the flag. `go(url, opts)` and `reload(params, opts)` throw `browser-check: navigating while offline; pass {offline:true}` when that flag is set and the caller did not pass `{offline:true}`. They do not clear the flag. The navigations that mean to stay offline (`:345`, and the `go` calls from `:523` through `:1151`) pass `{offline:true}`. Before `:1589` the script calls `setNetwork(false)`, then `await ev('AJ.flush().then(()=>1)')`, then `go` with no offline option.
+`setNetwork(offline)` is the only sender of `Network.emulateNetworkConditions`, and it remembers the flag. `go(url, opts)` and `reload(params, opts)` throw `browser-check: navigating while offline; pass {offline:true}` when that flag is set and the caller did not pass `{offline:true}`. They do not clear the flag. The navigations that mean to stay offline pass `{offline:true}`: the reload at `:345`, the `go` calls from `:523` through `:1151`, and the reload at `:700` (the check "a large project pages 50 rows and stays offline"), which was a raw `send('Page.reload')` and now goes through `reload`. `assertDeclared` also throws when `{offline:true}` is passed while the debugger is online. Before `:1589` the script calls `setNetwork(false)`, then `await ev('AJ.flush().then(()=>1)')`, then `go` with no offline option.
 
 Not in this implementation: a longer CDP deadline, a retry of the browser job or of `ready()`, a skipped check, clearing offline inside `go`, a change to `public/sw.js`.
 
@@ -24,7 +24,7 @@ The stall is always the same place: the first document navigation after `check('
 
 ### CI logs (proven)
 
-Six failed jobs. Each one is 211 `PASS` lines, 0 `FAIL` lines, then the timeout. The last pass is always `a rejected save still says the person was not saved`. The clock from that line to `CdpTimeoutError` is 30.912s, 30.913s, or 30.917s.
+Seven failed jobs. Each one is 211 `PASS` lines, 0 `FAIL` lines, then the timeout. The last pass is always `a rejected save still says the person was not saved`. The clock from that line to `CdpTimeoutError` is 30.910s, 30.912s, 30.913s, or 30.917s.
 
 | SHA        | Run         | Job          | Attempt | Delta   |
 | ---------- | ----------- | ------------ | ------- | ------- |
@@ -34,8 +34,9 @@ Six failed jobs. Each one is 211 `PASS` lines, 0 `FAIL` lines, then the timeout.
 | `e0992beb` | 43858723893 | 133269625757 | 1       | 30.912s |
 | `2d21ef03` | 43871065828 | 133312068349 | 1       | 30.913s |
 | `ddaaae97` | 43884682133 | 133359496487 | 1       | 30.917s |
+| `d88c28e0` | 43888537617 | 133373155733 | 1       | 30.910s |
 
-The sixth row is this pull request, attempt 1 of `ddaaae97`, job `133359496487`, timeout logged at 14:22:25Z. Attempt 2 of `43871065828` (`2d21ef03`) and of `43855735877` (`d5cdec44`) passed. A later run of `298d34ad` (43830436243) passed. The stack is only the timer (`Timeout._onTimeout` in `tests/cdp-session.js`). Node does not keep the async caller, so the stack does not name `go`. The clock does.
+The sixth row is this pull request, attempt 1 of `ddaaae97`, job `133359496487`, timeout logged at 14:22:25Z. The seventh is the same pull request at `d88c28e0`, run `43888537617`, job `133373155733`: the last PASS was at 14:43:51.20Z and `CdpTimeoutError: browser-check: CDP Runtime.evaluate timed out after 30000ms` (`tests/cdp-session.js:233`) was at 14:44:22.11Z, then `browser checks: missing pass, 0 fail`. The other three checks on that run passed. Lint on that commit was already green. Attempt 2 of `43871065828` (`2d21ef03`) and of `43855735877` (`d5cdec44`) passed. A later run of `298d34ad` (43830436243) passed. The stack is only the timer (`Timeout._onTimeout` in `tests/cdp-session.js`). Node does not keep the async caller, so the stack does not name `go`. The clock does.
 
 That 30.91s is `sleep(900)` plus the 30s deadline plus about 12ms, not a different call. `go` evaluates `performance.timeOrigin`, then sends `Page.navigate`, then `waitReady`. `roleDemo` is true for `role=owner` (`tests/browser-check.js:28-33`), so `waitReady` sleeps 900ms (`:50-52`) and then `ready()` evaluates `document.body.dataset.ready` (`:43`). A `CdpTimeoutError` from that evaluate is rethrown (`:46`). The deadline is `DEFAULT_CDP_TIMEOUT_MS = 30000` (`tests/cdp-session.js:3`). `check()` logs the PASS synchronously, then `go` starts. 900ms + 30000ms = 30.900s. The extra 12ms to 17ms is `performance.timeOrigin` and `Page.navigate` returning before the sleep. A hang on `Page.navigate` itself would name `Page.navigate` and would land near 30.0s. A hang on the `rejectedHome` evaluate after `go` returns would include `sleep(300)` at `:1590` and land near 31.2s. Neither matches. The call that gets no reply is the first `Runtime.evaluate` inside `waitReady`.
 
@@ -116,7 +117,7 @@ await ev('AJ.flush().then(()=>1)');
 await go(`${BASE}index.html?role=owner&fresh=rejected#home`);
 ```
 
-`setNetwork(false)` is what turns the debugger back online. The `online` listener at `public/render.js:1485` then runs. The page is not in demo mode: `:1566` replaced the URL with `location.pathname`, so `demoRole()` is false and `sessionUser` is set. The listener calls `flushRemote()` and `refreshDirectory('online')`, which can queue `set()` writes. A flush before `setNetwork(false)` would settle, and those writes would start afterwards. Flushing after the listener has been kicked is the order that drains them. `AJ.flush().then(()=>1)` is the idiom already at `:331`. `awaitPromise: true` waits for that promise.
+`setNetwork(false)` is what turns the debugger back online. The `online` listener at `public/render.js:1485` then runs. The page is not in demo mode: `:1566` replaced the URL with `location.pathname`, so `demoRole()` is false and `sessionUser` is set. The listener calls `flushRemote()` and `refreshDirectory('online')`. `flushRemote` calls the `ensureFirebase` binding inside `public/firebase-client.js`, not `window.ensureFirebase`, so the test mock does not cover it. That real load keeps the next `Runtime.evaluate` from returning. `refreshDirectory('online')` would also write the mock's empty `listUsers` into `aj-p0`, and the next demo page would then have `seeded` set and no users, so `me()` is missing and `#main` stays empty. Before `setNetwork(false)` the script replaces both functions with no-ops for this page only. The next `go` loads a new document, so the stubs do not affect the checks after `:1589`. A flush before `setNetwork(false)` would settle, and those writes would start afterwards. Flushing after the listener has been kicked, with the two writers stubbed, drains the chain that is already queued. `AJ.flush().then(()=>1)` is the idiom already at `:331`.
 
 The fix bundles two changes: `setNetwork(false)` and `AJ.flush()`. A clean 60-run cannot say which one mattered. That is acceptable for a harness fix. It is not a root-cause claim. The online-only arm below is how to separate them. It is not a merge gate if the claim stays "most likely trigger".
 
@@ -146,7 +147,7 @@ const reload = async (params, opts) => {
 };
 ```
 
-`go` and `reload` only read `netOffline`. They never change it. Intentional offline navigations pass the flag: `reload({ ignoreCache: false }, { offline: true })` at `:345`, and `{ offline: true }` on the `go` calls at `:523`, `:847`, `:918`, `:989`, `:1019`, `:1067`, `:1094`, and `:1151`. `:1589` does not pass it. On today's control flow, after `setNetwork` replaces the raw sends, `:1589` throws on every run until `setNetwork(false)` is added in front of it. After that call, the same `go` proceeds. The throw is not a new `check()`. The pass count stays 226.
+`go` and `reload` only read `netOffline`. They never change it. Intentional offline navigations pass the flag: `reload({ ignoreCache: false }, { offline: true })` at `:345` and at `:700`, and `{ offline: true }` on the `go` calls at `:523`, `:847`, `:918`, `:989`, `:1019`, `:1067`, `:1094`, and `:1151`. `assertDeclared` throws the other way when `{offline:true}` is passed while `netOffline` is false. `:1589` does not pass it. On today's control flow, after `setNetwork` replaces the raw sends, `:1589` throws on every run until `setNetwork(false)` is added in front of it. After that call, the same `go` proceeds. The throw is not a new `check()`. The pass count stays 226.
 
 `Network.enable` stays a direct `send`. Only `emulateNetworkConditions` moves into `setNetwork`. The first offline period becomes `await send('Network.enable'); await setNetwork(true);`. `:1338` and `:1482` become `setNetwork(true)`. `:1359` becomes `setNetwork(false)`.
 
@@ -162,18 +163,7 @@ The deterministic red-to-green check is that throw, not a regex of the source. T
 - It fails a harmless rename to `setNetwork(false)`.
 - It does not notice `indexOf` returning −1 when the check name changes. `slice(-1, -1)` is empty, and `assert.match` on an empty slice fails for a different reason, or a later edit can make the slice the whole file.
 
-The source guard that stays is one line, in `tests/chrome-debug.test.js`, which already reads `tests/browser-check.js` and is already on both `node --test` lists. It bans a raw `Network.emulateNetworkConditions` outside the helper. Strip the helper, then the name must be gone:
-
-```javascript
-test('browser-check emulates the network only inside setNetwork', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
-  const helper = src.slice(src.indexOf('const setNetwork = async offline'), src.indexOf('const assertDeclared'));
-  assert.ok(helper.includes('Network.emulateNetworkConditions'));
-  assert.equal(src.replace(helper, '').includes('Network.emulateNetworkConditions'), false);
-});
-```
-
-That is the structural lesson from #72: the next appended block cannot send the CDP call on its own. `indexOf` of a missing helper yields a slice that does not include the CDP name, so the first `assert.ok` fails instead of passing. The behaviour lock is still the throw at `:1589`, which this regex does not replace.
+The source guard lives in `tests/chrome-debug.test.js`, which already reads `tests/browser-check.js` and is already on both `node --test` lists. It requires both indexes (`const setNetwork` and `const assertDeclared`, and the same for `go` / `reload`) to be found and `start < end`, so a renamed `assertDeclared` cannot make the slice run to the end of the file and pass. It then bans `Network.emulateNetworkConditions` outside `setNetwork`, and `Page.navigate` / `Page.reload` outside `go` / `reload`. The behaviour lock is still the throw at `:1589`.
 
 ## Synthesis decision
 
@@ -187,7 +177,7 @@ Also rejected: clearing offline inside `go` for every URL. That would break the 
 
 ## Tests that prove it
 
-1. Behaviour, every run, before and after. With `setNetwork`, the throw, and `{offline:true}` on `:345` and `:523-1151`, and without `setNetwork(false)` before `:1589`, one full `node tests/browser-check.js` throws `browser-check: navigating while offline; pass {offline:true}` at `:1589`. The checks before that line still pass. Add `setNetwork(false)`, the flush, and the plain `go`. The same script then passes `:1589` and prints `226/226 passed`. The code pull request records both runs. The landing commit is the green one. This is the deterministic failure. It does not depend on Chrome stalling.
+1. Behaviour, every run, before and after. With `setNetwork`, the throw, and `{offline:true}` on `:345`, `:700`, and `:523-1151`, and without `setNetwork(false)` before `:1589`, one full `node tests/browser-check.js` throws `browser-check: navigating while offline; pass {offline:true}` at `:1589`. The checks before that line still pass. Add `setNetwork(false)`, the flush, and the plain `go`. The same script then passes `:1589` and prints `226/226 passed`. The code pull request records both runs. The landing commit is the green one. This is the deterministic failure. It does not depend on Chrome stalling.
 2. Source guard in `tests/chrome-debug.test.js`, as sketched. It fails if a second `Network.emulateNetworkConditions` appears outside `setNetwork`. The ledger job already runs that file. No new list entry. No fifth job. The `pass -lt 34` floor still holds.
 3. At least 60 sequential full-suite runs after the fix, one Chrome, zero hangs, each printing `226/226 passed`. Record the Chrome version and the Node version next to the count. This is the test of the hypothesis, not of the throw. The throw is red or green on every run. These 60 ask whether the stall is gone.
 
@@ -200,7 +190,9 @@ Why 60, not 30. The baseline is 2 hangs in 30 runs, 6.7%. If nothing changed, P(
 
 When `waitReady`'s `ready()` catches `CdpTimeoutError`, log one line before rethrowing:
 
-`browser-check: navigation <loaderId> frameNavigated=<yes|no> loadingFinished=<yes|no>`
+`browser-check: navigation <loaderId> frameNavigated=<yes|no|n/a> loadingFinished=<yes|no|n/a>`
+
+`loadingFinished` is `n/a` until `Network.enable` (`:344`). Both fields are `n/a` when the loader id is the `'reload'` placeholder, because that id is not a real loader and printing `no` would be wrong.
 
 Record those two events in the existing `onEvent` at `:20`, keyed by `loaderId`. Then rethrow the same `CdpTimeoutError`. Do not navigate again. Do not evaluate again. Do not treat a late `frameNavigated` as success. The 30s deadline stays.
 
