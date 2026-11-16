@@ -312,16 +312,16 @@ function deductCreate()
 
 /**
  * @returns {boolean}
- * Reads: 6. `user`, the `deduct` body, project, party, `exists` of `rej_` of that body,
- * `exists` of `sup_` of that body. Stores no `amount`.
+ * Reads: 6. `user`, the `deduct` body, project, party, `existsAfter` of `rej_` of that body,
+ * `existsAfter` of `sup_` of that body. Stores no `amount`.
  */
 function approveDeductCreate()
 
 /**
  * @returns {boolean}
- * Reads: 5. `user`, the target body, project, party, `exists` of `appr_` of that body.
- * Denied when that `appr_` is already stored. A race where neither doc exists yet
- * can still land both. The fold that lets `rej_` win is not this PR.
+ * Reads: 5. `user`, the target body, project, party, `existsAfter` of `appr_` of that body.
+ * Denied when that `appr_` is already stored. A same-batch `appr_` + `rej_` is denied by `existsAfter`.
+ * Two separate concurrent requests can still both land; the fold lets `rej_` win (B/C, shipped).
  */
 function rejCreate()
 
@@ -455,31 +455,31 @@ Agreement method groups, `hasOnly` plus the one group: `lumpAmount`, or `unitRat
 
 One access per named document. No `exists` plus `get` of the same document. No call to `projectOpen` or `isOwner` from a new function. Firebase documents `&&` and `||` as short-circuit, and documents a cap of 10 `let` bindings per function. It does not document that `let` is lazy. This sketch does not claim that. A binding that is not required on every allow path of that function is an `exists`, never a `get` of a document that may be missing. A `get` that is not on every allow path is a separate function, chosen by the dispatcher before any `get`. The source test fails a function with more than 10 `let` bindings. `laborStlCreate` has 9. One more `let` would reach the cap, so ids are written inline in the `get` and `exists` paths. The emulator does not return a read counter. The behaviour matrix below is the proof that each condition can change allow into deny.
 
-| Create                           | Reads     | What is read                                                                                                                   |
-| -------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `partyCreate`                    | 1         | `user`                                                                                                                         |
-| `agreementCreate`                | 3         | `user`, project, party                                                                                                         |
-| `agreementReversalCreate`        | 3         | `user`, original agreement, project                                                                                            |
-| Slot body, generation 1          | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                     |
-| Slot body, generation past 1     | 7         | those five, `rev_` of the previous `appr_`, `rej_` of the previous slot                                                        |
-| Unit or daily `laborQty`         | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                     |
-| `supCreate`                      | 5, or 6   | `user`, project, party, old body, `appr_` of that body, and `agreements/rev_<agreementId>` when `agreementId` is present       |
-| `approveLabor`                   | 8         | `user`, target, agreement, project, party, `rej_` of the target, `sup_` of the target, `exists` `agreements/rev_<agreementId>` |
-| Labor `stl_`, generation 1       | 8         | `user`, project, measurement, `appr_`, that approval's `rev_`, the advance, the advance's `rev_`, `rej_` of the measurement    |
-| Labor `stl_`, generation past 1  | 9         | the generation-1 list plus `rev_` of the previous `stl_`                                                                       |
-| `payLabor` or `advanceLabor`     | 3         | `user`, project, party                                                                                                         |
-| `returnAdvance` or `refundLabor` | 5         | `user`, project, party, the named row, `rev_` of that row                                                                      |
-| Labor `deduct`                   | 5         | `user`, project, party, the `approveLabor`, `rev_` of that approval                                                            |
-| `approveDeduct`                  | 6         | `user`, the `deduct` body, project, party, `rej_` of that body, `sup_` of that body                                            |
-| `rejCreate`                      | 5         | `user`, target body, project, party, `appr_` of that body                                                                      |
-| `revCreate`                      | 3         | `user`, the row named by `reversesId`, project                                                                                 |
-| `revw_`, first mark              | 3         | `user`, the cash row, project                                                                                                  |
-| `revw_`, generation mark         | 4         | those three, plus `rev_` of the previous mark                                                                                  |
-| `statementWithProjectCreate`     | 3         | `user`, party, project                                                                                                         |
-| `statementConsolidatedCreate`    | 2         | `user`, party                                                                                                                  |
-| `accountRead`                    | 1 per doc | `user`                                                                                                                         |
+| Create                           | Reads     | What is read                                                                                                                                               |
+| -------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partyCreate`                    | 1         | `user`                                                                                                                                                     |
+| `agreementCreate`                | 3         | `user`, project, party                                                                                                                                     |
+| `agreementReversalCreate`        | 3         | `user`, original agreement, project                                                                                                                        |
+| Slot body, generation 1          | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                                                 |
+| Slot body, generation past 1     | 7         | those five, `rev_` of the previous `appr_`, `rej_` of the previous slot                                                                                    |
+| Unit or daily `laborQty`         | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                                                 |
+| `supCreate`                      | 5, or 6   | `user`, project, party, old body, `existsAfter` `appr_` of that body, and `agreements/rev_<agreementId>` when `agreementId` is present                     |
+| `approveLabor`                   | 8         | `user`, target, agreement, project, party, `existsAfter` `rej_` of the target, `existsAfter` `sup_` of the target, `exists` `agreements/rev_<agreementId>` |
+| Labor `stl_`, generation 1       | 8         | `user`, project, measurement, `appr_`, that approval's `rev_`, the advance, the advance's `rev_`, `rej_` of the measurement                                |
+| Labor `stl_`, generation past 1  | 9         | the generation-1 list plus `rev_` of the previous `stl_`                                                                                                   |
+| `payLabor` or `advanceLabor`     | 3         | `user`, project, party                                                                                                                                     |
+| `returnAdvance` or `refundLabor` | 5         | `user`, project, party, the named row, `rev_` of that row                                                                                                  |
+| Labor `deduct`                   | 5         | `user`, project, party, the `approveLabor`, `rev_` of that approval                                                                                        |
+| `approveDeduct`                  | 6         | `user`, the `deduct` body, project, party, `existsAfter` `rej_` of that body, `existsAfter` `sup_` of that body                                            |
+| `rejCreate`                      | 5         | `user`, target body, project, party, `existsAfter` `appr_` of that body                                                                                    |
+| `revCreate`                      | 3         | `user`, the row named by `reversesId`, project                                                                                                             |
+| `revw_`, first mark              | 3         | `user`, the cash row, project                                                                                                                              |
+| `revw_`, generation mark         | 4         | those three, plus `rev_` of the previous mark                                                                                                              |
+| `statementWithProjectCreate`     | 3         | `user`, party, project                                                                                                                                     |
+| `statementConsolidatedCreate`    | 2         | `user`, party                                                                                                                                              |
+| `accountRead`                    | 1 per doc | `user`                                                                                                                                                     |
 
-The worst create is still 9. `approveLabor` is 8 after the reversal `exists`. Slot generation past 1 is 7. Unit or daily `laborQty` is 5. All stay under 10. Party, agreement, `sup_`, `rej_`, and the unit/daily body are not separate rows in the plan's v1 table. The counts above are that same convention, plus the one `exists` Ameer required for a reversed agreement. They are not a new cap.
+The worst create is still 9. `approveLabor` is 8 after the reversal `exists`. Slot generation past 1 is 7. Unit or daily `laborQty` is 5. All stay under 10. Six checks use `existsAfter`, counted as one access each: `approveLabor`'s `rej_` and `sup_`, `approveDeduct`'s `rej_` and `sup_`, `rejCreate`'s `appr_`, and `supCreate`'s `appr_`. The other reads stay `exists` or `get`. A same-batch pair of those is at most 8 plus 5, which is 13, under the batch cap of 20. Party, agreement, `sup_`, `rej_`, and the unit/daily body are not separate rows in the plan's v1 table. The counts above are that same convention, plus the one `exists` Ameer required for a reversed agreement. They are not a new cap.
 
 `laborStlCreate` generation past 1, in order:
 
@@ -628,7 +628,8 @@ Two owners, rules half. The adopt step stays in E. These are creates only:
 
 - `two owners: the same slot id, appr_, rej_, sup_, rev_, labor stl_, and revw_ — the first create is allowed and the second is denied`
 - `two owners: two payLabor rows with fresh uuids both land`
-- `two owners: one writeBatch holds an appr_ and a rej_ of one body, and both land`. Confirmed on the Firestore emulator in this code PR: one `writeBatch` committed, and afterwards both the `appr_` and the `rej_` existed (`BATCH_GET_EXISTS {"commit":"ok","appr":true,"rej":true}`). `get` and `exists` see the state before the batch, so each check still passes. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. Two separate requests are not this test: the first to land would deny the second
+- `batch: appr_ then rej_ of one laborQty in one writeBatch is denied; neither document exists after`. `existsAfter` sees the other write in the same batch, so the batch is denied. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. Two separate concurrent requests are not this test: they can still both land, and the fold lets `rej_` win
+- Two writes to the same `appr_` id in one batch are denied by the server. The emulator printed `BATCH_SAME_ID {"client":"accepted","commit":"permission-denied","exists":false,"amount":null}`. The document does not exist afterwards
 - `two owners, distinct uids, each create a party as themselves, and each can read the other's party`
 - `a site user cannot read or create any of the four collections`
 

@@ -733,7 +733,7 @@ service cloud.firestore {
         let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
         let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
         let old = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.supersedesId));
-        let notApproved = !exists(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.supersedesId));
+        let notApproved = !existsAfter(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.supersedesId));
         return ownerOk(user)
           && headerOk(d(), user)
           && projectActive(project)
@@ -776,8 +776,8 @@ service cloud.firestore {
         let agreement = get(/databases/$(database)/documents/agreements/$(request.resource.data.agreementId));
         let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
         let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
-        let noRej = !exists(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
-        let noSup = !exists(/databases/$(database)/documents/accountTxns/$('sup_' + request.resource.data.targetId));
+        let noRej = !existsAfter(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
+        let noSup = !existsAfter(/databases/$(database)/documents/accountTxns/$('sup_' + request.resource.data.targetId));
         let open = !exists(/databases/$(database)/documents/agreements/$('rev_' + request.resource.data.agreementId));
         return ownerOk(user)
           && headerOk(d(), user)
@@ -989,8 +989,8 @@ service cloud.firestore {
         let body = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
         let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
         let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
-        let noRej = !exists(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
-        let noSup = !exists(/databases/$(database)/documents/accountTxns/$('sup_' + request.resource.data.targetId));
+        let noRej = !existsAfter(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
+        let noSup = !existsAfter(/databases/$(database)/documents/accountTxns/$('sup_' + request.resource.data.targetId));
         return ownerOk(user)
           && headerOk(d(), user)
           && projectActive(project)
@@ -1023,7 +1023,7 @@ service cloud.firestore {
         let target = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
         let project = get(/databases/$(database)/documents/projects/$(target.data.projectId));
         let party = get(/databases/$(database)/documents/parties/$(target.data.partyId));
-        let noAppr = !exists(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.targetId));
+        let noAppr = !existsAfter(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.targetId));
         return ownerOk(user)
           && headerOk(d(), user)
           && projectActive(project)

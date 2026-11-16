@@ -186,6 +186,6 @@ jobs:
           pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/emulator.txt" | tail -1 | grep -oE '[0-9]+$' || true)
           fail=$(grep -E '[[:space:]]fail [0-9]+$' "$RUNNER_TEMP/emulator.txt" | tail -1 | grep -oE '[0-9]+$' || true)
           echo "emulator tests: ${pass:-missing} pass, ${fail:-missing} fail"
-          if [[ "$status" -ne 0 || -z "$pass" || -z "$fail" || "$fail" != "0" || "$pass" -lt 188 ]]; then
+          if [[ "$status" -ne 0 || -z "$pass" || -z "$fail" || "$fail" != "0" || "$pass" -lt 194 ]]; then
             exit 1
           fi

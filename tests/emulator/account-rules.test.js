@@ -252,6 +252,34 @@ function sendStatement(uid, id, fields) {
   return setDoc(doc(db(uid), 'statementApprovals', id), statement(uid, Object.assign({ id }, fields)));
 }
 
+/**
+ * @param {string} uid
+ * @param {Array<[string, Record<string, unknown>]>} pairs
+ */
+async function commitBatch(uid, pairs) {
+  const fs = db(uid);
+  const batch = writeBatch(fs);
+  for (const [id, fields] of pairs) {
+    batch.set(doc(fs, 'accountTxns', id), row(uid, Object.assign({ id }, fields)));
+  }
+  let commit = 'ok';
+  try { await batch.commit(); }
+  catch (err) { commit = String((err && (err.code || err.message)) || err); }
+  /** @type {Record<string, boolean>} */
+  const exists = {};
+  for (const [id] of pairs) exists[id] = (await getDoc(doc(db(uid), 'accountTxns', id))).exists();
+  return { commit, exists };
+}
+
+/**
+ * @param {{ commit: string, exists: Record<string, boolean> }} result
+ * @param {string[]} ids
+ */
+function assertBatchDenied(result, ids) {
+  assert.notEqual(result.commit, 'ok');
+  for (const id of ids) assert.equal(result.exists[id], false, id);
+}
+
 async function putUnit(agreementId, qtyId, qtyValue) {
   await allow(send(OWNER_A, 'agreements', agreementId, unitAgreement(agreementId)));
   const body = measurement(qtyId, agreementId, qtyValue);
@@ -1396,29 +1424,102 @@ testSeq('two owners: two payLabor rows with fresh uuids both land', async () => 
   assert.equal((await getDoc(doc(db(OWNER_B), 'accountTxns', uuid(2)))).data().createdBy, OWNER_B);
 });
 
-testSeq('two owners: one writeBatch holds an appr_ and a rej_ of one body, and both land', async () => {
+testSeq('batch: appr_ then rej_ of one laborQty in one writeBatch is denied; neither document exists after', async () => {
   await seed();
   const body = await putUnit(uuid(1), uuid(11), 8000);
   const mark = approval(body.id, uuid(1), 600000, 8000);
   const rej = rejOf(body.id);
+  const result = await commitBatch(OWNER_A, [[mark.id, mark], [rej.id, rej]]);
+  assertBatchDenied(result, [mark.id, rej.id]);
+  assert.equal((await getDoc(doc(db(OWNER_A), 'accountTxns', body.id))).exists(), true);
+});
+
+testSeq('batch: rej_ then appr_ of one laborQty in one writeBatch is denied; neither document exists after', async () => {
+  await seed();
+  const body = await putUnit(uuid(1), uuid(11), 8000);
+  const mark = approval(body.id, uuid(1), 600000, 8000);
+  const rej = rejOf(body.id);
+  const result = await commitBatch(OWNER_A, [[rej.id, rej], [mark.id, mark]]);
+  assertBatchDenied(result, [mark.id, rej.id]);
+});
+
+testSeq('batch: approveDeduct and rej_ of one deduct in one writeBatch is denied in both orders; neither document exists after', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const first = deductOf(uuid(21), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  const appr = approveDeductOf(first);
+  const rej = rejOf(first.id);
+  assertBatchDenied(await commitBatch(OWNER_A, [[appr.id, appr], [rej.id, rej]]), [appr.id, rej.id]);
+  const second = deductOf(uuid(22), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', second.id, second));
+  const appr2 = approveDeductOf(second);
+  const rej2 = rejOf(second.id);
+  assertBatchDenied(await commitBatch(OWNER_A, [[rej2.id, rej2], [appr2.id, appr2]]), [appr2.id, rej2.id]);
+});
+
+testSeq('batch: appr_ and sup_ of one body in one writeBatch is denied in both orders; neither document exists after', async () => {
+  await seed();
+  const labor = await putUnit(uuid(1), uuid(11), 8000);
+  const laborAppr = approval(labor.id, uuid(1), 600000, 8000);
+  const laborSup = supOf(labor, { qty: 4 });
+  assertBatchDenied(await commitBatch(OWNER_A, [[laborAppr.id, laborAppr], [laborSup.id, laborSup]]), [laborAppr.id, laborSup.id]);
+  const labor2 = await putUnit(uuid(2), uuid(12), 8000);
+  const laborAppr2 = approval(labor2.id, uuid(2), 600000, 8000);
+  const laborSup2 = supOf(labor2, { qty: 4 });
+  assertBatchDenied(await commitBatch(OWNER_A, [[laborSup2.id, laborSup2], [laborAppr2.id, laborAppr2]]), [laborAppr2.id, laborSup2.id]);
+
+  const { mark } = await putApprovedUnit(uuid(3), uuid(13), 8000, 600000);
+  const deduct = deductOf(uuid(21), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
+  const deductAppr = approveDeductOf(deduct);
+  const deductSup = supOf(deduct, { amount: 80 });
+  assertBatchDenied(await commitBatch(OWNER_A, [[deductAppr.id, deductAppr], [deductSup.id, deductSup]]), [deductAppr.id, deductSup.id]);
+  const deduct2 = deductOf(uuid(22), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', deduct2.id, deduct2));
+  const deductAppr2 = approveDeductOf(deduct2);
+  const deductSup2 = supOf(deduct2, { amount: 80 });
+  assertBatchDenied(await commitBatch(OWNER_A, [[deductSup2.id, deductSup2], [deductAppr2.id, deductAppr2]]), [deductAppr2.id, deductSup2.id]);
+});
+
+testSeq('single approveLabor, approveDeduct, rej_, and sup_ are still allowed', async () => {
+  await seed();
+  const measured = await putUnit(uuid(1), uuid(11), 8000);
+  const mark = approval(measured.id, uuid(1), 600000, 8000);
+  await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
+  const open = await putUnit(uuid(2), uuid(12), 8);
+  await allow(send(OWNER_A, 'accountTxns', 'rej_' + open.id, rejOf(open.id)));
+  const replaced = await putUnit(uuid(3), uuid(13), 8);
+  await allow(send(OWNER_A, 'accountTxns', 'sup_' + replaced.id, supOf(replaced, { qty: 4 })));
+  const deduct = deductOf(uuid(21), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
+  const deductAppr = approveDeductOf(deduct);
+  await allow(send(OWNER_A, 'accountTxns', deductAppr.id, deductAppr));
+});
+
+testSeq('probe: two writes to the same appr_ id in one batch', async () => {
+  await seed();
+  const body = await putUnit(uuid(1), uuid(11), 8000);
+  const mark = approval(body.id, uuid(1), 600000, 8000);
+  const other = Object.assign({}, mark, { amount: 1 });
   const fs = db(OWNER_A);
   const batch = writeBatch(fs);
-  batch.set(doc(fs, 'accountTxns', mark.id), row(OWNER_A, mark));
-  batch.set(doc(fs, 'accountTxns', rej.id), row(OWNER_A, rej));
-  let commit = 'ok';
+  let client = 'accepted';
   try {
-    await batch.commit();
+    batch.set(doc(fs, 'accountTxns', mark.id), row(OWNER_A, mark));
+    batch.set(doc(fs, 'accountTxns', mark.id), row(OWNER_A, other));
   } catch (err) {
-    commit = String(err && (err.code || err.message));
+    client = String((err && (err.code || err.message)) || err);
   }
-  const apprSnap = await getDoc(doc(db(OWNER_A), 'accountTxns', mark.id));
-  const rejSnap = await getDoc(doc(db(OWNER_A), 'accountTxns', rej.id));
-  console.log('BATCH_GET_EXISTS ' + JSON.stringify({
-    commit, appr: apprSnap.exists(), rej: rejSnap.exists(),
-  }));
-  assert.equal(commit, 'ok');
-  assert.equal(apprSnap.exists(), true);
-  assert.equal(rejSnap.exists(), true);
+  let commit = 'not-run';
+  if (client === 'accepted') {
+    try { await batch.commit(); commit = 'ok'; }
+    catch (err) { commit = String((err && (err.code || err.message)) || err); }
+  }
+  const snap = await getDoc(doc(db(OWNER_A), 'accountTxns', mark.id));
+  const probe = { client, commit, exists: snap.exists(), amount: snap.exists() ? snap.data().amount : null };
+  console.log('BATCH_SAME_ID ' + JSON.stringify(probe));
+  assert.deepEqual(probe, { client: 'accepted', commit: 'permission-denied', exists: false, amount: null });
 });
 
 testSeq('two owners, distinct uids, each create a party as themselves, and each can read the other\'s party', async () => {
@@ -1582,6 +1683,40 @@ testSeq('source: firestore.rules contains no hashing.sha256, no lockId, and no i
   const added = RULES.slice(RULES.indexOf('function ownerOk'));
   for (const literal of ["'u-ameer'", '"u-ameer"', "'owner-a'", "'owner-b'", "'site-1'", "'owner-off'"]) {
     assert.equal(added.includes(literal), false, literal);
+  }
+});
+
+testSeq('source: exactly six existsAfter calls, on approveLabor rej_ and sup_, approveDeduct rej_ and sup_, rejCreate appr_, and supCreate appr_', () => {
+  const added = RULES.slice(RULES.indexOf('function ownerOk'));
+  assert.equal((added.match(/existsAfter\(/g) || []).length, 6);
+  assert.equal(added.includes('getAfter('), false);
+  assert.equal((RULES.match(/existsAfter\(/g) || []).length, 7);
+  assert.equal((fnBody(RULES, 'projectGone').match(/existsAfter\(/g) || []).length, 1);
+  const counts = {
+    approveLaborCreate: 2,
+    approveDeductCreate: 2,
+    rejCreate: 1,
+    supCreate: 1,
+  };
+  for (const [name, count] of Object.entries(counts)) {
+    const body = fnBody(RULES, name);
+    assert.equal((body.match(/existsAfter\(/g) || []).length, count, name);
+    assert.equal(body.includes("existsAfter(/databases/$(database)/documents/accountTxns/$(id)"), false, name);
+    assert.equal(body.includes("existsAfter(/databases/$(database)/documents/accountTxns/$(request.resource.data.id)"), false, name);
+  }
+  assert.match(fnBody(RULES, 'approveLaborCreate'), /existsAfter\(\/databases\/\$\(database\)\/documents\/accountTxns\/\$\('rej_' \+/);
+  assert.match(fnBody(RULES, 'approveLaborCreate'), /existsAfter\(\/databases\/\$\(database\)\/documents\/accountTxns\/\$\('sup_' \+/);
+  assert.match(fnBody(RULES, 'approveLaborCreate'), /!exists\(\/databases\/\$\(database\)\/documents\/agreements\/\$\('rev_' \+/);
+  assert.match(fnBody(RULES, 'approveDeductCreate'), /existsAfter\(\/databases\/\$\(database\)\/documents\/accountTxns\/\$\('rej_' \+/);
+  assert.match(fnBody(RULES, 'approveDeductCreate'), /existsAfter\(\/databases\/\$\(database\)\/documents\/accountTxns\/\$\('sup_' \+/);
+  assert.match(fnBody(RULES, 'rejCreate'), /existsAfter\(\/databases\/\$\(database\)\/documents\/accountTxns\/\$\('appr_' \+/);
+  assert.match(fnBody(RULES, 'supCreate'), /existsAfter\(\/databases\/\$\(database\)\/documents\/accountTxns\/\$\('appr_' \+/);
+  for (const name of [
+    'slotBodyCreate', 'laborQtyCreate', 'laborStlCreate', 'cashBodyCreate', 'returnAdvanceCreate',
+    'refundLaborCreate', 'deductCreate', 'revCreate', 'revwCreate', 'agreementCreate', 'agreementReversalCreate',
+    'partyCreate', 'statementWithProjectCreate', 'statementConsolidatedCreate',
+  ]) {
+    assert.equal(fnBody(RULES, name).includes('existsAfter('), false, name);
   }
 });
 
