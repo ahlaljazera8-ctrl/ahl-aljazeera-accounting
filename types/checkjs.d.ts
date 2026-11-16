@@ -828,8 +828,133 @@ interface PeopleDirApi {
   createLoader(deps: PeopleLoaderDeps): PeopleLoader;
 }
 
+interface FoldDoc {
+  id: string;
+  purpose?: string;
+  ledger?: 'labor';
+  amount?: number;
+  paidAs?: 'payLabor' | 'advanceLabor';
+  targetId?: string;
+  settlesId?: string;
+  reversesId?: string;
+  supersedesId?: string;
+  partyId?: string;
+  projectId?: string;
+  currency?: 'IQD' | 'USD';
+  txnDate?: string;
+  kind?: 'body' | 'appr' | 'rej' | 'sup' | 'rev' | 'revw' | 'stl';
+}
+
+interface BalanceFilter {
+  partyId?: string;
+  projectId?: string;
+  currency?: 'IQD';
+  periodEnd?: string;
+  syncErrors?: Readonly<Record<string, unknown>> | null;
+}
+
+interface Balance {
+  net: number;
+  payableGross: number;
+  payable: number;
+  recoverable: number;
+  openAdvances: number;
+  netAdvances: number;
+  approvedLabor: number;
+  payments: number;
+  refunds: number;
+  advancesPaid: number;
+  cashReturned: number;
+  deductions: number;
+  settlements: number;
+  overLimitIds: readonly string[];
+  unreviewedCashIds: readonly string[];
+  pendingIds: readonly string[];
+}
+
+interface RowIndex {
+  byId: Readonly<Record<string, FoldDoc>>;
+  byReversesId: Readonly<Record<string, readonly string[]>>;
+  bySupersedesId: Readonly<Record<string, readonly string[]>>;
+  byTargetId: Readonly<Record<string, readonly string[]>>;
+  syncErrors: Readonly<Record<string, unknown>>;
+}
+
+interface StatementLine {
+  key: string;
+  label: string;
+  amount: number;
+  sign: number;
+  entersClosing: boolean;
+}
+
+interface StatementFilter extends BalanceFilter {
+  periodStart?: string;
+}
+
+interface AccountsApi {
+  CONTRACTOR_COST_START: string | null;
+  PURPOSES: Readonly<
+    Record<
+      string,
+      {
+        ledger: 'labor';
+        required: readonly string[];
+        forbidden: readonly string[];
+        points: Readonly<Record<string, readonly string[]>>;
+        effect: { cost: number; person: number; cash: number };
+        statementLine: string;
+        statementSign: number;
+        needsApproval: boolean;
+      }
+    >
+  >;
+  unitPrice(agreement: object | null | undefined): { amount: number; errors: string[] };
+  workPosition(
+    agreement: object | null | undefined,
+    input: object,
+  ): {
+    approvedQty: number | null;
+    deliveredQty: number | null;
+    notCompleted: number | null;
+    earned: number;
+    errors: string[];
+  };
+  post(action: string, input?: object): { doc: object | null; errors: string[] };
+  personBalance(
+    docs: readonly FoldDoc[] | null | undefined,
+    syncErrors?: Readonly<Record<string, unknown>> | null,
+  ): number;
+  cashPointerErrors(
+    table: Readonly<
+      Record<
+        string,
+        { needsApproval: boolean; effect: { cash: number }; points: Readonly<Record<string, readonly string[]>> }
+      >
+    >,
+  ): string[];
+  projectCost(projectId: string, txns: readonly unknown[]): number;
+  rowIndex(docs: readonly FoldDoc[], syncErrors?: Readonly<Record<string, unknown>> | null): RowIndex;
+  rowLive(row: FoldDoc | null | undefined, index: RowIndex): boolean;
+  rowCounts(row: FoldDoc | null | undefined, index: RowIndex): boolean;
+  balances(docs: readonly FoldDoc[], filter?: BalanceFilter): Balance;
+  statementLines(
+    docs: readonly FoldDoc[],
+    filter?: StatementFilter,
+  ): {
+    lines: readonly StatementLine[];
+    opening: number;
+    closing: number | null;
+    pendingIds: readonly string[];
+    unreviewedCashIds: readonly string[];
+    overLimitIds: readonly string[];
+  };
+  periodBounds(kind: 'week' | 'month', day: string): { periodStart: string; periodEnd: string } | null;
+}
+
 interface Window {
   Ledger: LedgerApi;
+  Accounts: AccountsApi;
   AJ: any;
   FIREBASE_CONFIG: any;
   Sync: SyncApi;
@@ -845,6 +970,7 @@ interface Window {
 }
 
 declare const Ledger: Window['Ledger'];
+declare const Accounts: Window['Accounts'];
 declare const AJ: Window['AJ'];
 declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
