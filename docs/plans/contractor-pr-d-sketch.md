@@ -1,10 +1,10 @@
 # PLAN ONLY: contractor PR D sketch
 
-Revision r3, against Architect NOTES on `4d082a06` (review sha256 `b7f0c2af3c373ee9baa5dd7cdce67761081807068791f4c967e19cb42f4f1d1f`). r2 blob `0fb5651ba095af415e6caf1c1b325b02063b924e`. r1 blob `8a90b306099ec2fa6511f98c40f36dc26c39ad57`. Ameer's answers of 2026-11-16 00:34 Baghdad, and the 00:36 follow-up, via EA, are recorded in «أجوبة أمير». QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) Q5, Q8, Q9, and Q10 are approved as their defaults (00:52 via EA). The answers file is `answers-EA-delegated-0034.md`. Cite it at sha256 `10554dbb`. Its D sections are unchanged since `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`. Where that earlier file differs from a later default, the earlier answer wins.
+Revision r4, against Architect NOTES on local r3 `02dc4e17` (blob `f579d3c6`, review file sha256 `c1862deeda1b92513067b57add864fdc080be6993b25fee9ba98582fa187e664`). r3 was NOTES. Revision r3, against Architect NOTES on `4d082a06` (review sha256 `b7f0c2af3c373ee9baa5dd7cdce67761081807068791f4c967e19cb42f4f1d1f`). r2 blob `0fb5651ba095af415e6caf1c1b325b02063b924e`. r1 blob `8a90b306099ec2fa6511f98c40f36dc26c39ad57`. Ameer's answers of 2026-11-16 00:34 Baghdad, and the 00:36 follow-up, via EA, are recorded in «أجوبة أمير». QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) Q5, Q8, Q9, and Q10 are approved as their defaults (00:52 via EA). The answers file is `answers-EA-delegated-0034.md`. Cite it at sha256 `10554dbb`. Its D sections are unchanged since `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`. Where that earlier file differs from a later default, the earlier answer wins.
 
-No code in this pull request. No edit to `firestore.rules`, `public/`, or `public/sw.js`. The code PR comes after the Architect reviews this r3 and Ameer says go. Merging the rules and deploying them need the real-data conditions below. This sketch does not merge and does not deploy.
+No code in this pull request. No edit to `firestore.rules`, `public/`, or `public/sw.js`. The code PR comes after the Architect reviews this r4 and Ameer says go. Merging the rules and deploying them need the real-data conditions below. This sketch does not merge and does not deploy.
 
-Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Base for the citations below: `baf4f21fc54c156989334e826d19990b8e5e8a74` (PR #72, service worker `aj-p0-v58`). `public/accounts.js` from PR A (#71) is already on that commit.
+Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Citations were first checked at `baf4f21fc54c156989334e826d19990b8e5e8a74` and rechecked at `main` `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962` in the citations section. `public/accounts.js` from PR A (#71) is already on that history.
 
 Arena was not run. Ameer's gate bans it (cost). Two shapes were compared below. The chosen shape is the one already written in plan r2.28: each create check is its own function, `let user = get(...)` is the first line inside that function, and the project `get` is inside that same function.
 
@@ -44,7 +44,7 @@ Not in D: `inv_`, `hashing.sha256`, `lockId`, `invoiceKey`, `invoiceNumber`, `at
 
 `public/` (including `public/sw.js`, `public/accounts.js`, `public/session.js`, `public/sync.js`, `public/sync-status.js`, `public/ledger.js`, `public/render.js`, `public/firebase-client.js`, `public/index.html`), `package.json`, `README.md`, `firebase.json`, `firestore.indexes.json`, and every existing test file.
 
-No service-worker bump (Q5). D edits no file under `public/`, so `scripts/sw-version-guard.sh` has nothing to bump. The version at this base is `aj-p0-v58` (`public/sw.js` line 1). D does not reserve a number. A later PR that edits `public/` takes the next free version at its own merge, and that number stays renumberable until then.
+No service-worker bump (Q5). D edits no file under `public/`, so `scripts/sw-version-guard.sh` has nothing to bump. At `6f4bb1ec`, `public/sw.js` line 2 is `aj-p0-v64` (line 1 is a comment). D does not reserve a number. A later PR that edits `public/` takes the next free version at its own merge, and that number stays renumberable until then.
 
 `package.json` `test:emulator` (line 7 at `baf4f21`) is a different command from the CI emulator line. At this base it also lists `tests/emulator/offline-cold-start.test.js`, which the CI line at `baf4f21` does not. D does not edit `package.json`. The unit lists at `ci.yml` line 68 and `package.json` line 5 are the same 34 files on `baf4f21`. #83 makes those lists 35. D adds no unit file, so it does not change that count. The code PR reads the lists on `main` at its own base.
 
@@ -55,7 +55,7 @@ bash scripts/emulators-exec.sh --only auth,firestore,hosting --project ahl-aljaz
   "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/account-rules.test.js tests/emulator/sync.test.js tests/emulator/incremental-pull.test.js tests/emulator/login-relogin.test.js tests/emulator/logout-fields.test.js tests/emulator/app-entry.test.js tests/emulator/offline-reconnect.test.js tests/emulator/session-live.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js tests/emulator/security-headers.test.js"
 ```
 
-No composite index. The owner pull is the whole collection, then `createdAtServer >= watermark` (`public/sync.js` `sinceClause`, lines 355-360, applied in `public/firebase-client.js` lines 308-309). A single-field automatic index covers that. `firestore.indexes.json` stays untouched. A later per-project or per-party query, in C or F, needs its own composite, and receipt PR-R also edits that file. Those land in their own PRs, after D.
+No composite index. The owner pull is the whole collection, then `createdAtServer >= watermark` (`public/sync.js` `sinceClause`, lines 354-360 at `6f4bb1ec`, the bound on line 359, applied in `public/firebase-client.js` `pull` lines 307-316, the clause on line 316). A single-field automatic index covers that. `firestore.indexes.json` stays untouched. A later per-project or per-party query, in C or F, needs its own composite, and receipt PR-R also edits that file. Those land in their own PRs, after D.
 
 ## Usage
 
@@ -108,6 +108,32 @@ The document types live in `tests/emulator/account-rules.test.js`. The rules fun
  * Exactly one method group is set. `milestoneMode: 'percent'` is not a value
  * this type accepts. v1 currency is `'IQD'` only. The field stays named
  * `currency` so a later USD allow is a rules change, not a migration.
+ */
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   partyId: string,
+ *   projectId: string,
+ *   method: AgreementMethod,
+ *   description: string,
+ *   currency: 'IQD',
+ *   lumpAmount?: number,
+ *   unitRate?: number,
+ *   unitQty?: number,
+ *   unitName?: string,
+ *   dayRate?: number,
+ *   milestoneAmount?: number,
+ *   milestoneMode?: 'amount',
+ *   reversesId: string,
+ *   reversalReason: string,
+ *   createdBy: string,
+ *   createdAtServer: unknown,
+ *   deviceId: string
+ * }} AgreementReversal
+ * `hasOnly` is the `Agreement` keys with exactly the original's method group,
+ * plus `reversesId` and `reversalReason`. `createdBy` is the reverser, not the
+ * original author. The other method-group keys are absent, same as on the original.
  */
 
 /**
@@ -199,10 +225,12 @@ function agreementCreate()
  * Reads: 3. `user`, the original agreement, project. Field equality uses that one `get`.
  * The document id equals `'rev_' + reversesId` (Q9). `uuidOk(reversesId)` is required.
  * `reversesId` does not itself start with `rev_`.
+ * `hasOnly` is the `Agreement` keys with exactly the original's method group,
+ * plus `reversesId` and `reversalReason`. `createdBy` is the reverser.
  * `partyId`, `projectId`, `method`, `currency`, `description`, and the method group
  * equal `get(original)`. That is «القواعد تقارن الحقول بالأصل».
  * `reversalReason` is a string of length 1–500, the same bound as an `accountTxns` `rev_`.
- * The screen reuses «سبب التصحيح». No new string. G-J's Q28 button writes this shape.
+ * The screen reuses the existing «سبب التصحيح» (`public/ledger.js` still has that label at `6f4bb1ec`, including lines 225, 539, 544, 702, and 770). No new string. G-J's Q28 button writes this shape.
  */
 function agreementReversalCreate()
 
@@ -413,7 +441,7 @@ Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-
 
 `statementApprovals` stores only the `StatementApproval` keys. `periodKind` is `week` or `month` (Q10). Anything else is denied. The server accepts the document while cash rows are still unreviewed. Two owners can each create one, because each id is a fresh uuid. `periodStart` and `periodEnd` pass `entryDateOk`, and `periodStart <= periodEnd`. A start after the end is denied. An extra key, including `includedIds` or a figure, is denied. A missing party is denied. The week starting on Saturday is a screen rule. It is not a rules predicate. The project `get` lives only in `statementWithProjectCreate`. `statementConsolidatedCreate` does not get a project.
 
-The reversal document is `agreements/rev_<agreementId>` (Q9). `agreementsCreate` picks the leaf from the id before any `get`. A normal agreement cannot be written at a `rev_` id, and `agreementCreate` requires `uuidOk` on its own id and no `reversesId`. The reversal's `partyId`, `projectId`, `method`, `currency`, `description`, and method group equal the original already read. `reversalReason` is 1–500 characters. Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. None of the r3 checks adds a read. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read), and its identity fields equal the old body. Deny tests cover each of those paths.
+The reversal document is `agreements/rev_<agreementId>` (Q9). `hasOnly` is the `Agreement` keys with exactly the original's method group, plus `reversesId` and `reversalReason`. `createdBy` is the reverser. `agreementsCreate` picks the leaf from the id before any `get`. A normal agreement cannot be written at a `rev_` id, and `agreementCreate` requires `uuidOk` on its own id and no `reversesId`. The reversal's `partyId`, `projectId`, `method`, `currency`, `description`, and method group equal the original already read. `reversalReason` is 1–500 characters. Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. None of the r3 checks adds a read. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read), and its identity fields equal the old body. Deny tests cover each of those paths.
 
 `rej_` is a marker: shared header plus `targetId`. No `amount` and no `purpose`. It is denied when `appr_` of that target is already stored. The target purpose has `needsApproval`. A slot may be rejected. That rejection is what frees the next slot generation.
 
@@ -526,7 +554,7 @@ Section 7, v1 rows. The plan's item numbers stay in the name.
 - `s7.2 party create once; second setDoc, update, and delete fail`
 - `s7.2 agreement create once; second setDoc, update, and delete fail`
 - `s7.2 agreementReversalCreate allows rev_<agreementId> when partyId, projectId, method, currency, description, and the method group equal the original, with reversalReason 1–500; a second setDoc, an update, and a delete fail`
-- `reversal: a partyId, projectId, method, currency, description, or method-group value that differs from the original is denied`
+- `reversal: an extra key, or a method group other than the original's, or a partyId, projectId, method, currency, or description that differs from the original, is denied`
 - `reversal: a missing original is denied`
 - `reversal: a doc id that is not rev_ plus reversesId is denied`
 - `reversal: reversesId that itself starts with rev_ is denied`
@@ -615,7 +643,9 @@ Also:
 - source: `firestore.rules` contains no `hashing.sha256`, no `lockId`, and no `inv_`. The parties key list contains no `roles`. The new functions contain no uid literal
 - source: `slotBodyCreate`, `laborQtyCreate`, and `approveLaborCreate` each contain `agreements` and `'rev_' +`
 
-After a project delete at a zero balance, the account rows stay. `revCreate` gets the project, so those rows cannot be reversed once the project is gone. C and F label them. D does not delete them.
+After a project delete at a zero balance, the account rows stay. `revCreate` gets the project, so those rows cannot be reversed once the project is gone. C and F label them. D does not delete them. The phone block is F's `projectDeleteBlock` (`docs/plans/contractor-pr-f-sketch.md` on this merge: F owns the guard, called from `deleteConfirm` and `deleteProjectNow`). D's rules do not add that guard. s7.8 only denies a project-delete batch that also deletes an account row.
+
+Code-PR detail, Architect r3 INFO I1, not a sketch blocker. `agreementId` is optional. `supCreate` and `revCreate` compare presence as well as value, `request.resource.data.get('agreementId', null)` against the document already read, so a `sup_` or a `rev_` cannot add or drop the key. The `sup:` test and the `rev:` field-diff test each include an "added" case. No extra read.
 
 Left out of D, phase 2 or a later PR: section 7 items 14 and 15's `refundPayment` / `payMaterial` / `inv_` / hash / golden-vector cases, the USD success path, `approveOwnMoney`, material `deduct`, extra A, extra B, the adopt step (PR E), and any test that expects the rules to sum sibling refunds or deducts.
 
@@ -699,9 +729,9 @@ Plan section 16 assigns the code PR these rows: `principle-prove-it-works`, `bla
 
 This sketch uses `architect` (the signatures and the two shapes), `principle-foundational-thinking` (the document keys and the read budget before any rules code), `principle-boundary-discipline` (the server is the check; the cumulative sum stays a phone check), and `principle-explain-the-number` (9 is a count of named documents, not an emulator counter). The app is not claimed to be pstack-compliant.
 
-## Citations rechecked at baf4f21
+## Citations rechecked at 6f4bb1ec
 
-`firestore.rules` is unchanged since #49. These plan citations are still the lines at this base, and the sketch uses them:
+Rechecked on `main` `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`, which this branch now contains. `firestore.rules` is still the #49 file. These lines are unchanged from `baf4f21` and the sketch still uses them:
 
 - `isOwner` line 11, `isSite` line 12, `allowlisted` line 10, `me` line 9
 - `MAX_AMOUNT_IQD` line 18, `idOk` line 19, `projectOpen` lines 52-54
@@ -715,15 +745,28 @@ This sketch uses `architect` (the signatures and the two shapes), `principle-fou
 - `collectionFor` `public/sync.js` lines 23-31
 - `uuid` `public/session.js` lines 85-93
 - demo seed `public/app.js` lines 34-35
-- `MAX_AMOUNT_IQD` `public/ledger.js` lines 117-118
-- `رُفض الإرسال` `public/sync-status.js` line 12
+- `MAX_AMOUNT_IQD` `public/ledger.js` line 118 (the comment is line 117)
+- `رُفض الإرسال` `public/sync-status.js` line 12, and `رُفض الإرسال لأن المشروع محذوف` line 15
 - `README.md` line 24
-- ci.yml emulator command line 181
 - `tests/rules-constant.test.js` lines 8-30
+- `setup-pstack` is still `docs/PSTACK_INVENTORY.md` line 77 and still «ناقصة»
+- `putIfMissing` still starts at `public/firebase-client.js` line 239
+- `usesPutIfMissing` `public/sync.js` line 18, `collectionFor` line 23, `flushOutbox` line 594
+- `countedEntries` still starts at `public/ledger.js` line 307, `canExportCSV` line 298, `foremanBalance` line 649
+- `applyFlush` still starts at `public/sync-status.js` line 169
 
-Plan statements that are no longer true at this base. #72 moved the lines. D does not repair those files. The corrected line is here so the code PR does not copy the stale one:
+Lines that moved between `baf4f21` and `6f4bb1ec`:
 
-- Plan lines 151 and 931 say the service worker on main is `aj-p0-v56`. It is `aj-p0-v58` at `public/sw.js` line 1.
+- `public/sw.js` line 2 is `aj-p0-v64`. Line 1 is a comment. It is not `aj-p0-v58` on line 1.
+- The demo uid fallback is `public/session.js` line 146, not line 101. `SHELL_FILES` is line 316, not line 271. `uuid()` is still lines 85-93.
+- `sinceClause` is `public/sync.js` lines 354-360. The `createdAtServer >=` bound is line 359. `public/firebase-client.js` `pull` is lines 307-316. The watermark clause is line 316, not 308-309.
+- `readServer` is `public/firebase-client.js` lines 755-757, not 672.
+- The emulator `node --test` command is `.github/workflows/ci.yml` line 182. It includes `flush-retry` and `offline-cold-start`. The pass floor is line 189 and is still `"$pass" -lt 45`. The `baf4f21` numbers 181 and 188 are history.
+- `.pills` is on `public/render.js` lines 556, 607, 609, 610, and 622. It is not on line 598. D has no screen.
+
+Plan statements that were already stale at `baf4f21`. D does not repair those files:
+
+- Plan lines 151 and 931 say the service worker on main is `aj-p0-v56`. At `baf4f21` it was `aj-p0-v58` on `public/sw.js` line 1. At `6f4bb1ec` it is `aj-p0-v64` on line 2.
 - Plan line 71 puts the demo uid fallback at `public/session.js` line 93. Line 93 is the closing brace of `uuid()`. The fallback is line 101. `public/app.js` lines 34-35 are still the seed.
 - Plan line 931 puts `SHELL_FILES` at `public/session.js` line 263. It is line 271.
 - Plan lines 435, 629, and 972 put `countedEntries` at `public/ledger.js` lines 298-308. The function starts at line 307. Line 298 is `canExportCSV`.
@@ -733,7 +776,7 @@ Plan statements that are no longer true at this base. #72 moved the lines. D doe
 - Plan line 533 says `flushOutbox` walks ids at `public/sync.js` line 601 and does `kept.push` on a transient error at line 616. `flushOutbox` starts at line 594. Line 601 is `const failed = []`. The transient `kept.push` is line 631. Lines 609-610 are the missing-local and seed branches.
 - Plan lines 434, 522, and 533 put `applyFlush` at `public/sync-status.js` lines 154-165. `applyFlush` starts at line 169. Lines 154-165 are the project-deleted failure text from #72.
 - Plan line 533 puts `readServer` at `public/firebase-client.js` lines 639-646. The call is line 672.
-- Plan line 925 cites `.pills` at `public/render.js` lines 561-562. Those lines are the new-entry link. `.pills` is on line 598. D has no screen.
+- Plan line 925 cites `.pills` at `public/render.js` lines 561-562. At `baf4f21` that was the new-entry link and `.pills` was on line 598. At `6f4bb1ec` see the list above. D has no screen.
 - Plan line 1078 says the next build step is PR A only, and that nothing in the plan edits `firestore.rules`. PR A and #72 are already on this base. This sketch is the D step. It still does not edit `firestore.rules`.
 - `package.json` `test:emulator` and ci.yml line 181 are not the same command. The package script includes `tests/emulator/offline-cold-start.test.js`. CI does not.
 
@@ -741,7 +784,7 @@ Plan statements that are no longer true at this base. #72 moved the lines. D doe
 
 ## أجوبة أمير
 
-Recorded from EA, on Ameer's delegation, 2026-11-16 00:34 Baghdad, and the 00:36 follow-up. Q5, Q8, Q9, and Q10 of QUESTIONS-FOR-EA-r1 are the same decisions, approved again at 00:52. Where the two files differ, the 00:34 and 00:36 answers win. This r2 does not ask them again.
+Recorded from EA, on Ameer's delegation, 2026-11-16 00:34 Baghdad, and the 00:36 follow-up. Q5, Q8, Q9, and Q10 of QUESTIONS-FOR-EA-r1 are the same decisions, approved again at 00:52. Where the two files differ, the 00:34 and 00:36 answers win. This r4 does not ask them again.
 
 **Q5. رقم الخدمة.**
 
@@ -753,7 +796,9 @@ Recorded from EA, on Ameer's delegation, 2026-11-16 00:34 Baghdad, and the 00:36
 
 **Q9. عكس الاتفاق. جواب: إي. الوثيقة في `agreements`.**
 
-إذا انكتب اتفاق وطلع بيه غلط، ما ينمسح وما يتعدّل. تنكتب وثيقة إلغاء في `agreements`، والمعرّف `rev_` زائد معرّف الاتفاق، بنفس الحقول زائد `reversesId` وسبب من 1 إلى 500 حرفاً. القواعد تقارن قيم الحقول بالأصل. اتفاق عادي ما ينكتب بمعرّف يبدأ بـ `rev_`. معرّف الاتفاق يبقى uuid.
+إذا انكتب اتفاق وطلع بيه غلط، ما ينمسح وما يتعدّل. تنكتب وثيقة إلغاء في `agreements`، والمعرّف `rev_` زائد معرّف الاتفاق، بنفس الحقول زائد `reversesId`. القواعد تقارن الحقول بالأصل. معرّف الاتفاق يبقى uuid.
+
+Architect r2 M1, engineering, not an Ameer answer. The reversal also stores `reversalReason`, 1–500 characters, and a normal agreement cannot be written at an id that starts with `rev_`. Those two are not in the recorded Q9 answer.
 
 **س٢-ب. جواب 00:36، ويبقى فوق Q9.**
 
