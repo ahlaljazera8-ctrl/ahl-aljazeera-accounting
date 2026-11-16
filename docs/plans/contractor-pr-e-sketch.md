@@ -1,14 +1,16 @@
 # PLAN ONLY: contractor PR E sketch
 
+Revision r4, against Architect NOTES on r3 head `13d0438cac89127af3925d32db5db49cb56ea946` (review sha256 `c3ba08b307778cebd3ed784230170ae5bc477542a8d4ce035d27f2f2ec250710`). The r3 blob is `a7dc4bd3b9d3926ff93d128cac2c503b8f6a5d49`. Citations below were rechecked at main `f1c5070426906e14c2e815c288c7327387115b1a`. D's plan is merged there as #80.
+
 Revision r3, against Architect NOTES on r2 head `e68a892e` (review sha256 `287192927502f2ddb761692160961b4eb6a46c8f06986560d74fa0a1a490c9d5`). The r2 blob is `1877da22260d4acf1b78d39ed2945f1104d18f8f`. Citations below were rechecked at main `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. D is cited at r4 head `7ac193c5`.
 
 Revision r2, against Architect NOTES on `d344b3d9` (review sha256 `e1645840cc1be989d0ddfa499efaccafa10b835aa67fc6d64e89b467234a7170`). r1 is that head, 570 lines, blob `5a998ba208e26b1303f938a2c0289f9bfc001b7e`.
 
-EA, on Ameer's delegation, 2026-11-16 00:52 Baghdad, approved the defaults in `QUESTIONS-FOR-EA-r1.md` (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) for Q1–Q47. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, the earlier answer wins. This lane folds in Q5 and Q11–Q15. The date-fix answer in that earlier file says the date fix merges first as v59 and the rest renumber. That is the Q5 reading used here. Q13's approved default (an unknown dependency error stays queued) replaces the fail-once line this r2 had taken from the Architect's M2. The earlier answers file does not speak on Q13, so the approved default stands.
+EA, on Ameer's delegation, 2026-11-16 00:52 Baghdad, approved the defaults in `QUESTIONS-FOR-EA-r1.md` (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) for Q1–Q47. Where `answers-EA-delegated-0034.md` (sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`, section «Ameer answers, 2026-11-16 15:35») differs, the earlier answer wins. Later sections of that file do not override Q5 or Q11–Q15. E paints no balance. This lane folds in Q5 and Q11–Q15. The date-fix answer in that earlier file says the date fix merges first as v59 and the rest renumber. That is the Q5 reading used here. Q13's approved default (an unknown dependency error stays queued) replaces the fail-once line r2 had taken from the Architect's M2. The earlier answers file does not speak on Q13, so the approved default stands.
 
-No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The code PR comes after the Architect reviews this r2 and Ameer says go.
+No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The code PR comes after the Architect reviews this r4 and Ameer says go.
 
-Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. The r2 sketch cited `baf4f21fc54c156989334e826d19990b8e5e8a74`. This r3 rechecks those lines at main `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. Service worker on that main is `aj-p0-v64` (`public/sw.js` line 2). PR A is already on main (`public/accounts.js`).
+Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. The r2 sketch cited `baf4f21fc54c156989334e826d19990b8e5e8a74`. This r4 rechecks those lines at main `f1c5070426906e14c2e815c288c7327387115b1a`. #80 changes only D's sketch. Service worker on that main is `aj-p0-v64` (`public/sw.js` line 2). PR A is already on main (`public/accounts.js`).
 
 Arena was not run. Ameer's gate bans it (cost). The shape is the one already approved in r2.28 section 5. This file is the sketch those gates asked for before code.
 
@@ -38,7 +40,7 @@ Preconditions, both still in front of the code PR (Q11). D is deployed by Ameer.
 | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public/sync.js`                                                            | Route `party`, `agreement`, `accountTxn`, and `statementApproval`. `queueRefusal` before any outbox append. `accountReads` / `pullAccounts`, owner only. The adopt step and the one subtree walk live inside `flushOutbox`. `localDoc` is the one id lookup.                                                                                                                        |
 | `public/sync-status.js`                                                     | One `sameContent` key list per new kind, a reference copy of D r4 at `7ac193c5`. A reversal is not adopted by `sameContent`. `payloadDiffers` subtracts the owner-identity fields. `dependencyStatus` fails a missing or denied dependency once, and keeps any other server dependency error queued (Q13). `applyFlush` drops `parked` ids and clears any `syncErrors` key on them. |
-| `public/firebase-client.js`                                                 | `readDependency` runs only after a dependent write throws a non-transient error. `writeLocal` uses `setDoc` and strips `docType`. `pull` stores the watermark at `K.pullWatermark.accounts`. The flush applies adopted rows, `slotLosers`, and `linkRefusals`, then `applyFlush`.                                                                                                   |
+| `public/firebase-client.js`                                                 | `readDependency` runs only after a dependent write throws a non-transient error. `writeLocal` uses `setDoc`, one document, and strips `docType`. `pull` stores the watermark at `K.pullWatermark.accounts`. `performFlush` (lines 681-882) writes adopted rows, `slotLosers`, and `linkRefusals` before both `applyFlush` calls.                                                    |
 | `public/session.js`                                                         | At `6f4bb1ec`, `K` line 5 already has `parties`, `agreements`, and `accountTxns`. E adds `statementApprovals`, `slotLosers`, and `linkRefusals` on that same line. IndexedDB stays version 1. The new values are meta. The watermark is a sub-key of `K.pullWatermark`, not another name.                                                                                           |
 | `public/render.js`                                                          | `queueDoc` (lines 89-93) asks `queueRefusal` before the append. `rejectedLogoutBlock` (lines 547-552) and the rejected CSV (lines 1311-1324) also cover account ids in `syncErrors`, `slotLosers`, and `linkRefusals`. No new screen.                                                                                                                                               |
 | `public/sync.js` `dropProjectLocal`                                         | Q15. Only `dropPending: true` drops the project's agreements, account rows, statement approvals, `slotLosers`, and `linkRefusals`. `dropPending: false` keeps pending, refused, and those maps. Parties stay. The Q8 button stays PR F.                                                                                                                                             |
@@ -48,23 +50,23 @@ Preconditions, both still in front of the code PR (Q11). D is deployed by Ameer.
 | `package.json`, `.github/workflows/ci.yml`                                  | The `test:emulator` command in both files gains `tests/emulator/account-adopt.test.js`. The two command strings stay identical. The unit `"test"` script does not change. At `6f4bb1ec` the emulator command is `ci.yml` lines 181-182. E takes those lines from its own base.                                                                                                      |
 | `public/sw.js`, `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | Version pins only, after the parallel public PRs. See Sequencing.                                                                                                                                                                                                                                                                                                                   |
 
-`public/accounts.js` is not edited. The walker reads `Accounts.PURPOSES` at flush time. `payLabor` already has `needsApproval: false` and `effect.cash: 1` (`public/accounts.js` lines 28-38). PR B may change `post` and the pointer table. It does not have to change those two fields for this rule to keep working.
+`public/accounts.js` is not edited. The walker reads `Accounts.PURPOSES` at flush time. `payLabor` already has `needsApproval: false` and `effect.cash: 1` (`public/accounts.js` line 73, inside `PURPOSES` at lines 69-79). PR B may change `post` and the pointer table. It does not have to change those two fields for this rule to keep working.
 
 The page loads `sync.js` at `public/index.html` line 62 and `accounts.js` at line 71. The factory must not read `Accounts` while the script is evaluating. The read happens inside the flush, after every script has run. In Node, that read uses `require('./accounts.js')`, the same split `public/sync.js` lines 84-88 already use for `Ledger`, but called from the function, not from the top of the factory.
 
 ## Files the code PR does not edit
 
-`firestore.rules`, `public/ledger.js`, `public/index.html`, `public/app.js`, `public/foremen.js`, `docs/PSTACK_INVENTORY.md`. The unit `"test"` script in `package.json` stays. The Q8 delete refusal is PR F, not this file list.
+`firestore.rules`, `public/ledger.js`, `public/index.html`, `public/app.js`, `public/foremen.js`, `docs/PSTACK_INVENTORY.md`. The unit `"test"` script in `package.json` stays. F's project-delete guard stays: `Ledger.personProjectDeleteBlock` (`public/ledger.js` line 1109), reached from `projectDeleteBlock` (`public/render.js` line 944) and `deleteProjectNow` (line 1016). E's `dropProjectLocal` extension runs only after that guard and does not bypass it.
 
-`queueDoc` stays the only enqueue. `foremen.js` already calls `screen.queueDoc` (lines 375, 412, 438). A foreman `docType` is known, so the new check lets those calls through. No edit there.
+`queueDoc` stays the only enqueue. `foremen.js` already calls `screen.queueDoc` (lines 404, 441, 467). A foreman `docType` is known, so the new check lets those calls through. No edit there.
 
 The new emulator file is the one exception to "no new test file". It is added to both emulator command strings, which stay identical. The unit list is not given a second copy.
 
 `post` still returns a document. It does not call `queueDoc`. E does not call `post` to build the guard row.
 
-## Citations checked at baf4f21
+## Citations checked at baf4f21 (r2 history)
 
-The plan cites older SHAs (`8811b77b`, `020904cd`). These are the lines on this base. A row marked stale is a line number or a claim that is no longer the text at `baf4f21`.
+This table is the r2 check against `baf4f21`. It is history. The lines to copy are in «Citations rechecked at main f1c50704», which supersedes this table and the `6f4bb1ec` list. The plan cites older SHAs (`8811b77b`, `020904cd`). A row marked stale was a line number that was no longer the text at `baf4f21`.
 
 Still true:
 
@@ -109,13 +111,13 @@ Stale, and the correction:
 | `projectSummary.spent` for the site user is `public/ledger.js` lines 111-115.                                                                                                                                                                                       | The function is lines 111-115. The site branch returns `spent` only. Still true.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Demo uid cited at `public/session.js` line 93.                                                                                                                                                                                                                      | Rechecked at `6f4bb1ec`: the `u-ameer` lookup is `public/session.js` line 146. The seed is `public/app.js` line 34.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-`dropProjectLocal` starts at `public/sync.js` line 542. The keep rule is line 552. Q15: `slotLosers` and `linkRefusals` leave only when `dropPending` is true. `forgetGoneProjects` (`public/firebase-client.js` line 516) calls it with `dropPending: false` at line 530. The deleting phone passes true at `public/render.js` lines 1023 and 1039. The Q8 button is PR F.
+`dropProjectLocal` starts at `public/sync.js` line 542. The keep rule is line 552. Q15: `slotLosers` and `linkRefusals` leave only when `dropPending` is true. `forgetGoneProjects` (`public/firebase-client.js` line 516) calls it with `dropPending: false` at line 530. The deleting phone passes true at `public/render.js` lines 1023 and 1039, and only after `projectDeleteBlock` (line 944) has called `Ledger.personProjectDeleteBlock` (`public/ledger.js` line 1109) from `deleteProjectNow` (line 1016). E does not bypass that guard.
 
 ## Usage
 
-A screen, later, saves one document and calls `queueDoc(id)`. `queueDoc` loads that id through `localDoc`. `queueRefusal` returns a code or null. A code means the id is not appended. Null means today's append, then `flushRemote` outside the demo.
+A screen, later, saves one document and calls `queueDoc(id)`. `queueDoc` loads that id through `localDoc`. `queueRefusal` returns a code or null. A code means the id is not appended. Null means today's append, then `flushRemote({ fromOutside: true })` outside the demo (`public/render.js` line 92). The edit keeps that options object.
 
-`flushRemote` keeps calling `flushOutbox`. The new callbacks are `readDependency` and `mintId`. The result gains `parked`, `slotLosers`, and `linkRefusals`. `firebase-client.js` writes those maps and then calls `applyFlush`. Callers of `queueDoc` do not learn the subtree rule.
+`flushRemote` (`public/firebase-client.js` line 583) keeps calling `flushOutbox` from `performFlush` (lines 681-882). The new callbacks are `readDependency` and `mintId`. The result gains `parked`, `slotLosers`, and `linkRefusals`. `performFlush` writes the adopted account rows and both maps before every `applyFlush`. Callers of `queueDoc` do not learn the subtree rule. A flush sends one document per write. It does not put an approval and a rejection, or an approval and a supersede, in one batch.
 
 A test builds two docs with the same deterministic id and two `createdBy` uids, points `write` at a function that throws `permission-denied`, and points the own-id read at the winner. It asserts the server doc, the parked ids, and an empty `syncErrors` entry for the shared id.
 
@@ -365,7 +367,7 @@ The account allowlist is D's `AccountTxn`: `id`, `kind`, `projectId`, `partyId`,
 
 Party keys: `id`, `name`, `note`, `createdBy`, `createdAtServer`, `deviceId`. No `roles`. Agreement keys, from D r4 at `7ac193c5`: `id`, `partyId`, `projectId`, `method`, `description`, `currency`, and exactly one method group (`lumpAmount`, or `unitRate`+`unitQty`+`unitName`, or `dayRate`, or `milestoneAmount`+`milestoneMode`), plus `createdBy`, `createdAtServer`, `deviceId`. An agreement reversal is the same keys plus `reversesId` and `reversalReason` (1–500). A normal agreement is not written at a `rev_` id. Statement keys: `id`, `partyId`, `projectId` when present, `periodKind`, `periodStart`, `periodEnd`, `createdBy`, `createdAtServer`. No `deviceId` and no figures.
 
-`adoptEntry` (`public/firebase-client.js` lines 550-561) stays the ledger reversal copy. An account adopt stores `fromRemote` of the server doc. It does not pass through `adoptEntry`.
+`adoptEntry` (`public/firebase-client.js` line 613) stays the ledger reversal copy. An account adopt stores `fromRemote` of the server doc. It does not pass through `adoptEntry`.
 
 ## Data shape
 
@@ -445,14 +447,17 @@ Holds that do not write and do not read:
 
 Otherwise `write` first. A successful write is `synced` and costs no extra client read. Dead auth returns `authDead` (`public/sync.js` line 617). A transient write error is `kept` (line 620). A throw with no Firebase `code`, or a client `invalid-argument` from building the document reference, is not a server error (Q13 says «خطأ من الخادم»). It fails once with `رُفض الإرسال` and enters the #72 export.
 
-When an account `write` throws a non-transient server error:
+When an account `write` throws a non-transient server error, read the account's own id with `readDependency` first. That read has five outcomes. The pointer is read only after `missing`.
 
-1. Read the account's own id with `readDependency`. If that document exists, apply adopt rules 1-8 to that document. The pointer is not read. A slot body has no pointer, so it always stops here.
-2. Only if the own id is `missing`, read the pointer (`targetId`, `reversesId`, `supersedesId`, or `settlesId`).
-3. Own id missing and pointer `found`: a plain rules denial. `failed` once with `رُفض الإرسال`. The local document stays. It is not `synced` and not `parked`.
-4. Pointer `missing` or `denied`: `failed` once, the same message.
-5. Pointer `transient`, or a server code that is not transient, not dead auth, and not `permission-denied`: Q13. The id stays `kept`. It is not written into `syncErrors`. Logout stays refused by the unsent alert (`public/session.js` line 376) while `outboxEmpty` is false (lines 301-314). Recovery, if the error never clears, is a later pull request Ameer approves. This r3 does not add a cap and does not add a string. The review's optional cap would use the existing `رُفض الإرسال` or `القيد موجود مسبقاً وتعذر مطابقة محتواه` and is left for EA.
-6. `auth`: return `authDead`.
+1. Own id `found`: apply adopt rules 1-8 to that document. The pointer is not read. A slot body has no pointer, so it always stops here.
+2. Own id `missing`: read the pointer (`targetId`, `reversesId`, `supersedesId`, or `settlesId`).
+3. Own id `transient`, including a Q13 server code that is not transient and not dead auth: `kept`. The pointer is not read. The id stays queued.
+4. Own id `auth`: return `authDead`. The pointer is not read.
+5. Own id `denied`: `failed` once with `رُفض الإرسال`. The pointer is not read. The local document stays. It is not `synced` and not `parked`.
+6. Own id missing and pointer `found`: a plain rules denial. `failed` once with `رُفض الإرسال`. The local document stays. It is not `synced` and not `parked`.
+7. Pointer `missing` or `denied`: `failed` once, the same message.
+8. Pointer `transient`, or a server code that is not transient, not dead auth, and not `permission-denied`: Q13. The id stays `kept`. It is not written into `syncErrors`. Logout stays refused by the unsent alert (`public/session.js` line 376) while `outboxEmpty` is false (lines 301-314). Recovery, if the error never clears, is a later pull request Ameer approves. This r4 does not add a cap and does not add a string. The review's optional cap would use the existing `رُفض الإرسال` or `القيد موجود مسبقاً وتعذر مطابقة محتواه` and is left for EA.
+9. Pointer `auth`: return `authDead`.
 
 The legacy ledger path still uses `readServer` after its own write throws. An unverified ledger read still fails once (`public/sync.js` lines 626-632). That path is not an account adopt.
 
@@ -469,7 +474,13 @@ Counts E adds:
 - First owner pull: one read per existing document in `parties`, `agreements`, `accountTxns`, and `statementApprovals`. Later pulls read only `createdAtServer >= K.pullWatermark.accounts`. A site pull asks for none of them.
 - Holds 1-4 above: no client read.
 - A dependent write that succeeds: no extra client read. The rules still bill the gets that create performed. D r4 at `7ac193c5` still bills up to 9 gets on a generation-past-1 labor `stl_`.
-- A failed account write: at most two client reads. The own id is first. The pointer is read only when the own id is missing.
+- A failed account write: at most two client reads per round. The own id is first. The pointer is read only when the own id is missing. A transient, denied, or dead-auth own-id read stops at one. `performFlush`'s tail (lines 869-881) skips `kept` ids, so a Q13 or Q14 kept account id does not arm another round. A trigger from outside can still run at most one extra tail round.
+
+## performFlush
+
+#86's `performFlush` is `public/firebase-client.js` lines 681-882. E edits that function. It has two `applyFlush` calls. The normal one is line 797. The inactive-profile one is line 778: a missing or inactive profile turns `failed` into `kept`, runs `applyFlush`, and holds the session. `applyFlush` drops `parked` ids. The adopted account rows, `slotLosers`, and `linkRefusals` are written before both calls, in one helper both sites use. Otherwise the line 778 branch would drop the parked ids and lose the loser docs.
+
+`pendingAtStart` (lines 736-742) is filled only from `K.finance` and `K.terms`. Account ids are never in that map, so the refusal at lines 846-860 cannot put `رُفض الإرسال` on an account id. The tail (lines 869-881) skips `kept` ids, so a queued account id does not start the extra round.
 
 ## Engineering defaults
 
@@ -513,7 +524,13 @@ Amounts of 600,000 are the Q6 / spec 1 figure, used as data so the adopted appro
 - `E26 logout export`. An account id in `syncErrors`, a `slotLosers` key, and a `linkRefusals` key each make `rejectedLogoutBlock` true until that id is in `K.rejectedExportedIds`. After the export mark, the block is false for those ids. The alert string is the existing sentence at `public/session.js` line 371.
 - `E27 two phones, emulator`. Uids `owner-a` and `owner-b`, both `role == owner`, `active == true`. Not `u-ameer`. For one shared slot id, one `appr_`, one `rej_`, one `sup_`, one labor `stl_`, and one `revw_`: the first create is allowed and the second is denied, then the loser's flush adopts the server doc and that id is not in `syncErrors`. The account `rev_` and `agreements/rev_<agreementId>` are the same race, and the two copies differ in `createdBy` and `reversalReason`. Adopt is the same document id plus the same `reversesId`, not `sameContent` (D r4 at `7ac193c5`, Architect F3). The id is not in `syncErrors`. Two `payLabor` uuids both land. An `appr_` and a `rej_` of one body, with neither stored first, can both land. Each owner can read the other's party. A site user cannot read or create the four collections. The fold is not asserted.
 - `E28 plain denial`. `write` throws `permission-denied`. The own id is missing. The pointer read is `found`. The id is `failed` once with `رُفض الإرسال`. It is not `synced` and not `parked`. The document remains.
-- `E29 project cleanup` (Q15). `dropPending: true` (`public/render.js` lines 1023 and 1039) removes the project's agreements, account rows, and statement approvals, and removes `slotLosers` and `linkRefusals` for that project. `dropPending: false` (`public/firebase-client.js` line 530, `forgetGoneProjects` at line 516) keeps pending rows, refused rows, and those two maps. `pullAccounts` skips incoming rows whose `projectId` is a key of `K.goneProjectNames`. The server rows stay. D r4 at `7ac193c5` says C and F label them. That sentence needs one line: the phones hide them, so the label is unused.
+- `E29 project cleanup` (Q15). `dropPending: true` (`public/render.js` lines 1023 and 1039) removes the project's agreements, account rows, and statement approvals, and removes `slotLosers` and `linkRefusals` for that project. `dropPending: false` (`public/firebase-client.js` line 530, `forgetGoneProjects` at line 516) keeps pending rows, refused rows, and those two maps. `pullAccounts` does not skip a row because its `projectId` is in `K.goneProjectNames`. Server rows stay and come back on the next pull. D's merged sketch (`docs/plans/contractor-pr-d-sketch.md` line 646 on main `f1c50704`) says C and F label them.
+- `E30 own-id read outcomes`. After `permission-denied` on the write, three fixtures, each at most two reads. Own id `transient`: `kept`, pointer not read. Own id `auth`: `authDead`, pointer not read. Own id `denied`: `failed` once with `رُفض الإرسال`, pointer not read, document stays, not `synced`.
+- `E31 inactive profile`. `performFlush`'s line 778 branch runs with a parked id. The loser doc is already in `K.slotLosers` before `applyFlush`. `rejectedLogoutBlock` is true. The id is not dropped from that map.
+- `E32 kept id does not arm the tail`. A Q13-kept account id is in `kept`. The tail condition at lines 869-881 is false for that id. No second round starts from it.
+- `E33 deleted project, emulator` (EA 2026-11-17 00:15, option a). An owner writes a new account row whose `projectId` is a project the server no longer has. The create is denied. The phone stores `رُفض الإرسال` on that id. The local document stays in `K.accountTxns`, with its amount and the other fields. The pull does not remove it. The refused export shows that amount and those fields, so the row can be re-entered on another project. E adds no screen.
+
+D's merged sketch tests a missing project only for `agreementCreate`, `cashBodyCreate`, and `statementWithProjectCreate` (`docs/plans/contractor-pr-d-sketch.md` lines 535-539 on main `f1c50704`). The other account leaves that read a project need the same exists-and-active check: `slotBodyCreate` (line 246), `laborQtyCreate` (line 254), `supCreate` (line 267), `approveLaborCreate` (line 278), `laborStlCreate` (line 286), `returnAdvanceCreate` (line 299), `refundLaborCreate` (line 305), `deductCreate` (line 311), `approveDeductCreate` (line 318), `rejCreate` (line 326), `revCreate` (line 333), and `revwCreate` (line 343). E does not edit `firestore.rules`. E33 is the denial those leaves have to produce.
 
 `إرسال الآن` is covered by E16: the second flush's id list is the outbox `applyFlush` returned, which is what the button flushes.
 
@@ -551,6 +568,8 @@ The code PR:
 
 ## Revert
 
+The code PR deploys only on Ameer's or EA's go, and only when nobody is entering data. E never edits, migrates, or deletes a Firestore document.
+
 Reverting the code PR does not delete Firestore documents. If phones have queued a new `docType` and E is reverted, `collectionFor` returns null again and `flushOutbox` keeps that id (`public/sync.js` line 611). `outboxEmpty` stays false (`public/session.js` lines 301-314) and logout alerts (lines 371 and 376). Recovery is to ship E again, or a later pull request Ameer approves that drops those specific ids. This sketch does not drop them. Revert writes nothing only before any phone has queued a new id.
 
 `slotLosers` is meta. Reverting the reader leaves the meta value in the database until logout deletes `aj-u-…`. No migration.
@@ -573,14 +592,14 @@ Reverting the code PR does not delete Firestore documents. If phones have queued
 - An approval queued ahead of its body waits one extra flush. It does not spin: the body is still attempted in the first pass, and the next pass finds the body gone from the outbox.
 - `dropProjectLocal` (`public/sync.js` lines 542-552) does not yet know the new stores. Q15 says E is the editor of that function for them. F owns the Q8 refusal. The two edits are different functions.
 - While a Q13 server error lasts, logout stays refused by «يوجد تغييرات لم تُرسل. أرسلها أولاً ثم اخرج» (`public/session.js` line 376). Recovery is a later pull request Ameer approves. This r3 does not add a retry cap.
-- `slotLosers` and `linkRefusals` are removed only when `dropPending` is true. Another phone keeps them until export. Synced account rows for a gone project are hidden by the pull filter and are not deleted on the server.
+- `slotLosers` and `linkRefusals` are removed only when `dropPending` is true. Another phone keeps them until export. The pull does not hide a row because its project was deleted. Server rows stay. A new row for a deleted project is refused and stays on the phone. E never edits, migrates, or deletes a Firestore document.
 - Phase 2 stays out: `inv_`, percent milestones, USD, attachments, materials, and the invoice-link sentence.
 
 ## Accounting
 
 No new accounting rule. The counted row is the server copy. The lost subtree is not counted, because it is not in `K.accountTxns` and the fold does not read `slotLosers`. A cash row is not removed from the figures by the walk. A labor `deduct` in the subtree is not counted. Rejection wins when both a `rej_` and an `appr_` exist, which is Q7 and is the fold's rule in PR C, not a second rule here.
 
-Those sentences are Ameer's closed decisions in the parent plan (Q1, Q7, Q10). This sketch does not ask محاسب أهل الجزيرة for a new opinion. Q5 and Q11–Q15 are approved and are not open. C's fold drops an `approveLabor` when a live `rej_` names its body. Live means the `rej_` is in the list, is not a `syncErrors` key, and is not reversed. E does not read `rowIndex`.
+Those sentences are Ameer's closed decisions in the parent plan (Q1, Q7, Q10). EA, 2026-11-17 00:15, chose option a for a new row on a deleted project: the server refuses it, the phone shows the existing `رُفض الإرسال`, and the row stays. This sketch does not ask محاسب أهل الجزيرة for a new opinion. E paints no balance. Q5 and Q11–Q15 are approved and are not open. C's fold drops an `approveLabor` when a live `rej_` names its body. Live means the `rej_` is in the list, is not a `syncErrors` key, and is not reversed. E does not read `rowIndex`.
 
 ## pstack
 
@@ -592,7 +611,7 @@ This docs PR uses `architect`. Arena is banned (cost). The slot-adopt shape is t
 
 ## Alternatives
 
-The chosen shape hides the walk, the key list, and the dependency read behind `flushOutbox` and `queueRefusal`. The read runs only after a dependent write fails. A caller still uses `queueDoc(id)` and `flushRemote()`.
+The chosen shape hides the walk, the key list, and the dependency read behind `flushOutbox` and `queueRefusal`. The read runs only after a dependent write fails. A caller still uses `queueDoc(id)` and `flushRemote({ fromOutside: true })`.
 
 `putIfMissing` for these ids loses because it cannot tell a retry from a different payload, and the flush would mark the id synced. A named pointer list loses because the next document is always one the list did not name. A second module loses because the flush would exist twice. The public surface adds the refusal, the owner reads, the loser views, and three result fields. That is the whole caller-facing change.
 
@@ -606,10 +625,19 @@ The chosen shape hides the walk, the key list, and the dependency read behind `f
 - Q13. خطأ الخادم الغريب على قراءة القيد المعتمد عليه يبقى بالطابور، مثل الانقطاع. الخروج يوقف بجملة التغييرات اللي ما انرسلت، لحد ما القراءة تنجح.
 - Q14. دفعة `payLabor` المصنوعة باليد، إذا تشير لموافقة خاسرة، تبقى بالطابور وتنحسب بهالمرور. ما تنفشل وما تدخل `slotLosers`.
 - Q15. E يوسّع `dropProjectLocal`. الصف المعلّق أو المرفوض يبقى إذا الحذف مو من هاتف الحاذف. `slotLosers` و`linkRefusals` ينحذفون فقط ويا `dropPending: true`. قواعد الخادم ما تتغير. زر المنع، سؤال Q8، مال PR F.
+- صف جديد على مشروع محذوف يرفضه الخادم ويعرض «رُفض الإرسال». الصف يبقى على الهاتف بمبلغه وتفاصيله، وما ينمسح بصمت. EA، 2026-11-17 الساعة 00:15، الخيار أ.
 
-## Citations rechecked at main 6f4bb1ec
+## Citations rechecked at main f1c50704
 
-Every `file:line` in this r3 was read on `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. The r2 sketch had cited `baf4f21f`. #74 through #86 changed `public/` after that.
+Every `file:line` below was read again on `f1c5070426906e14c2e815c288c7327387115b1a`. #80 adds only `docs/plans/contractor-pr-d-sketch.md`. The `public/` lines from the `6f4bb1ec` list are unchanged, except the four r3 misses:
+
+- `Accounts.PURPOSES` is `public/accounts.js` lines 69-79. `payLabor` is line 73.
+- `public/foremen.js` calls `screen.queueDoc` at lines 404, 441, and 467.
+- `adoptEntry` is `public/firebase-client.js` line 613.
+- `performFlush` is lines 681-882. The inactive-profile `applyFlush` is line 778. The normal one is line 797. `pendingAtStart` is lines 736-742. The finance/terms refusal is lines 846-860. The tail is lines 869-881. `flushRemote` is line 583 and `queueDoc` passes `{ fromOutside: true }` at `public/render.js` line 92.
+- F's guard is `public/ledger.js` line 1109, called from `public/render.js` line 944 and reached by `deleteProjectNow` at line 1016.
+
+The `6f4bb1ec` list, for the lines #80 did not move:
 
 - `public/sw.js` line 2 is `const VERSION = 'aj-p0-v64'`. Line 1 is the Q5 comment. `ASSETS` is line 3. `SHELL` is line 5. Pins: `tests/shell-cache.test.js` lines 44, 67, and 98; `tests/webkit-upgrade.test.js` line 19.
 - The emulator command is `.github/workflows/ci.yml` lines 181-182, and the same node string is `package.json` `test:emulator`. It includes `flush-retry.test.js` and `offline-cold-start.test.js`.
@@ -619,7 +647,7 @@ Every `file:line` in this r3 was read on `6f4bb1ec91660cc3b54d2db0159457d5fa0a09
 - `public/render.js`: `queueDoc` lines 89-93, `badgeHtml` call line 521, `rejectedLogoutBlock` lines 547-552, `deleteProjectNow` passes `dropPending: true` at lines 1023 and 1039, `failedMessages` lines 1073-1076, `paintBell` line 1077, `إرسال الآن` line 1114, bell click line 1243, rejected CSV lines 1311-1324, online listener line 1486. Last eight rows are line 654. «عرض جميع القيود» is line 655. Owner CSV is lines 1326-1330.
 - `public/session.js`: `K` line 5 already names `parties`, `agreements`, and `accountTxns`. `st.put` line 78. `uuid` line 85. `outboxEmpty` lines 301-314. `SHELL_FILES` line 316. Alerts lines 371 and 376. `aj-u-` delete line 384. Demo lookup line 146.
 - `public/app.js` startup flush is line 176. `public/index.html` loads `sync.js` at line 62 and `accounts.js` at line 71. `public/ledger.js`: `countedEntries` lines 307-310, `projectEntryList` line 607.
-- D is cited at r4 head `7ac193c5`, still under review. The inline allowlists are a reference copy of that SHA.
+- D's plan is merged (#80, main `f1c50704`). Blob `4ff65f91118cb3a9e074a72983e488f078b5865a` is the same bytes as r4 head `7ac193c5`. The inline allowlists are a reference copy of that file.
 
 ## r3 change table
 
@@ -627,10 +655,23 @@ Every `file:line` in this r3 was read on `6f4bb1ec91660cc3b54d2db0159457d5fa0a09
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
 | M1      | After a non-transient throw, read the account's own id first. Adopt rules apply to that doc. The pointer is read only when the own id is missing. Own missing plus pointer found is one denial, `رُفض الإرسال`, never synced. A success costs no client read. A failed dependent write costs at most two. Fixtures throw `permission-denied`. E1 records the own-id read before any pointer read. E28 is the plain denial. | 437-453, 471-472, 488, 494-495, 515 |
 | M2      | No Firebase `code`, or a client `invalid-argument` from building the ref, fails once and enters the #72 export. Real server codes other than transient and dead auth stay queued across three flushes, at most one write and two reads, and never enter `syncErrors`. Logout stays refused while that lasts. No new string and no cap.                                                                                     | 446, 454, 478, 505, 575             |
-| M3      | `slotLosers` and `linkRefusals` leave only when `dropPending` is true. `dropPending: false` keeps them. The pull skips rows whose `projectId` is in `K.goneProjectNames`. Server rows stay. D's C/F labelling sentence needs one line because the phones hide those rows.                                                                                                                                                  | 44, 112, 516                        |
+| M3      | `slotLosers` and `linkRefusals` leave only when `dropPending` is true. `dropPending: false` keeps them. r4 N6 removes the pull skip this row used to name. Server rows stay.                                                                                                                                                                                                                                               | 46, 114, 527                        |
 | M4      | Agreement `rev_<agreementId>` is adopted. `collectionFor` routes `docType: 'agreement'` to `agreements`. Slot ids use `replaceAll`. E27 includes that reversal. See F3 for the match.                                                                                                                                                                                                                                      | 391, 418, 514                       |
 | F3      | D r4 at `7ac193c5`. Two owners' reversals differ in `createdBy` and `reversalReason`, so adopt is the same document id plus the same `reversesId`, not `sameContent`. Account `rev_` and the agreement cancellation both say that. E3 and E27 assert `sameContent` is false and the server doc is adopted anyway.                                                                                                          | 415, 418, 490, 514                  |
 | L1      | No claimed service-worker number. Main serves `aj-p0-v64` at `public/sw.js` line 2. The emulator command is `ci.yml` lines 181-182. The code PR retakes pins from its own base.                                                                                                                                                                                                                                            | 11, 95, 545-547                     |
 | L2      | Allowlists are a reference copy of D r4 at `7ac193c5`. One constant per kind. `unitName` and `unitPrice` are not account fields. `unitName` stays on the agreement method group.                                                                                                                                                                                                                                           | 40, 160-161, 360, 364, 366          |
 | L3      | A live `rej_` is in the list, not a `syncErrors` key, and not reversed. E is not a `rowIndex` consumer. `sup_` is a body.                                                                                                                                                                                                                                                                                                  | 415, 583                            |
 | L4      | Q14's count is the adoption pass only. The next flush is the M1 denial: failed once, leaves the counted set, and enters the #72 export until exported. E14 has that second flush.                                                                                                                                                                                                                                          | 441, 501                            |
+
+The M3 row's old pull skip is withdrawn. The pull does not hide a row because its project was deleted.
+
+## r4 change table
+
+| Finding | Fix                                                                                                                                                                                                                                                                                                                | Lines                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| N1      | The own-id read handles found, missing, transient, dead auth, and denied. Transient stays queued. Dead auth returns `authDead`. Denied fails once with `رُفض الإرسال`. The pointer is not read for those three. E30 covers them, at most two reads each.                                                           | 450-456, 528                             |
+| N2      | `performFlush` writes adopted rows and both maps before the `applyFlush` at line 778 and the one at line 797. Account ids are outside `pendingAtStart`, so #86's refusal cannot hit them. `kept` ids do not arm the tail. Reads are per round. `queueDoc` keeps `flushRemote({ fromOutside: true })`. E31 and E32. | 43, 118, 120, 477, 481-483, 529-530, 614 |
+| N3      | The answers file is sha256 `2b3bb1f0`, section «Ameer answers, 2026-11-16 15:35». F's guard is `Ledger.personProjectDeleteBlock` at `ledger.js` line 1109, from `render.js` lines 944 and 1016. `dropProjectLocal` runs only after it.                                                                             | 9, 59, 114                               |
+| N4      | `PURPOSES` is `accounts.js` lines 69-79, `payLabor` line 73. `foremen.js` `queueDoc` is lines 404, 441, 467. `adoptEntry` is `firebase-client.js` line 613. Line 11 says r4. D's plan is merged (#80, main `f1c50704`). The baf4f21 table is labeled r2 history.                                                   | 11, 53, 61, 67, 370, 630-650             |
+| N5      | Deploy only on Ameer's or EA's go, and only when nobody is entering data. Never edit, migrate, or delete a Firestore document.                                                                                                                                                                                     | 571, 595                                 |
+| N6      | A new row on a deleted project is refused with `رُفض الإرسال` and stays on the phone with its amount and details. The pull does not hide it. D's other account leaves need the exists-and-active check. E33.                                                                                                       | 527, 531, 533, 595, 602, 628             |
