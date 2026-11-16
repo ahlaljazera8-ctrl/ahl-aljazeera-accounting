@@ -204,6 +204,21 @@
   }
 
   /**
+   * Same rule as markerKind in accounts.js. That helper is not exported.
+   * @param {FoldDoc | null | undefined} row
+   * @returns {'' | 'rev' | 'rej' | 'revw'}
+   */
+  function markerKindOf(row) {
+    if (!row) return '';
+    if (row.kind === 'rev' || row.kind === 'rej' || row.kind === 'revw') return row.kind;
+    if (typeof row.id !== 'string') return '';
+    if (row.id.startsWith('rev_')) return 'rev';
+    if (row.id.startsWith('rej_')) return 'rej';
+    if (row.id.startsWith('revw_')) return 'revw';
+    return '';
+  }
+
+  /**
    * @param {FoldDoc} row
    * @param {RowIndex} index
    * @param {'rev' | 'rej'} kind
@@ -213,7 +228,7 @@
     const ids = bag[row.id] || [];
     for (const id of ids) {
       const doc = index.byId[id];
-      if (!doc || !Accounts.rowLive(doc, index)) continue;
+      if (!doc || markerKindOf(doc) !== kind || !Accounts.rowLive(doc, index)) continue;
       if (kind === 'rev' && (doc.id === 'rev_' + row.id || doc.reversesId === row.id)) return true;
       if (kind === 'rej' && (doc.id === 'rej_' + row.id || doc.targetId === row.id)) return true;
     }
@@ -353,15 +368,16 @@
     const flag = readAccountScope();
     const projectWord = flag.scope === 'project' ? 'هذا المشروع' : 'كل المشاريع';
     if (!figures) return scopePills(model, partyId) + '<div class="card"><div class="note">لا يوجد</div></div>';
+    const net = figures.net;
+    const owed = net < 0 ? ['مستحق عليه', -net] : ['مستحق له', net > 0 ? net : 0];
     const lines = [
       ['عمل معتمد', figures.approvedLabor],
       ['مدفوع للعمل', figures.payments],
       ['سلف قائمة عليه', figures.openAdvances],
-      ['مستحق له', figures.payable],
-      ['مستحق عليه', figures.recoverable],
+      owed,
     ];
     const body = lines.map(([label, amount]) => '<div class="kv"><span>' + label + '</span>' + money(/** @type {number} */ (amount)) + '</div>').join('');
-    const advance = figures.recoverable !== 0 ? '<div class="kv"><span>المتبقي سلفة</span>' + money(figures.recoverable) + '</div>' : '';
+    const advance = net < 0 ? '<div class="kv"><span>المتبقي سلفة</span>' + money(-net) + '</div>' : '';
     return scopePills(model, partyId) + '<div class="card"><div class="note">' + projectWord + '</div>' + body + advance + '</div>';
   }
 

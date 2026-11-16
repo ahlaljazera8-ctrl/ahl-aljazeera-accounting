@@ -84,18 +84,14 @@ test('a queued unsynced advance blocks', () => {
   assert.equal(msg, sentence('حسن', 'مستحق عليه', '100,000'));
 });
 
-test('deleteProjectNow refuses before fb.deleteProject when only the person block is set', async () => {
+/**
+ * @param {Record<string, unknown>} store
+ * @param {{ accounts?: boolean }} [opts]
+ */
+function loadRender(store, opts) {
   let deletes = 0;
-  const store = {
-    projects: [{ id: 'job', name: 'مشروع' }],
-    entries: [],
-    foremen: [],
-    parties,
-    accountTxns: [doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000 })],
-    syncErrors: {},
-    outbox: [],
-    users: [],
-  };
+  /** @type {Record<string, any>} */
+  const els = {};
   const node = () => ({
     hidden: true,
     textContent: '',
@@ -121,6 +117,8 @@ test('deleteProjectNow refuses before fb.deleteProject when only the person bloc
     setTimeout,
     clearTimeout,
     queueMicrotask,
+    Intl,
+    Date,
     window: {},
     document: {
       addEventListener() {},
@@ -128,6 +126,7 @@ test('deleteProjectNow refuses before fb.deleteProject when only the person bloc
       querySelectorAll() { return []; },
       getElementById() { return node(); },
       createElement() { return node(); },
+      createElementNS() { return node(); },
       body: { dataset: {} },
     },
     location: { hash: '#project/job', search: '' },
@@ -135,17 +134,26 @@ test('deleteProjectNow refuses before fb.deleteProject when only the person bloc
     addEventListener() {},
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     Ledger: L,
-    Accounts,
     K: {
       projects: 'projects', entries: 'entries', foremen: 'foremen', parties: 'parties',
       accountTxns: 'accountTxns', syncErrors: 'syncErrors', outbox: 'outbox', users: 'users',
-      subcontracts: 'subcontracts', role: 'role', sessionUser: 'sessionUser',
+      subcontracts: 'subcontracts', role: 'role', sessionUser: 'sessionUser', pullWatermark: 'pullWatermark',
     },
-    Sync: { collectionFor() { return null; }, exactProjectName() { return false; } },
+    Sync: {
+      collectionFor() { return null; },
+      exactProjectName() { return false; },
+      dropProjectLocal() { return {}; },
+      contractAmountOf() { return null; },
+    },
     SyncStatus: { CONFLICT: '', PROJECT_DELETED: '', REJECTED: '' },
-    DomSafe: { isSafeId() { return true; }, projectAttr(id) { return id; }, projectHref() { return '#projects'; } },
+    DomSafe: {
+      isSafeId() { return true; },
+      projectAttr(id) { return id; },
+      projectHref() { return '#projects'; },
+      entryHref() { return '#home'; },
+    },
     PeopleDir: { RENDER_ERROR: 'x', TIMEOUT_MS: 1, createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; } },
-    me: () => ({ uid: 'owner', role: 'owner', active: true }),
+    me: () => ({ uid: 'owner', role: 'owner', active: true, displayName: 'أمير' }),
     uuid: () => 'id',
     today: () => '2026-11-16',
     demoRole: () => '',
@@ -154,19 +162,70 @@ test('deleteProjectNow refuses before fb.deleteProject when only the person bloc
     clearSignOutPending() {},
     withTimeout: (p) => p,
     LOGIN_MS: 1000,
+    deleteLock: false,
+    flushing: null,
+    syncNotice: '',
+    lastSyncAt: 0,
     get: (key, fallback) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : fallback),
     set: () => Promise.resolve(),
     $: (sel) => {
-      if (!context._els[sel]) context._els[sel] = node();
-      return context._els[sel];
+      if (!els[sel]) els[sel] = node();
+      return els[sel];
     },
-    _els: {},
+    writeCache() {},
+    cacheSnapshot() { return {}; },
     ensureFirebase: () => Promise.resolve({ deleteProject() { deletes += 1; return Promise.resolve(); } }),
     flushRemote: () => Promise.resolve(),
   };
+  if (opts && opts.accounts === false) context.Accounts = undefined;
+  else context.Accounts = Accounts;
   context.window = context;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/render.js'), 'utf8'), context);
-  await context.deleteProjectNow('job');
-  assert.equal(deletes, 0);
+  return { context, els, deleted: () => deletes };
+}
+
+function projectStore(txns) {
+  return {
+    projects: [{ id: 'job', name: 'مشروع', status: 'active' }],
+    entries: [],
+    foremen: [],
+    parties,
+    accountTxns: txns,
+    syncErrors: {},
+    outbox: [],
+    users: [],
+    subcontracts: [],
+    pullWatermark: null,
+  };
+}
+
+test('deleteProjectNow refuses before fb.deleteProject when only the person block is set', async () => {
+  const loaded = loadRender(projectStore([doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000 })]));
+  await loaded.context.deleteProjectNow('job');
+  assert.equal(loaded.deleted(), 0);
+  assert.equal(String(loaded.els['#main'].innerHTML).includes('مستحق عليه'), true);
+  assert.equal(String(loaded.els['#main'].innerHTML).includes('100,000'), true);
+});
+
+test('the confirm dialog shows the person block and disables yes', () => {
+  const loaded = loadRender(projectStore([doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000 })]));
+  const html = loaded.context.deleteConfirm({ id: 'job', action: 'delete' });
+  assert.equal(html.includes('مستحق عليه'), true);
+  assert.equal(html.includes('id="confirm-yes" disabled'), true);
+});
+
+test('a missing Accounts refuses the delete and deletes nothing', async () => {
+  const loaded = loadRender(projectStore([doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000 })]), { accounts: false });
+  const dialog = loaded.context.deleteConfirm({ id: 'job', action: 'delete' });
+  assert.equal(dialog.includes(UNCHECKED), true);
+  await loaded.context.deleteProjectNow('job');
+  assert.equal(loaded.deleted(), 0);
+  assert.equal(String(loaded.els['#main'].innerHTML).includes(UNCHECKED), true);
+});
+
+test('with no block deleteProjectNow calls fb.deleteProject once', async () => {
+  const loaded = loadRender(projectStore([]));
+  await loaded.context.deleteProjectNow('job');
+  assert.equal(loaded.deleted(), 1);
 });

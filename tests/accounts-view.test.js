@@ -123,7 +123,7 @@ test('filters keep labor, payments, and advances apart', () => {
   assert.equal(all.includes('data-purpose="deduct"'), true);
 });
 
-test('the overview paints payable and recoverable and no action button', () => {
+test('a net above 0 shows مستحق له and no action button', () => {
   store.parties = [{ id: 'p1', name: 'حسن' }];
   store.accountTxns = [
     { id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01' },
@@ -141,8 +141,8 @@ test('the overview paints payable and recoverable and no action button', () => {
     save: () => ({ doc: null, errors: [] }),
   }));
   const html = UI.accountHtml(model, 'p1');
-  assert.equal(html.includes('مستحق له'), true);
-  assert.equal(html.includes('400,000'), true);
+  assert.equal(kvAmount(html, 'مستحق له'), '400,000 د.ع');
+  assert.equal(kv(html, 'مستحق عليه'), '');
   assert.equal(html.includes('act-'), false);
   model.screen.tab = 'movements';
   assert.equal(UI.accountHtml(model, 'p1').includes('act-pay-labor'), true);
@@ -182,6 +182,114 @@ test('an id in syncErrors is out of the statement and shows the refusal word', (
   assert.equal(html.includes('رُفض الإرسال'), true);
   assert.equal(html.includes('معتمد'), false);
   store.syncErrors = {};
+});
+
+function kv(html, label) {
+  const parts = html.split('<div class="kv">');
+  return parts.find(part => part.includes('<span>' + label + '</span>')) || '';
+}
+
+function kvAmount(html, label) {
+  const row = kv(html, label);
+  const marker = '<span>' + label + '</span>';
+  const at = row.indexOf(marker);
+  if (at < 0) return '';
+  return row.slice(at + marker.length).split('</div>')[0];
+}
+
+test('the 480000 fixture shows 480,000 under مستحق له, not 550,000', () => {
+  store.parties = [{ id: 'person', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'm', purpose: 'laborQty', partyId: 'person', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'appr_m', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'person', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr_m', partyId: 'person', projectId: 'job', txnDate: '2026-11-02', ledger: 'labor' },
+    { id: 'ad', purpose: 'approveDeduct', targetId: 'd', partyId: 'person', projectId: 'job', txnDate: '2026-11-05', ledger: 'labor' },
+    { id: 'adv', purpose: 'advanceLabor', amount: 100000, partyId: 'person', projectId: 'job', txnDate: '2026-11-03', ledger: 'labor' },
+    { id: 'ret', purpose: 'returnAdvance', amount: 30000, targetId: 'adv', partyId: 'person', projectId: 'job', txnDate: '2026-11-04', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'overview';
+  const html = UI.accountHtml(model, 'person');
+  assert.equal(kvAmount(html, 'مستحق له'), '480,000 د.ع');
+  assert.equal(html.includes('550,000'), false);
+  assert.equal(kv(html, 'مستحق عليه'), '');
+  assert.equal(kv(html, 'المتبقي سلفة'), '');
+});
+
+test('an advance-only person shows مستحق عليه 100,000', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'adv', purpose: 'advanceLabor', amount: 100000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'overview';
+  const html = UI.accountHtml(model, 'p1');
+  assert.equal(kvAmount(html, 'مستحق عليه'), '100,000 د.ع');
+  assert.equal(kv(html, 'مستحق له'), '');
+  assert.equal(kvAmount(html, 'المتبقي سلفة'), '100,000 د.ع');
+});
+
+test('a net of 0 shows مستحق له 0 and no remaining-advance figure', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'appr', purpose: 'approveLabor', amount: 100000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'adv', purpose: 'advanceLabor', amount: 100000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-02', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'overview';
+  const html = UI.accountHtml(model, 'p1');
+  assert.equal(kvAmount(html, 'مستحق له'), '0 د.ع');
+  assert.equal(kv(html, 'مستحق عليه'), '');
+  assert.equal(kv(html, 'المتبقي سلفة'), '');
+});
+
+function movementCard(html, purpose) {
+  const parts = html.split('<div class="card"').slice(1);
+  return parts.find(part => part.includes('data-purpose="' + purpose + '"')) || '';
+}
+
+test('a reversed advance with a live return shows معكوس, not مرفوض', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'V', purpose: 'advanceLabor', amount: 100000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'R', purpose: 'returnAdvance', amount: 40000, targetId: 'V', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'rev_V', reversesId: 'V', kind: 'rev', purpose: 'advanceLabor', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'movements';
+  model.screen.filter = 'all';
+  const card = movementCard(UI.accountHtml(model, 'p1'), 'advanceLabor');
+  assert.equal(card.includes('معكوس'), true);
+  assert.equal(card.includes('مرفوض'), false);
+});
+
+test('a reversed labor approval with a live deduct shows معكوس', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'm', purpose: 'laborQty', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'A', purpose: 'approveLabor', amount: 500000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'D', purpose: 'deduct', amount: 1000, targetId: 'A', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'rev_A', reversesId: 'A', kind: 'rev', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'movements';
+  model.screen.filter = 'all';
+  const card = movementCard(UI.accountHtml(model, 'p1'), 'approveLabor');
+  assert.equal(card.includes('معكوس'), true);
+  assert.equal(card.includes('مرفوض'), false);
+});
+
+test('a real rej_ still shows مرفوض', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'A', purpose: 'approveLabor', amount: 500000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+    { id: 'rej_A', kind: 'rej', targetId: 'A', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01', ledger: 'labor' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'movements';
+  model.screen.filter = 'all';
+  const card = movementCard(UI.accountHtml(model, 'p1'), 'approveLabor');
+  assert.equal(card.includes('مرفوض'), true);
 });
 
 test('install runs when ForemenUI is missing', () => {

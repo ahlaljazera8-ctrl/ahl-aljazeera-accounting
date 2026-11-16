@@ -339,7 +339,7 @@ All of these live in `public/accounts-view.js`. `Accounts.balances`, `Accounts.s
 
 F does not declare a second balance type, a second statement order, or a second `periodBounds`. It calls `Accounts.balances`, `Accounts.statementLines`, and `Accounts.periodBounds` as C specifies them in `docs/plans/contractor-pr-c-sketch.md` (PR #75). The screen prints that return value. It does not rename fields and it does not map them.
 
-The overview reads `Balance` by C's names: `approvedLabor`, `payments`, `openAdvances`, `payable`, `recoverable`. `payable` and `recoverable` are already the split. The page does not call `max` itself. `netAdvances` is not on the overview.
+The overview reads `Balance` by C's names: `approvedLabor`, `payments`, `openAdvances`, and `net`. It does not print `payable` or `recoverable`. The page does not call `max` itself. `netAdvances` is not on the overview.
 
 The statement tab prints `statementLines(...).lines` in the order C returns, each row `label` and `amount`. F does not insert a line, drop a line, or move `openAdvances` above `closing`. A row id in `pendingIds` is listed under `بانتظار الاعتماد` and is not added into a total. A row id in `unreviewedCashIds` shows `غير مدقّق`. A row id in `overLimitIds` uses the sentence for that purpose, in Strings. Opening and closing are the numbers on C's return value, not a sum the page builds.
 
@@ -466,7 +466,7 @@ Name is trimmed, 1 to 80 characters. Over 80 or empty: `partyErrors` returns `na
 
 Owner gate on the screen is `Ledger.can(user, 'owner')`, the same check the people tab uses. It does not also test `active`. The server still requires `active == true` (`firestore.rules` line 11). F does not add a second client rule.
 
-IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. `مستحق له` prints `Balance.payable`. `مستحق عليه` prints `Balance.recoverable`. Ameer's answer to C Q1 keeps those two words on that split. The delete guard reads `net` instead. The page does not compute either overview figure. There is no `<select>` for currency and no `USD`.
+IQD. Amounts go through `money` (`public/render.js` line 46), which uses `Ledger.fmt` (`public/ledger.js` line 451) and the suffix `د.ع`. Ameer, 2026-11-16 15:02 Baghdad, recorded in `answers-EA-delegated-0034.md` (sha256 `7f51d9bf5241e639cec666c5c8115afe191395cb79f8e7059c1a9194cdcdbcc5`) lines 55-57: C Q1 is (a) net only. `مستحق له` prints `Balance.net` when `net` is above 0. `مستحق عليه` prints `-net` when `net` is below 0. That is the same number as the project-delete sentence. `net` 0 prints `مستحق له` 0 and does not print `مستحق عليه`. `المتبقي سلفة` prints `-net` when `net` is below 0 and is omitted otherwise, so it does not print `recoverable`. The page does not compute the figure. There is no `<select>` for currency and no `USD`.
 
 The overview and the statement are the C calls named in Types and signatures. The week and month pills call `writeAccountScope`. Dates are `accountPeriod()`, which is `Accounts.periodBounds(periodKind, anchorDate)`, and `anchorDate` defaults to `today()`. F does not write `statementApprovals`. That save is the `statement-approval` action, painted only after `AccountStatement.install`. While `unreviewedCashIds` or `overLimitIds` names a row in the period, the page shows `لا يُعتمد الكشف وفيه مبلغ غير مدقّق` (`contractor-pr-c-sketch.md` line 372 at `604d734`, share plan line 577). Those cash rows show `غير مدقّق`.
 
@@ -515,7 +515,7 @@ The shape matches `guardedForemanDelete` (`public/ledger.js` lines 1064-1072). T
 function personProjectDeleteBlock(projectId, docs, parties, syncErrors, balancesFn)
 ```
 
-A finite `net` above 0, with a non-empty name, returns string 87. The amount is `net`, in Western digits. A finite `net` below 0, with a non-empty name, returns string 86. The amount is the absolute value, `-net`, in Western digits, and the sentence does not contain U+2212. A finite `net` of 0 returns `''`. A non-finite `net`, a missing function, a throw, a non-array `docs` or `parties`, or a missing name returns the unchecked sentence. People are walked in list order. The first non-empty sentence is the one shown. There is no combined sentence. The overview still prints `Balance.payable` and `Balance.recoverable`. The delete guard does not.
+A finite `net` above 0, with a non-empty name, returns string 87. The amount is `net`, in Western digits. A finite `net` below 0, with a non-empty name, returns string 86. The amount is the absolute value, `-net`, in Western digits, and the sentence does not contain U+2212. A finite `net` of 0 returns `''`. A non-finite `net`, a missing function, a throw, a non-array `docs` or `parties`, or a missing name returns the unchecked sentence. People are walked in list order. The first non-empty sentence is the one shown. There is no combined sentence. The overview prints the same `net`: `مستحق له` when `net` is above 0, `مستحق عليه` with `-net` when `net` is below 0, and `مستحق له` 0 when `net` is 0. The delete guard uses that same number in strings 86 and 87, and returns `''` when `net` is 0.
 
 `foremanExpenseBlock` stays `public/render.js` line 941. One helper in that file returns the foreman block or the person block. `deleteConfirm` (line 944) calls it at line 947, where the code now calls `foremanExpenseBlock` alone. `deleteProjectNow` (lines 1003-1036) calls the same helper at lines 1007-1008, where the code now re-checks only the foreman block, and returns before `fb.deleteProject` (line 1025) when the result is non-empty.
 
@@ -585,22 +585,22 @@ The page does not say `حركات المواد`, `المرفقات`, `الأدو
 
 ### Overview
 
-| String           | Mark                                                                                            |
-| ---------------- | ----------------------------------------------------------------------------------------------- |
-| `هذا المشروع`    | new                                                                                             |
-| `كل المشاريع`    | new                                                                                             |
-| `عمل معتمد`      | new                                                                                             |
-| `مدفوع للعمل`    | new                                                                                             |
-| `سلف قائمة عليه` | new. The overview uses this, not the shorter `سلف قائمة`.                                       |
-| `مستحق له`       | reused. `public/foremen.js` lines 148 and 181. Line 174 is the owner gate.                      |
-| `مستحق عليه`     | new. Q9 closed on this word.                                                                    |
-| `المتبقي سلفة`   | new. Q18. Shown with `مستحق عليه` when `Balance.recoverable` is not 0. No new advisor sentence. |
+| String           | Mark                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `هذا المشروع`    | new                                                                                                                        |
+| `كل المشاريع`    | new                                                                                                                        |
+| `عمل معتمد`      | new                                                                                                                        |
+| `مدفوع للعمل`    | new                                                                                                                        |
+| `سلف قائمة عليه` | new. The overview uses this, not the shorter `سلف قائمة`.                                                                  |
+| `مستحق له`       | reused. `public/foremen.js` lines 148 and 181. Line 174 is the owner gate.                                                 |
+| `مستحق عليه`     | new. Q9 closed on this word.                                                                                               |
+| `المتبقي سلفة`   | new. Q18. Shown with `مستحق عليه` when `net` is below 0. The amount is `-net`, not `recoverable`. No new advisor sentence. |
 
 Do not reuse `مستحق للخلفة` or `المتبقي معه` (`public/foremen.js` lines 149, 189, and 191).
 
 ### Project delete
 
-Strings 86 and 87. Mark `new`. They are in the 88, approved, `strings-contractor-module-r2.23.md` lines 112-113. `<الاسم>` is the person's name. `<المبلغ>` is the amount in Western digits. The words themselves are the table under strings for Ameer. This section does not restate them as a new final sentence. The person unchecked sentence is not one of these two. It is under strings for Ameer and is not final.
+Strings 86 and 87. Mark `new`. They are in the 88, approved, `strings-contractor-module-r2.23.md` lines 112-113. `<الاسم>` is the person's name. `<المبلغ>` is the amount in Western digits. The words themselves are the table under strings for Ameer. This section does not restate them as a new final sentence. The person unchecked sentence is not one of these two. Ameer approved it as written on 2026-11-16 at 15:02 Baghdad. The record is under strings for Ameer.
 
 ### Contracts
 
@@ -649,9 +649,9 @@ Not on this page: `فرق سعر الصرف`, `لا مرفقات في هذه ا�
 
 Fixtures from the plan:
 
-- Spec 12 / the brick screen. `approveLabor` 600,000 and `payLabor` 600,000. Overview shows `عمل معتمد` 600,000, `مدفوع للعمل` 600,000, `مستحق له` 0, `مستحق عليه` 0.
-- Partial, spec 11. The same approval and `payLabor` 200,000. `مستحق له` 400,000. `مستحق عليه` 0.
-- Overpayment. `payLabor` 700,000 after `approveLabor` 600,000. `مستحق عليه` 100,000. The HTML has one `payLabor` row and no `advanceLabor` row. The 100,000 line does not contain U+2212.
+- Spec 12 / the brick screen. `approveLabor` 600,000 and `payLabor` 600,000. Overview shows `عمل معتمد` 600,000, `مدفوع للعمل` 600,000, and `مستحق له` 0. It does not show `مستحق عليه`.
+- Partial, spec 11. The same approval and `payLabor` 200,000. `مستحق له` 400,000. It does not show `مستحق عليه`.
+- Overpayment. `payLabor` 700,000 after `approveLabor` 600,000. `مستحق عليه` 100,000 and `المتبقي سلفة` 100,000. The HTML has one `payLabor` row and no `advanceLabor` row. The 100,000 line does not contain U+2212.
 - Statement. Approval 600,000, deduct 50,000, `approveDeduct` of that deduct, advance 100,000, return 30,000. The rendered lines equal `statementLines().lines` in that order. The closing text is the digits 480,000, and that is `statementLines().closing` on this fixture (C line 321 at `604d734`).
 - Same rows plus `settle` 40,000. The closing text still equals C's closing. The HTML does not contain 520,000.
 - Same rows without `approveDeduct`. The deduct id is in `pendingIds` and shows `بانتظار الاعتماد`. The closing text equals C's closing.
@@ -756,7 +756,7 @@ A revert that touches `public/` bumps `VERSION` again, to whatever is free at th
 ## Dependencies
 
 - A is on baf4f21f. `render.js` does not call `Accounts`. `accounts.js` exports `CONTRACTOR_COST_START`, `PURPOSES`, `unitPrice`, `workPosition`, `post`, `cashPointerErrors`, and `projectCost` (`public/accounts.js` line 187). It does not export `balances` or `statementLines`.
-- B is on `24fb8395`. `personBalance` is `public/accounts.js` lines 484-507. Its approval loop does not skip a reversed or rejected `approveLabor`. C replaces that body with `balances(...).net`. F does not display `personBalance`. The overview prints `Balance.payable` and `Balance.recoverable` (C lines 113-114 and 128 at `604d734`). Line 112 is `payableGross`.
+- B is on `24fb8395`. `personBalance` is `public/accounts.js` lines 484-507. Its approval loop does not skip a reversed or rejected `approveLabor`. C replaces that body with `balances(...).net`. F does not display `personBalance`. The overview prints `Balance.net` (C Q1, Ameer 2026-11-16 15:02). It does not print `payable` or `recoverable`. Line 112 of that sketch is `payableGross`.
 - C adds `balances`, `statementLines`, and `periodBounds`. F prints those return values and does not re-specify them.
 - D is deployed before E. F does not edit rules. D's party `hasOnly` list is what decides the `docType` strip. Create-person on a logged-in phone needs D's party create and E's route.
 - E routes `docType: 'party'` to `parties`. E's `toRemote` follows D's allowed-field list for whether `docType` is sent. The local keys `K.parties`, `K.agreements`, and `K.accountTxns` are E's if E stores rows. At baf4f21f `K` (`public/session.js` line 5) does not have them. If they are still missing when F's code PR rebases onto E, F adds the missing keys and nothing else in that object.
@@ -814,7 +814,7 @@ The statement layout the advisor already corrected stays the one in section 3 of
 
 ## أسئلة لأمير
 
-Q16–Q22 and Q47 are closed. EA approved those defaults at 00:52 Baghdad on 2026-11-16. The person unchecked sentence, and the three screen sentences already under strings for Ameer, are not final. Strings outside the 88 stay listed there so they are not folded into that count.
+Q16–Q22 and Q47 are closed. EA approved those defaults at 00:52 Baghdad on 2026-11-16. C Q1 is closed by Ameer at 15:02 Baghdad on 2026-11-16: (a) net only. The three screen sentences already under strings for Ameer are not final. The person unchecked sentence is approved as written. Strings outside the 88 stay listed there so they are not folded into that count.
 
 | Question | Decision                                                                                                                                                             |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -830,12 +830,12 @@ Q16–Q22 and Q47 are closed. EA approved those defaults at 00:52 Baghdad on 202
 
 ## strings for Ameer
 
-Not final. The three screen sentences and the person unchecked sentence are not painted and are not folded into the 88. Strings 86 and 87 are the exception: they are already in the 88. The table shows those words. It is not a new sentence and it is not a new approval.
+The three screen sentences are not final. They are not painted and are not folded into the 88. The person unchecked sentence is approved as written. Strings 86 and 87 are already in the 88. The table shows those words. It is not a new sentence and it is not a new approval.
 
 - `أدخل اسم الشخص` (Q17). Empty name refuses the save and shows no new sentence.
 - `قياسات العمل` (Q17). The filter id is `measurements`. No Arabic label until this is accepted.
 - `المُرجَع والتسوية أكبر من السلفة` (Q19). An advance overrun shows the amounts only.
-- `لا يمكن الحذف: تعذر التحقق من رصيد الشخص.` The person unchecked sentence. Used when `balancesFn` is missing or not a function, when the check throws, when `docs` or `parties` is not an array, when `net` is not a finite number, or when the party name is missing. It is not `DELETE_UNCHECKED`, whose words are the custody check. EA approved the refusal in a message to the engineer at 12:20 Baghdad on 2026-11-16. That approval is not in the answers file. The words are pending Ameer in `STRINGS-PENDING-AMEER.md` (sha256 `808be04119fbf7da5b027e19dc80009e916e40917db13ac92103f467a2e7fd70`, line 20). They are not final.
+- `لا يمكن الحذف: تعذر التحقق من رصيد الشخص.` Approved as written. Ameer, 2026-11-16 15:02 Baghdad, `answers-EA-delegated-0034.md` (sha256 `7f51d9bf5241e639cec666c5c8115afe191395cb79f8e7059c1a9194cdcdbcc5`) lines 55-57. `STRINGS-PENDING-AMEER.md` is not in this repo. The earlier pending copy is sha256 `808be04119fbf7da5b027e19dc80009e916e40917db13ac92103f467a2e7fd70`, line 20. Used when `balancesFn` is missing or not a function, when the check throws, when `docs` or `parties` is not an array, when `net` is not a finite number, or when the party name is missing. It is not `DELETE_UNCHECKED`, whose words are the custody check. EA had approved the refusal in a message to the engineer at 12:20 Baghdad on 2026-11-16. Ameer's 15:02 answer approves these words.
 
 C's L5 is not in this list. It is C's open item, and it is not in `STRINGS-PENDING-AMEER.md` (sha256 `808be04119fbf7da5b027e19dc80009e916e40917db13ac92103f467a2e7fd70`). F does not add it.
 
@@ -868,4 +868,4 @@ Skills this phase uses, from the plan and from the screen work: `architect` (thi
 - Say go on this sketch before any code PR.
 - Merge, later, only after Architect's review of the code SHA and CI 4/4. This sketch does not merge itself.
 
-Already decided: Q5, Q16–Q22, and Q47, plus the tab `حسابات`, the 88 strings, IQD only, four tabs, filters on `الحركات`, owner only, create-person absent until E is in the same build, and the empty demo list. Strings outside the 88 are listed under strings for Ameer and are not renumbered into the 88. EA approved the fail-closed refusal in a message to the engineer at 12:20 Baghdad on 2026-11-16. That approval is not in the answers file. The person unchecked words are not final.
+Already decided: Q5, Q16–Q22, Q47, and C Q1 (net only, Ameer 2026-11-16 15:02, `answers-EA-delegated-0034.md` lines 55-57), plus the tab `حسابات`, the 88 strings, IQD only, four tabs, filters on `الحركات`, owner only, create-person absent until E is in the same build, and the empty demo list. Strings outside the 88 are listed under strings for Ameer and are not renumbered into the 88. The person unchecked sentence is approved as written by that same 15:02 answer.
