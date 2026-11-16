@@ -486,10 +486,7 @@ interface LedgerApi {
     docs: readonly FoldDoc[] | null | undefined,
     parties: readonly { id?: string; name?: string }[] | null | undefined,
     syncErrors: Record<string, unknown> | null | undefined,
-    balancesFn:
-      | ((docs: readonly FoldDoc[], filter: BalanceFilter) => { net: number })
-      | null
-      | undefined,
+    balancesFn: ((docs: readonly FoldDoc[], filter: BalanceFilter) => { net: number }) | null | undefined,
   ): string;
   rememberedProjectName(
     projectId: string,
@@ -803,7 +800,14 @@ interface PendingRow {
 interface AccountModel {
   user: { role?: string; uid?: string } | null;
   parties: Array<{ id: string; name: string }>;
-  agreements: Array<{ id: string; partyId?: string; projectId?: string; method?: string; description?: string; reversesId?: string }>;
+  agreements: Array<{
+    id: string;
+    partyId?: string;
+    projectId?: string;
+    method?: string;
+    description?: string;
+    reversesId?: string;
+  }>;
   txns: FoldDoc[];
   projects: Array<{ id: string; name?: string }>;
   figures: Balance | null;
@@ -830,7 +834,10 @@ interface AccountsViewApi {
   modelFor(user: { role?: string; uid?: string } | null): AccountModel;
   accountHtml(model: AccountModel, partyId: string): string;
   listHtml(model: AccountModel): string;
-  statementFor(user: { role?: string; uid?: string } | null, partyId: string): ReturnType<AccountsApi['statementLines']>;
+  statementFor(
+    user: { role?: string; uid?: string } | null,
+    partyId: string,
+  ): ReturnType<AccountsApi['statementLines']>;
   commitDoc(id: string, doc: object, rows: readonly { id: string }[], write: (next: object[]) => void): void;
   partyErrors(name: string): string[];
   canCreateParty(user: { role?: string } | null | undefined): boolean;
