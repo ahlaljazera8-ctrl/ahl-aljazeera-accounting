@@ -22,15 +22,16 @@ The stall is always the same place: the first document navigation after `check('
 
 ### CI logs (proven)
 
-Five failed jobs, pulled from the public Actions API. Each one is 211 `PASS` lines, 0 `FAIL` lines, then the timeout. The last pass is always `a rejected save still says the person was not saved`. The clock from that line to `CdpTimeoutError` is 30.912s or 30.913s.
+Six failed jobs, pulled from the public Actions API. Each one is 211 `PASS` lines, 0 `FAIL` lines, then the timeout. The last pass is always `a rejected save still says the person was not saved`. The clock from that line to `CdpTimeoutError` is 30.912s, 30.913s, or 30.917s.
 
-| SHA | Run | Job | Attempt | Delta |
-| --- | --- | --- | --- | --- |
-| `298d34ad` | 43827901642 | 133165967824 | 1 | 30.913s |
-| `d2dac2ec` | 43851160466 | 133243753949 | 1 | 30.912s |
-| `d5cdec44` | 43855735877 | 133259395048 | 1 | 30.912s |
-| `e0992beb` | 43858723893 | 133269625757 | 1 | 30.912s |
-| `2d21ef03` | 43871065828 | 133312068349 | 1 | 30.913s |
+| SHA        | Run         | Job          | Attempt | Delta   |
+| ---------- | ----------- | ------------ | ------- | ------- |
+| `298d34ad` | 43827901642 | 133165967824 | 1       | 30.913s |
+| `d2dac2ec` | 43851160466 | 133243753949 | 1       | 30.912s |
+| `d5cdec44` | 43855735877 | 133259395048 | 1       | 30.912s |
+| `e0992beb` | 43858723893 | 133269625757 | 1       | 30.912s |
+| `2d21ef03` | 43871065828 | 133312068349 | 1       | 30.913s |
+| `ddaaae97` | 43884682133 | 133359496487 | 1       | 30.917s |
 
 Attempt 2 of `43871065828` (`2d21ef03`) and of `43855735877` (`d5cdec44`) passed. A later run of `298d34ad` (43830436243) passed. The stack is only the timer (`Timeout._onTimeout` in `tests/cdp-session.js`). Node does not keep the async caller, so the stack does not name `go`. The clock does.
 
@@ -50,21 +51,21 @@ Machine: Google Chrome `157.0.8103.50` (the ubuntu-24.04 runner image readme lis
 
 Full `tests/browser-check.js`, sequential, one Chrome at a time, port 8765, 30 runs:
 
-| Result | Count |
-| --- | --- |
-| `226/226 passed`, exit 0, 67–70s | 28 |
+| Result                                                                               | Count              |
+| ------------------------------------------------------------------------------------ | ------------------ |
+| `226/226 passed`, exit 0, 67–70s                                                     | 28                 |
 | `CdpTimeoutError` on `Runtime.evaluate` after the rejected-save pass, exit 2, 91–92s | 2 (runs 12 and 27) |
 
 Hit rate 2/30. No other failure mode. A three-Chrome parallel attempt earlier in the same session produced `document was not ready` and mixed ports in one trace. Those runs are discarded. They are not in the 2/30.
 
 Short replays, same Chrome, did not hang:
 
-| Probe | Result |
-| --- | --- |
-| Load demo, service worker controlling, `replaceState`, offline, the rejected-save script, navigate to a fresh query. 8 loops. | 8/8 loaded the new URL in about 1.4s |
-| Same, with an IndexedDB readwrite transaction held open by chaining `get()` on itself. 4 loops. | 4/4 navigated |
-| Offline set on both the page target and the service-worker target. 4 loops. | 4/4 `Runtime.evaluate` returned. The document was `chrome-error://chromewebdata/`. A fast network failure still answers evaluate. It does not sit for 30s. |
-| Offline, navigate, online, navigate, offline, rejected-save script, navigate. 30 loops. | 30/30 in about 3.6s |
+| Probe                                                                                                                         | Result                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Load demo, service worker controlling, `replaceState`, offline, the rejected-save script, navigate to a fresh query. 8 loops. | 8/8 loaded the new URL in about 1.4s                                                                                                                       |
+| Same, with an IndexedDB readwrite transaction held open by chaining `get()` on itself. 4 loops.                               | 4/4 navigated                                                                                                                                              |
+| Offline set on both the page target and the service-worker target. 4 loops.                                                   | 4/4 `Runtime.evaluate` returned. The document was `chrome-error://chromewebdata/`. A fast network failure still answers evaluate. It does not sit for 30s. |
+| Offline, navigate, online, navigate, offline, rejected-save script, navigate. 30 loops.                                       | 30/30 in about 3.6s                                                                                                                                        |
 
 The hang needs the long suite in front of `:1589`. The tail alone does not trip it.
 
@@ -104,7 +105,7 @@ On the first hang (run 12, 2026-11-16T13:56:14Z) the static server did log `GET 
 
 `Page.navigate` to `index.html?role=owner&fresh=rejected#home` returns a `loaderId` and Chrome emits `Network.requestWillBeSent`, then the load never finishes and the frame never commits. `waitReady` sends `Runtime.evaluate` 900ms later. There is no new execution context, and the old one does not answer, so the CDP call sits until the 30s timer.
 
-That navigation is the one `#72` added after `#57`'s offline block, which never turns the debugger back online. The same file already treats "offline, then a document `go()`" as something to undo (`:1359`) for the previous block. This call site is the one that was left out. The stall is intermittent (2/30 here, and the five CI jobs only on some attempts) because other offline navigations in the same run do commit. The one that does not is this one, after the online document has been switched offline and the person-save script has run.
+That navigation is the one `#72` added after `#57`'s offline block, which never turns the debugger back online. The same file already treats "offline, then a document `go()`" as something to undo (`:1359`) for the previous block. This call site is the one that was left out. The stall is intermittent (2/30 here, and the six CI jobs only on some attempts) because other offline navigations in the same run do commit. The one that does not is this one, after the online document has been switched offline and the person-save script has run.
 
 Confidence: high on the mechanism (the trace). High that the missing `offline: false` is the bug in the test, because it is the difference between this `go()` and the `go()` the file already guards, and because the load is the thing that never finishes. Medium that restoring the network is sufficient by itself, because a 30-loop of only the tail, already offline, did not hang. The long suite is part of the condition. The implementation's proof is another 30-run, not a guess.
 
@@ -116,7 +117,12 @@ The new order, in the existing script, immediately after that `check` and before
 
 ```javascript
 await ev('AJ.flush()');
-await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+await send('Network.emulateNetworkConditions', {
+  offline: false,
+  latency: 0,
+  downloadThroughput: -1,
+  uploadThroughput: -1,
+});
 await go(`${BASE}index.html?role=owner&fresh=rejected#home`);
 ```
 
