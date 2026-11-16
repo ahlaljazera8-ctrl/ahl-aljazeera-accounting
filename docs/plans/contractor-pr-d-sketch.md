@@ -435,7 +435,7 @@ A running total of several refunds, several deducts, or `returnAdvance` plus `se
 
 Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-', '') + gen` with `gen` one character `1`–`9`, length 36. In rules, `string.replace` is a regex replace-all, so every hyphen goes. The test vector locks it: agreement `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee` produces `000aaaaaaaabbbbccccddddeeeeeeeeeeee1`. If the emulator replaces only the first hyphen, that test fails and the code PR stops. The phone must not copy the rules call with JavaScript `replace`, which removes one hyphen. E's slot id uses `replaceAll`. Generation `n` greater than 1 is allowed when `rev_` of `appr_` of slot `n-1` exists, or when `rej_` of slot `n-1` exists. It is denied while slot `n-1` is still pending, and while that slot is approved and its `appr_` is not reversed. A uuid body on that agreement is denied. `sup_` of a slot id is denied. There is no generation 10.
 
-`stl_` id is `stl_` plus the measurement id plus `_` plus one generation character. It does not contain `appr_`. Generation past 1 requires `rev_` of the previous `stl_`. The approval `appr_` plus the measurement id must be live: the approval exists and `rev_` of it does not. The advance named by `settlesId` must be a live `advanceLabor`. `rej_` of the measurement must be absent. Same party, project, and currency on the measurement, the approval, and the advance. Currency is `IQD` on both sides.
+`stl_` id is `stl_` plus the measurement id plus `_` plus one generation character. It does not contain `appr_`. Generation past 1 requires `rev_` of the previous `stl_`. The approval `appr_` plus the measurement id must be live: the approval exists and `rev_` of it does not. The advance named by `settlesId` must be a live `advanceLabor`. A parent named by id must have the parent kind; a `rev_` copy is never a parent. `rej_` of the measurement must be absent. Same party, project, and currency on the measurement, the approval, and the advance. Currency is `IQD` on both sides.
 
 `revw_` names a cash body: `payLabor`, `advanceLabor`, `returnAdvance`, or `refundLabor`. `revw_` of a `deduct` is denied. The cash create does not read `revw_`. The first id is `revw_` plus the cash id. After `rev_` of that id, the next id is `revw_` plus the cash id plus `_` plus `1`, and so on through `9`. No `amount`.
 
@@ -628,8 +628,13 @@ Two owners, rules half. The adopt step stays in E. These are creates only:
 
 - `two owners: the same slot id, appr_, rej_, sup_, rev_, labor stl_, and revw_ — the first create is allowed and the second is denied`
 - `two owners: two payLabor rows with fresh uuids both land`
-- `batch: appr_ then rej_ of one laborQty in one writeBatch is denied; neither document exists after`. `existsAfter` sees the other write in the same batch, so the batch is denied. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. Two separate concurrent requests are not this test: they can still both land, and the fold lets `rej_` win
-- Two writes to the same `appr_` id in one batch are denied by the server. The emulator printed `BATCH_SAME_ID {"client":"accepted","commit":"permission-denied","exists":false,"amount":null}`. The document does not exist afterwards
+- `batch: appr_ then rej_ of one laborQty in one writeBatch is denied; neither document exists after`
+- `batch: rej_ then appr_ of one laborQty in one writeBatch is denied; neither document exists after`
+- `batch: approveDeduct and rej_ of one deduct in one writeBatch is denied in both orders; neither document exists after`
+- `batch: appr_ and sup_ of one body in one writeBatch is denied in both orders; neither document exists after`
+- `probe: two writes to the same appr_ id in one batch`. The emulator printed `BATCH_SAME_ID {"client":"accepted","commit":"permission-denied","exists":false,"amount":null}`. The document does not exist afterwards
+- `single approveLabor, approveDeduct, rej_, and sup_ are still allowed`
+- `existsAfter` sees the other write in the same batch, so each of those batches is denied. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. Two separate concurrent requests are not this test: they can still both land, and the fold lets `rej_` win
 - `two owners, distinct uids, each create a party as themselves, and each can read the other's party`
 - `a site user cannot read or create any of the four collections`
 

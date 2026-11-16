@@ -276,7 +276,7 @@ async function commitBatch(uid, pairs) {
  * @param {string[]} ids
  */
 function assertBatchDenied(result, ids) {
-  assert.notEqual(result.commit, 'ok');
+  assert.equal(result.commit, 'permission-denied');
   for (const id of ids) assert.equal(result.exists[id], false, id);
 }
 
@@ -1495,6 +1495,56 @@ testSeq('single approveLabor, approveDeduct, rej_, and sup_ are still allowed', 
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const deductAppr = approveDeductOf(deduct);
   await allow(send(OWNER_A, 'accountTxns', deductAppr.id, deductAppr));
+});
+
+testSeq('a settlement whose settlesId is a rev_ of an advanceLabor is denied', async () => {
+  await seed();
+  const { body } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const advance = cash(uuid(21), 'advanceLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
+  const rev = txnRev(advance);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const bad = settle(body.id, rev.id, 1, 500);
+  await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
+});
+
+testSeq('a deduct whose targetId is a rev_ of an approveLabor is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const rev = txnRev(mark);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const bad = deductOf(uuid(21), rev.id, 10);
+  await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
+});
+
+testSeq('an approveDeduct whose target is a rev_ of a deduct is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const deduct = deductOf(uuid(21), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
+  const rev = txnRev(deduct);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const bad = approveDeductOf(rev);
+  await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
+});
+
+testSeq('a rej_ whose target is a rev_ of a laborQty is denied', async () => {
+  await seed();
+  const body = await putUnit(uuid(1), uuid(11), 8);
+  const rev = txnRev(body);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const bad = rejOf(rev.id);
+  await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
+});
+
+testSeq('a revw_ whose target is a rev_ of a payLabor is denied', async () => {
+  await seed();
+  const pay = cash(uuid(1), 'payLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
+  const rev = txnRev(pay);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const bad = revwOf(rev);
+  await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
 });
 
 testSeq('probe: two writes to the same appr_ id in one batch', async () => {

@@ -840,6 +840,7 @@ service cloud.firestore {
           && measurement.data.purpose == 'laborQty'
           && approval.data.purpose == 'approveLabor'
           && advance.data.purpose == 'advanceLabor'
+          && advance.data.kind == 'body'
           && approvalLive
           && advanceLive
           && notRejected
@@ -973,6 +974,7 @@ service cloud.firestore {
           && moneyOk(d())
           && live
           && approval.data.purpose == 'approveLabor'
+          && approval.data.kind == 'appr'
           && d().amount <= approval.data.amount
           && d().partyId == approval.data.partyId
           && d().projectId == approval.data.projectId
@@ -1005,6 +1007,7 @@ service cloud.firestore {
           && !('amount' in d())
           && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
           && body.data.purpose == 'deduct'
+          && body.data.kind in ['body', 'sup']
           && noRej
           && noSup
           && d().partyId == body.data.partyId
@@ -1036,6 +1039,7 @@ service cloud.firestore {
           && !('amount' in d())
           && !('purpose' in d())
           && needsApproval(target.data.purpose)
+          && target.data.kind in ['body', 'sup']
           && noAppr;
       }
       /**
@@ -1088,6 +1092,7 @@ service cloud.firestore {
           && !('amount' in d())
           && d().keys().hasOnly(['id', 'kind', 'purpose', 'ledger', 'projectId', 'partyId', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
           && cash.data.purpose in ['payLabor', 'advanceLabor', 'returnAdvance', 'refundLabor']
+          && cash.data.kind == 'body'
           && d().purpose == cash.data.purpose
           && d().ledger == 'labor'
           && d().ledger == cash.data.ledger
