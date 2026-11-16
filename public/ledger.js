@@ -1071,9 +1071,71 @@
     }
   }
 
+  const PERSON_DELETE_UNCHECKED = 'لا يمكن الحذف: تعذر التحقق من رصيد الشخص.';
+
+  /**
+   * @param {number} amount
+   */
+  function personDeleteAmount(amount) {
+    return fmt(amount);
+  }
+
+  /**
+   * @param {string} name
+   * @param {number} amount
+   * @param {string} word
+   */
+  function personDeleteSentence(name, amount, word) {
+    return 'لا يمكن الحذف: رصيد ' + name + ' في هذا المشروع ليس صفراً (' + word + ' ' + personDeleteAmount(amount) + ' د.ع). سوِّ الحساب أو أرشف المشروع';
+  }
+
+  /**
+   * @param {string} projectId
+   * @param {readonly FoldDoc[] | null | undefined} docs
+   * @param {readonly { id?: string, name?: string }[] | null | undefined} parties
+   * @param {Record<string, unknown> | null | undefined} syncErrors
+   * @param {((docs: readonly FoldDoc[], filter: BalanceFilter) => { net: number }) | null | undefined} balancesFn
+   * @returns {string}
+   * The missing-function check runs before the person walk.
+   * A missing balancesFn returns the unchecked sentence even when no person has a row.
+   * The whole body is in one try. A non-array docs or parties returns the unchecked sentence.
+   * net must pass Number.isFinite. NaN and Infinity are the unchecked sentence.
+   * A project row whose partyId is missing from parties, or whose name is empty, is the unchecked sentence.
+   * '' when every named person with a row on projectId has net 0.
+   * String 87 when net is above 0. The amount is net.
+   * String 86 when net is below 0. The amount is -net.
+   * Does not read Accounts.
+   */
+  function personProjectDeleteBlock(projectId, docs, parties, syncErrors, balancesFn) {
+    if (typeof balancesFn !== 'function') return PERSON_DELETE_UNCHECKED;
+    try {
+      if (!Array.isArray(docs) || !Array.isArray(parties)) return PERSON_DELETE_UNCHECKED;
+      const errors = syncErrors && typeof syncErrors === 'object' ? syncErrors : {};
+      /** @type {string[]} */
+      const seen = [];
+      for (const doc of docs) {
+        if (!doc || doc.projectId !== projectId || typeof doc.partyId !== 'string' || doc.partyId.length === 0) continue;
+        if (seen.indexOf(doc.partyId) < 0) seen.push(doc.partyId);
+      }
+      for (const partyId of seen) {
+        const person = parties.find(item => item && item.id === partyId);
+        const name = person && typeof person.name === 'string' ? person.name.trim() : '';
+        if (!name) return PERSON_DELETE_UNCHECKED;
+        const balance = balancesFn(docs, { partyId, projectId, syncErrors: errors });
+        const net = balance && balance.net;
+        if (typeof net !== 'number' || !Number.isFinite(net)) return PERSON_DELETE_UNCHECKED;
+        if (net > 0) return personDeleteSentence(name, net, 'مستحق له');
+        if (net < 0) return personDeleteSentence(name, -net, 'مستحق عليه');
+      }
+      return '';
+    } catch {
+      return PERSON_DELETE_UNCHECKED;
+    }
+  }
+
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
-    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete,
+    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete, personProjectDeleteBlock,
     rememberedProjectName, deletedProjectEntries, canExportRejected, rejectedLogoutBlocked, rejectedEntriesToCSV, REJECTED_HEADERS,
     FOREMAN_CUSTODY_COLS, FOREMAN_SUMMARY_COLS, foremanCustodyToCSV, foremanSummaryToCSV };
 });

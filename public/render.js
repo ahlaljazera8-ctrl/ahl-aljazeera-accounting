@@ -940,11 +940,24 @@ function confirmShell(inner, labelId) {
 function foremanExpenseBlock(projectId) {
   return L.guardedForemanDelete(L.foremanDeleteBlock, projectId, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {});
 }
+/** @param {string} id */
+function projectDeleteBlock(id) {
+  return (
+    foremanExpenseBlock(id) ||
+    L.personProjectDeleteBlock(
+      id,
+      get(K.accountTxns, []),
+      get(K.parties, []),
+      get(K.syncErrors, {}) || {},
+      window.Accounts && Accounts.balances,
+    )
+  );
+}
 /** @param {any}} c */
 function deleteConfirm(c) {
   const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === c.id);
   const name = project ? project.name : '';
-  const block = foremanExpenseBlock(c.id);
+  const block = projectDeleteBlock(c.id);
   if (block) {
     return confirmShell('<p>لا يمكن حذف هذا المشروع</p><p class="copy">' + esc(block) + '</p><button type="button" class="btn danger" id="confirm-yes" disabled>نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>');
   }
@@ -1004,7 +1017,7 @@ async function deleteProjectNow(id) {
   const u = me();
   const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
   if (!L.can(u, 'manageProject') || !project) return;
-  const block = foremanExpenseBlock(id);
+  const block = projectDeleteBlock(id);
   if (block) { state.deleteMsg = block; render(); return; }
   if (demoRole()) {
     writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
@@ -1148,8 +1161,10 @@ function renderScreen() {
   paintBell();
   syncPeopleTab(u);
   syncForemenTab(u);
+  if (window.AccountsView) AccountsView.syncTab(u);
   const foremanTab = v === 'foremen' || v === 'foreman' || v === 'foremannew' || v === 'foremanmove';
-  const tab = foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
+  const accountsTab = v === 'accounts' || v === 'account';
+  const tab = accountsTab ? 'accounts' : foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
   let heading = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : /** @type {Record<string, string>} */ (titles)[v]);
@@ -1162,6 +1177,12 @@ function renderScreen() {
     heading = person && person.name ? person.name : 'خلفة';
   } else if (v === 'foremen') heading = 'العُهد';
   else if (v === 'foremannew') heading = 'خلفة جديد';
+  if (v === 'accounts') heading = 'حسابات';
+  if (v === 'account') {
+    const people = get(K.parties, []);
+    const person = Array.isArray(people) ? people.find(/** @param {any} p */ p => p && p.id === arg) : null;
+    heading = person && person.name ? person.name : 'حسابات';
+  }
   if (v === 'rejected' && !rejectedRows(u).length) heading = 'لا قيود مرفوضة بسبب حذف مشروع';
   $('#title').textContent = heading;
   $('#main').innerHTML = /** @type {Record<string, (arg?: string) => string>} */ (views)[v](arg) + confirmDialog();
@@ -1199,6 +1220,7 @@ document.addEventListener('click', ev => {
   const b = /** @type {Element} */ (ev.target).closest('button'); if (!b) return;
   if (!$('#login').hidden) return;
   const u = me();
+  if (window.AccountsView && AccountsView.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (window.ForemenUI && ForemenUI.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
   else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
@@ -1366,6 +1388,7 @@ document.addEventListener('click', ev => {
 });
 document.addEventListener('input', ev => {
   const el = /** @type {HTMLInputElement | null} */ (ev.target);
+  if (el && window.AccountsView && AccountsView.onInput(el)) return;
   if (el && window.ForemenUI && ForemenUI.onInput(el)) return;
   if (!el || el.id !== 'delete-name' || !state.confirm || state.confirm.action !== 'delete') return;
   state.confirm.typed = el.value;
@@ -1432,6 +1455,22 @@ $('#login-form').addEventListener('submit', /** @param {any} ev */ async ev => {
 addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && bellOpen) { bellOpen = false; paintBell(); }
 });
+if (window.AccountsView) {
+  /** @type {RenderApi} */
+  const accountsApi = {
+    views, titles, state, render, esc, money, queueDoc, confirmShell,
+    lastSyncAt: () => lastSyncAt,
+    formatSyncTime,
+    saveCsvFiles,
+  };
+  AccountsView.install(accountsApi);
+  /** @type {Array<'AccountWork' | 'AccountPayment' | 'AccountCorrect' | 'AccountStatement' | 'AccountShare'>} */
+  const accountInstalls = ['AccountWork', 'AccountPayment', 'AccountCorrect', 'AccountStatement', 'AccountShare'];
+  for (const name of accountInstalls) {
+    const mod = window[name];
+    if (mod && mod.install) mod.install(accountsApi);
+  }
+}
 if (window.ForemenUI) {
   /** @type {RenderApi} */
   const renderApi = {

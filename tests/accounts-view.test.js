@@ -1,0 +1,192 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const Ledger = require('../public/ledger.js');
+const Accounts = require('../public/accounts.js');
+const DomSafe = require('../public/dom-safe.js');
+const Sync = require('../public/sync.js');
+
+/** @type {any} */
+const g = globalThis;
+g.Ledger = Ledger;
+g.Accounts = Accounts;
+g.DomSafe = DomSafe;
+g.Sync = Sync;
+const UI = require('../public/accounts-view.js');
+
+const store = {
+  parties: [],
+  agreements: [],
+  accountTxns: [],
+  projects: [{ id: 'job', name: 'مشروع المدرسة' }],
+  outbox: [],
+  syncErrors: {},
+};
+g.K = {
+  parties: 'parties',
+  agreements: 'agreements',
+  accountTxns: 'accountTxns',
+  projects: 'projects',
+  outbox: 'outbox',
+  syncErrors: 'syncErrors',
+};
+g.get = (key, fallback) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : fallback);
+g.set = (key, value) => { store[key] = value; return Promise.resolve(); };
+g.me = () => ({ uid: 'u-ameer', role: 'owner', active: true, displayName: 'أمير' });
+g.uuid = () => 'party-1';
+g.today = () => '2026-11-16';
+g.deviceId = 'phone';
+g.demoRole = () => '';
+let queued = [];
+g.queueDoc = id => { if (!queued.includes(id)) queued.push(id); };
+
+function ownerModel() {
+  return UI.modelFor(g.me());
+}
+
+test('the demo owner sees the empty list and no create button', () => {
+  g.demoRole = () => 'owner';
+  const html = UI.listHtml(UI.modelFor(g.me()));
+  assert.equal(html.includes('لا توجد حسابات أشخاص.'), true);
+  assert.equal(html.includes('+ شخص جديد'), false);
+  g.demoRole = () => '';
+});
+
+test('a site user sees the owner sentence', () => {
+  const html = UI.listHtml(UI.modelFor({ role: 'site', uid: 'site' }));
+  assert.equal(html.includes('هذه الشاشة للمالك.'), true);
+  assert.equal(html.includes('+ شخص جديد'), false);
+});
+
+test('canCreateParty is false until collectionFor returns parties, and false in the demo', () => {
+  assert.equal(UI.canCreateParty(g.me()), false);
+  const orig = Sync.collectionFor;
+  Sync.collectionFor = () => 'parties';
+  g.demoRole = () => 'owner';
+  assert.equal(UI.canCreateParty(g.me()), false);
+  g.demoRole = () => '';
+  assert.equal(UI.canCreateParty(g.me()), true);
+  Sync.collectionFor = orig;
+});
+
+test('two taps store one party and one outbox id', () => {
+  const orig = Sync.collectionFor;
+  Sync.collectionFor = () => 'parties';
+  queued = [];
+  store.parties = [];
+  const button = { id: 'save-party', disabled: false, dataset: {} };
+  g.document = { querySelector: () => ({ value: 'حسن' }) };
+  UI.install({ views: {}, titles: {}, state: {}, render() {}, esc: s => String(s), money: n => Ledger.fmt(n) + ' د.ع', queueDoc: g.queueDoc, confirmShell: () => '', lastSyncAt: () => 0, formatSyncTime: () => '' });
+  UI.onClick(/** @type {HTMLButtonElement} */ ({ id: 'party-new', disabled: false, dataset: {} }));
+  UI.onClick(/** @type {HTMLButtonElement} */ (button));
+  UI.onClick(/** @type {HTMLButtonElement} */ (button));
+  assert.equal(store.parties.length, 1);
+  assert.equal(store.parties[0].roles, undefined);
+  assert.deepEqual(queued, ['party-1']);
+  Sync.collectionFor = orig;
+});
+
+test('an empty name and an 81-character name do not call queueDoc', () => {
+  queued = [];
+  assert.deepEqual(UI.partyErrors(''), ['name']);
+  assert.deepEqual(UI.partyErrors('ح'.repeat(81)), ['name']);
+  assert.deepEqual(UI.partyErrors('حسن'), []);
+});
+
+test('bad id and unknown id', () => {
+  const model = ownerModel();
+  assert.equal(UI.accountHtml(model, '../x').includes('معرّف غير صالح'), true);
+  assert.equal(UI.accountHtml(model, 'missing-person').includes('الشخص غير متاح'), true);
+});
+
+test('filters keep labor, payments, and advances apart', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'q', purpose: 'laborQty', partyId: 'p1', projectId: 'job', amount: 1, txnDate: '2026-11-01' },
+    { id: 'pay', purpose: 'payLabor', partyId: 'p1', projectId: 'job', amount: 10, txnDate: '2026-11-01' },
+    { id: 'adv', purpose: 'advanceLabor', partyId: 'p1', projectId: 'job', amount: 5, txnDate: '2026-11-01' },
+    { id: 'ded', purpose: 'deduct', partyId: 'p1', projectId: 'job', amount: 1, txnDate: '2026-11-01', targetId: 'none' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'movements';
+  model.screen.filter = 'measurements';
+  const measured = UI.accountHtml(model, 'p1');
+  assert.equal(measured.includes('data-purpose="laborQty"'), true);
+  assert.equal(measured.includes('data-purpose="payLabor"'), false);
+  model.screen.filter = 'payments';
+  const paid = UI.accountHtml(model, 'p1');
+  assert.equal(paid.includes('data-purpose="payLabor"'), true);
+  assert.equal(paid.includes('الدفعات'), true);
+  model.screen.filter = 'advances';
+  assert.equal(UI.accountHtml(model, 'p1').includes('data-purpose="advanceLabor"'), true);
+  model.screen.filter = 'all';
+  const all = UI.accountHtml(model, 'p1');
+  assert.equal(all.includes('data-purpose="deduct"'), true);
+});
+
+test('the overview paints payable and recoverable and no action button', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01' },
+    { id: 'pay', purpose: 'payLabor', amount: 200000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-02' },
+  ];
+  const model = ownerModel();
+  model.screen.tab = 'overview';
+  globalThis.AccountActions.push(/** @type {AccountAction} */ ({
+    id: 'pay-labor',
+    tab: 'movements',
+    label: 'دفعة',
+    buttonId: 'act-pay-labor',
+    renderForm: () => '',
+    onClick: () => false,
+    save: () => ({ doc: null, errors: [] }),
+  }));
+  const html = UI.accountHtml(model, 'p1');
+  assert.equal(html.includes('مستحق له'), true);
+  assert.equal(html.includes('400,000'), true);
+  assert.equal(html.includes('act-'), false);
+  model.screen.tab = 'movements';
+  assert.equal(UI.accountHtml(model, 'p1').includes('act-pay-labor'), true);
+  model.screen.tab = 'overview';
+});
+
+test('a second push of the same action id is a no-op', () => {
+  const action = /** @type {AccountAction} */ ({ id: 'deduct', tab: 'movements', label: 'خصم', buttonId: 'act-deduct', renderForm: () => '', onClick: () => false, save: () => ({ doc: null, errors: [] }) });
+  globalThis.AccountActions.push(action);
+  const before = globalThis.AccountActions.length;
+  globalThis.AccountActions.push(action);
+  assert.equal(globalThis.AccountActions.length, before);
+});
+
+test('readAccountScope defaults and a tab change does not move it', () => {
+  const flag = UI.readAccountScope();
+  assert.equal(flag.scope, 'all');
+  assert.equal(flag.projectId, '');
+  assert.equal(flag.periodKind, 'week');
+  assert.equal(flag.anchorDate, '2026-11-16');
+  const model = ownerModel();
+  model.screen.tab = 'statement';
+  UI.accountHtml(model, 'p1');
+  assert.equal(UI.readAccountScope().anchorDate, '2026-11-16');
+  assert.deepEqual(UI.accountPeriod(), Accounts.periodBounds('week', '2026-11-16'));
+});
+
+test('an id in syncErrors is out of the statement and shows the refusal word', () => {
+  store.accountTxns = [{ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-01' }];
+  store.syncErrors = { appr: 'رُفض الإرسال' };
+  const doc = UI.statementFor(g.me(), 'p1');
+  assert.equal(doc.closing, 0);
+  const model = ownerModel();
+  model.screen.tab = 'movements';
+  model.screen.filter = 'all';
+  const html = UI.accountHtml(model, 'p1');
+  assert.equal(html.includes('رُفض الإرسال'), true);
+  assert.equal(html.includes('معتمد'), false);
+  store.syncErrors = {};
+});
+
+test('install runs when ForemenUI is missing', () => {
+  const views = {};
+  UI.install({ views, titles: {}, state: {}, render() {}, esc: s => String(s), money: n => String(n), queueDoc() {}, confirmShell: () => '', lastSyncAt: () => 0, formatSyncTime: () => '' });
+  assert.equal(typeof views.accounts, 'function');
+  assert.equal(typeof views.account, 'function');
+});
