@@ -4,7 +4,7 @@ No code in this pull request. No edit to `public/`, `firestore.rules`, or `publi
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. PR B contract: `docs/plans/contractor-pr-b-sketch.md` revision r3 (Architect-approved). This sketch treats that file's types and functions as what B will add.
 
-Base for the citations below: `baf4f21fc54c156989334e826d19990b8e5e8a74` (v58, PR #72). `public/accounts.js` on that commit is PR A's file. PR B's code is not on it yet.
+Base for the citations below: `24fb839556bae41d9f721ad8f09ce61a0e0f55b5`. That commit is current `origin/main`. It contains the date fix (#82, service worker v59), the foreman custody export (#84, v60), and PR B (#81, v61). `personBalance` is already in `public/accounts.js`.
 
 Arena was not run. Ameer's gate bans it (cost). The shape is the one already approved in r2.28 sections 3, 9, and 13. This file is the sketch those gates asked for before code.
 
@@ -13,6 +13,8 @@ Revision r2, against Architect NOTES on `17e8c678` (review sha256 starts `d17c5e
 EA, 2026-11-16 00:52 Baghdad, on Ameer's delegation. QUESTIONS-FOR-EA-r1 (sha256 `13723e6e0586d653d55e35be087ab220adb67e32c1a60a61ff1b5dde7d2e5c75`) defaults Q1 through Q47 are approved. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, the earlier answer wins. This lane folds in Q5 and EA Q7 only. EA Q7 is that file's reversal question. Plan Q7 is the closed race and the Saturday week. The two names are not the same.
 
 Revision r3, against Architect NOTES on `604d7346` (review of blob `1470902675132b98e6836786b119861ed9d6680d`). One recursive liveness rule, `sup_` is a body, and `rowIndex` is built from the unfiltered list.
+
+Revision r4, on local `771835d8`, re-cited at `24fb8395`. B's L1 through L4 move here. F r5 calls the exports below. C claims no service-worker number. The next free value is v62 unless another lane takes it first.
 
 ## Scope
 
@@ -40,17 +42,18 @@ Not in C: material purposes, `refundPayment`, invoices, USD, `fxRate` other than
 | `tests/accounts.test.js`                                    | The behaviour tests below. Spec 1, 2, 6, and 7 stay green. B's payment, cap, and `personBalance` tests stay green.                                                                                                              |
 | `public/sw.js`                                              | `VERSION` only, the next free value at merge time (Q5). This sketch does not pick the number. See Sequencing.                                                                                                                   |
 | `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | The same version pins, after that bump.                                                                                                                                                                                         |
-| `docs/PSTACK_INVENTORY.md`                                  | Evidence on the PR C rows: `principle-explain-the-number`, `principle-prove-it-works`, `tdd`. Do not flip a status word. Those three rows are already «مطبّقة» (`docs/PSTACK_INVENTORY.md` lines 29, 40, and 82 at `baf4f21f`). |
+| `types/checkjs.d.ts`                                        | C owns `FoldDoc` and `Window.Accounts`. F does not add a second `Accounts`. See F.                                                                                                                                              |
+| `docs/PSTACK_INVENTORY.md`                                  | Evidence on the PR C rows: `principle-explain-the-number`, `principle-prove-it-works`, `tdd`. Do not flip a status word. Those three rows are already «مطبّقة» (`docs/PSTACK_INVENTORY.md` lines 29, 40, and 82 at `24fb8395`). |
 
 ## Files the code PR must not touch
 
 `firestore.rules`. `public/ledger.js`. `public/render.js`. `public/sync.js`. `public/session.js`. `public/index.html`. `public/foremen.js`. `package.json`. `.github/workflows/ci.yml`.
 
-`tests/accounts.test.js` is already on both test lists (`package.json` script `test`, and `.github/workflows/ci.yml` line 68 at `baf4f21f`). No new test file, so those two lists stay identical.
+`tests/accounts.test.js` is already on both test lists (`package.json` script `test`, and `.github/workflows/ci.yml` line 68 at `24fb8395`). No new test file, so those two lists stay identical.
 
-`post` still returns a document. C does not change `post`. It does not call `queueDoc` and does not write IndexedDB or Firestore. `projectCost` stays the function B left: `return 0` while `CONTRACTOR_COST_START` is `null` (`public/accounts.js` lines 11 and 175-185 at `baf4f21f`, before B's edit).
+`post` still returns a document. C does not change the payment rules B shipped. It does not call `queueDoc` and does not write IndexedDB or Firestore. `projectCost` stays `return 0` (`public/accounts.js` lines 532-536 at `24fb8395`). `CONTRACTOR_COST_START` is still null (line 11).
 
-Callers of `Accounts` at `baf4f21f` are `tests/accounts.test.js` only. `render.js` does not call it.
+Callers of `Accounts` at `24fb8395` are `tests/accounts.test.js` only. `render.js` does not call it. F will, after C.
 
 ## Usage
 
@@ -66,7 +69,7 @@ Third design considered: store the closing on the approval document. Rejected. P
 
 ## Types and signatures
 
-All of these stay in `public/accounts.js`. Names already exported stay exported. B's names stay exported. C adds `rowIndex`, `rowCounts`, `balances`, `statementLines`, and `periodBounds` to the return at the bottom of the file (`public/accounts.js` line 187 at `baf4f21f` is the PR A return; B will have added `personBalance` before this edit). `rowCounts` is the only row-count rule. `rowIndex` is the only index. `balances` calls both. PR K and PR B call both. Neither writes a second copy.
+All of these stay in `public/accounts.js`. Names already exported stay exported. The return at `public/accounts.js` line 538 at `24fb8395` is `CONTRACTOR_COST_START`, `PURPOSES`, `unitPrice`, `workPosition`, `post`, `personBalance`, `cashPointerErrors`, and `projectCost`. C adds `rowIndex`, `rowCounts`, `balances`, `statementLines`, and `periodBounds` to that return. `rowIndex` is a function, not only a type. `rowCounts` is the only row-count rule. `balances` calls both. K and the later B callers call both. Neither writes a second copy.
 
 `FoldDoc` is B's `AccountDoc` plus the fields the fold reads when the caller has them. `post` does not have to fill them. A missing `currency` counts as IQD, so B's documents still sum. A row with `currency: 'USD'` is out. A missing `txnDate` counts in an all-time fold and in no dated statement.
 
@@ -104,7 +107,7 @@ All of these stay in `public/accounts.js`. Names already exported stay exported.
  * periodEnd omitted: every date, including a row with no txnDate.
  * periodEnd set: txnDate <= periodEnd, compared as strings. A row with no txnDate is out.
  * syncErrors is the id-keyed record already stored as K.syncErrors.
- * countedEntries reads err[id] (public/ledger.js lines 305-309 at baf4f21f).
+ * countedEntries reads err[id] (public/ledger.js lines 305-309 at 24fb8395).
  * A Set or an array is not this type. A present key means the id is refused. The value is ignored.
  */
 
@@ -250,18 +253,18 @@ function statementLines(docs, filter)
  * day is YYYY-MM-DD. A bad day returns null.
  * Build the calendar with Date.UTC and getUTCDay, then format with the UTC
  * year, month, and date. Do not call toISOString on a local Date.
- * session.js line 94 today() is the bug class this avoids. The date fix owns that line.
+ * session.js today() is public/session.js lines 137-138 at 24fb8395. It already uses Baghdad. The date fix owns that line. C does not edit it.
  * 2026-02-15 is 2026-02-01 through 2026-02-28.
  * The same strings come back under TZ=UTC and under TZ=Asia/Baghdad.
  */
 function periodBounds(kind, day)
 ```
 
-`PURPOSES` keeps the nine keys in the order already asserted by `tests/accounts.test.js` (the test "the nine purposes are labor"). `statementSign` stays `effect.person` (`public/accounts.js` line 50). C changes three shared tokens. At `baf4f21f` the collisions are:
+`PURPOSES` keeps the nine keys in the order already asserted by `tests/accounts.test.js`. `statementSign` stays `effect.person` (`public/accounts.js` line 91 at `24fb8395`). C changes three shared tokens. At `24fb8395` the collisions are:
 
-- `advanceLabor` and `returnAdvance` both `'advances'` (lines 31 and 33).
-- `payLabor` and `refundLabor` both `'payments'` (lines 32 and 34).
-- `laborQty` and `approveDeduct` both `'out'` (lines 29 and 36).
+- `advanceLabor` and `returnAdvance` both `'advances'` (lines 72 and 74).
+- `payLabor` and `refundLabor` both `'payments'` (lines 73 and 75).
+- `laborQty` and `approveDeduct` both `'out'` (lines 70 and 77).
 
 After C, each of the nine has its own non-empty `statementLine`:
 
@@ -303,12 +306,12 @@ Unapproved rows are `pendingIds`. They are listed by the later screen under «ب
 
 `balances` calls `rowIndex` on the full list, then `rowCounts` for each doc, then the party, project, currency, and `periodEnd` filters. A `rev_` dated after `periodEnd` still removes its original from that statement. The date filter does not build a second index. The rules below are `rowCounts`. They are not copied into `balances`, B, or K.
 
-- `syncErrors` is a record keyed by id, the same input `countedEntries` already takes (`public/ledger.js` lines 305-309 at `baf4f21f`). A present key means the id is refused, including a marker. The stored value is ignored. Callers pass `get(K.syncErrors, {})`. They do not pass a Set.
+- `syncErrors` is a record keyed by id, the same input `countedEntries` already takes (`public/ledger.js` lines 305-309 at `24fb8395`). A present key means the id is refused, including a marker. The stored value is ignored. Callers pass `get(K.syncErrors, {})`. They do not pass a Set.
 - A doc is superseded when a live `sup_` has that id as `supersedesId`, or its id is `sup_` plus this id. The `sup_` doc is the replacement body. It counts by the normal rules, including its own approval when the purpose needs one, and it drops out if it is itself superseded, reversed, or refused. It is not a marker.
 - It is not reversed by a live `rev_`. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. Live is the one recursive rule above, so a refused `rev_` does not reverse anything, and a refused rev-of-rev does not restore the original. D denies rev-of-rev. The restore branch is defensive. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. EA Q7 is approved: the balance returns to zero (EA, 00:52 Baghdad). That is the same reading as plan Q1.
 - Markers are `rev`, `rej`, and `revw` only. `approveLabor` and `approveDeduct` are money rows through the purpose table, and `approveDeduct` has zeros.
 - `needsApproval` is false, or `rowCounts` is true for the approval that points at this id. An approval is out when a live `rej_` names its target.
-- Rejection wins for approvals, not only for deducts (plan Q7, plan line 1054). An `approveLabor` whose target body also has a live `rej_` is out of every bucket, even though `needsApproval` on `approveLabor` is false (`public/accounts.js` line 30). The same approval is out when that body is reversed or refused. Two offline phones can each land one create before the other commits. Rules close the sequential orders. The fold is the side that sees both. A `deduct` aimed at that approval is out too, because `rowCounts` of the approval is false.
+- Rejection wins for approvals, not only for deducts (plan Q7, plan line 1054). An `approveLabor` whose target body also has a live `rej_` is out of every bucket, even though `needsApproval` on `approveLabor` is false (`public/accounts.js` line 71 at `24fb8395`). The same approval is out when that body is reversed or refused. Two offline phones can each land one create before the other commits. Rules close the sequential orders. The fold is the side that sees both. A `deduct` aimed at that approval is out too, because `rowCounts` of the approval is false.
 - A `deduct` counts only when a live `approveDeduct` points at it and no live `rej_` names the deduct. `laborQty` has zeros either way. A `sup_` of an unapproved deduct replaces it. The old deduct adds nothing.
 - A `settle` adds 0 to `net`. Its amount counts in `settlements` and lowers `openAdvances` only while `rowCounts` is true. It is out when `rowCounts` of `appr_` plus the measurement id is false. That covers a rejected measurement, a reversed approval, and an approval in `syncErrors`. Dropping it does not change `net`. It puts the settled amount back into `openAdvances`.
 
@@ -333,6 +336,22 @@ Plan line 419 says a row is rejected when `rej_` exists and no approval exists. 
 `unreviewedCashIds` names a counted cash row (`payLabor`, `advanceLabor`, `returnAdvance`, `refundLabor`) that has no live `revw_`. The first mark is `revw_` plus the body id. A later mark, after `rev_` of the earlier one, is `revw_` plus the body id plus `_` and a generation `1` through `9` (plan lines 240-242). Live is the same `markerLive` rule: in the list, not a `syncErrors` key, and no live `rev_` names it. The flag does not change `net`. Cash counts when it is written (Q10 أ). C returns the ids so the later screen can hide the finalise button. C does not create `statementApprovals` and does not draw the button.
 
 A reversed `settle`, a settle of a rejected measurement, and a settle whose approval was reversed all drop out the same way. `openAdvances` goes back up by that amount. `net` does not move because of the settle. If the approval itself leaves, `net` moves by that approval only.
+
+## B follow-ups now in C
+
+PR B is merged at `24fb8395`. REVIEW-pr81-298d34ad moves L1 through L4 here. The approve condition at that review's line 297 makes L2 mandatory before C ships any labor reversal.
+
+B-L2. `personBalance` lines 489-493 add `doc.targetId` for every `approveDeduct` purpose, including an id that starts with `rev_` or `rej_`. `approvedDeductSum` line 420 already skips `markerId` (lines 240-242). A `rev_` that copies `purpose: 'approveDeduct'` and `targetId` would approve the deduct again. The fix is the fold: the approval set is built only from rows where `rowCounts` is true. A marker returns false, so a `rev_` or `rej_` id never approves a deduct. `personBalance` becomes `balances(...).net` in the same change. C does not ship a labor reversal that still calls the old loop.
+
+B-L3. A missing `milestoneMode` is refused. `milestonePosition` lines 200-202 set `errors` to `milestone` unless the mode is `amount` or `percent`. Percent is then `percent`. The amount is not earned. C does not change `workPosition`. The old sentence that a missing mode earns the amount is withdrawn.
+
+B-L4. `countedAmount` lines 315-317 keeps any finite number. A fractional amount, a negative amount, or an amount above `MAX_AMOUNT` (line 12, `10000000000`) still moves `personBalance`. The fold does not use that helper. An amount counts only when it is an integer from 0 through `MAX_AMOUNT`, the same `intIn` as line 98. Anything else adds 0. D still bounds writes. This guard is for a malformed row that already synced.
+
+## What F calls
+
+F r5 calls `Accounts.rowIndex(docs, syncErrors)`, `Accounts.rowCounts`, `Accounts.balances`, `Accounts.statementLines`, and `Accounts.periodBounds`. All five are on the return at the bottom of `public/accounts.js`. `rowIndex` is the function, not only the `RowIndex` type.
+
+C's code PR owns the new lines in `types/checkjs.d.ts`. It adds `FoldDoc` and `interface Accounts` on `Window`, with `rowIndex`, `rowCounts`, `balances`, `statementLines`, and `periodBounds`, plus the members already exported. `balances` is `(docs: readonly FoldDoc[], filter?: BalanceFilter) => Balance`, and `Balance.payable` and `Balance.recoverable` are `number`. F passes `Accounts.balances` as `balancesFn`. That assignment typechecks. F does not add a second `Window.Accounts`. F still owns `AccountsView` and the action names in its own file table. One declaration, in `types/checkjs.d.ts`, owned by C.
 
 ## Tests (behaviour)
 
@@ -372,6 +391,18 @@ All in `tests/accounts.test.js`. Each asserts a number, a line key, a label, or 
 - `overLimit keeps both rows`. `payLabor` 600,000 and two live `refundLabor` rows of 400,000 against it. Both refunds stay in the net: `net` is 200,000 (`-600,000 + 400,000 + 400,000`). `overLimitIds` contains the payment id. Dropping either refund would not yield 200,000.
 - `personBalance matches balances().net`. On the 480,000 list the two calls return 480,000. `approveLabor` 600,000 then `payLabor` 600,000 is 0. `payLabor` 700,000 after that approval is -100,000. A `deduct` of 50,000 with no `approveDeduct` does not move the number. The same list plus `approveDeduct` moves it by -50,000.
 - `an unreviewed payment still counts`. `payLabor` 100,000 and no `revw_`. `net` is -100,000 and the id is in `unreviewedCashIds`. A live `revw_` of that id keeps `net` at -100,000 and clears the flag. `rev_` of that mark puts the flag back and leaves `net` at -100,000. A later `revw_<id>_1` clears the flag again.
+- `B-L1 A9: a deduct on another approval does not count toward the cap`. Two `approveLabor` rows. A `deduct` aimed at the second does not raise the first line's sum. The first line still accepts a deduct up to its own amount.
+- `B-L1 A29: a reversed approved deduct is not inside approveDeduct`. The reversed deduct is not in the sum that caps the next `approveDeduct`.
+- `B-L1 A10: a rejected deduct that also has approveDeduct is not in that sum`.
+- `B-L1 A14: a reversed approveDeduct does not approve the deduct`. `net` does not fall by the deduct.
+- `B-L1 A15: the approval of a reversed deduct does not lower net`.
+- `B-L1 A16: a rejected deduct stays out of net` when an `approveDeduct` names it.
+- `B-L1 A19: an empty id is id`. `post` with `id: ''` returns `errors: ['id']` and no doc.
+- `B-L1 A24: a target with no numeric amount is targetId`, or `settlesId` when the field is `settlesId`.
+- `B-L1 A25: a rev_ that copies a refund's purpose and targetId does not count on that payment line`.
+- `B-L2: a rev_ or rej_ approveDeduct does not approve the deduct`. `id` `rev_ad` or `rej_ad`, `purpose` `approveDeduct`, `targetId` the deduct. `net` stays at the unapproved-deduct figure. This test is in the same change as the first labor reversal.
+- `B-L3: a missing milestoneMode is milestone`. `{ method: 'milestone', milestoneAmount: 250000 }` with `approved: true` earns 0 and the error is `milestone`. It does not earn 250000.
+- `B-L4: a fractional, negative, or huge amount adds 0`. `payLabor` amounts `1.5`, `-100`, and `1e20` each leave `net` at 0. An integer `100` still counts as `-100`.
 
 v1 strings are the approved 88 in `strings-contractor-module-r2.22.md` (sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`). Strings r2.23 records Ameer's approval of that list and of the tab «حسابات» on 2026-11-10 at 11:16 Baghdad. C adds no Arabic. A label that is not one of those 88 is a question in «أسئلة لأمير», with a recommended default. Plan lines 1034 and 1076 still say the list is open. That sentence is stale. r2.23 is the record this sketch follows.
 
@@ -379,26 +410,26 @@ v1 strings are the approved 88 in `strings-contractor-module-r2.22.md` (sha256 `
 
 This docs PR adds none. The code PR adds none that are new. Each label below is reused.
 
-| Label                                 | Mark                 | Where it already is                                                                                                                                                                                            |
-| ------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| «عمل معتمد»                           | reused, v1 string 13 | the approved 88                                                                                                                                                                                                |
-| «مدفوع للعمل»                         | reused, v1 string 14 | the approved 88. The statement line for `payLabor`. «الدفعات» stays the subcontract card at `public/render.js` line 754.                                                                                       |
-| «المُرجَع من الدفعة نقداً»            | reused, v1 string 70 | the approved 88                                                                                                                                                                                                |
-| «السلف المصروفة له»                   | reused, v1 string 65 | the approved 88                                                                                                                                                                                                |
-| «المُرجَع من السلف نقداً»             | reused, v1 string 66 | the approved 88                                                                                                                                                                                                |
-| «صافي السلف»                          | reused, v1 string 67 | the approved 88                                                                                                                                                                                                |
-| «الخصومات ومرتجعات المواد»            | reused, v1 string 62 | the approved 88                                                                                                                                                                                                |
-| «تسوية سلفة»                          | reused, v1 string 21 | the approved 88                                                                                                                                                                                                |
-| «رصيد أول المدة»                      | reused, v1 string 61 | the approved 88                                                                                                                                                                                                |
-| «رصيد آخر المدة»                      | reused, v1 string 63 | the approved 88                                                                                                                                                                                                |
-| «سلف قائمة عليه»                      | reused, v1 string 68 | the approved 88                                                                                                                                                                                                |
-| «الصافي»                              | reused, v1 string 69 | label of `net`, not a second figure line                                                                                                                                                                       |
-| «مستحق له»                            | reused, sentence 87  | EA decided C reuses sentence 87. On the person screen it labels `net` («الصافي»), not payable. See «أسئلة لأمير». The foreman badge at `public/foremen.js` lines 148 and 174 is a different account and stays. |
-| «مستحق عليه»                          | reused, v1 string 16 | recoverable, `max(-payableGross, 0)`. The screen draws it.                                                                                                                                                     |
-| «بانتظار الاعتماد»                    | reused, v1 string 45 | the screen's heading for `pendingIds`                                                                                                                                                                          |
-| «غير مدقّق»                           | reused, v1 string 71 | the screen's badge for `unreviewedCashIds`                                                                                                                                                                     |
-| «لا يُعتمد الكشف وفيه مبلغ غير مدقّق» | reused, v1 string 72 | the screen, while `unreviewedCashIds` or `overLimitIds` is non-empty. C does not show it.                                                                                                                      |
-| «معكوس»                               | reused               | already in `public/render.js`. Not a new statement line.                                                                                                                                                       |
+| Label                                 | Mark                 | Where it already is                                                                                                                                                                                                          |
+| ------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| «عمل معتمد»                           | reused, v1 string 13 | the approved 88                                                                                                                                                                                                              |
+| «مدفوع للعمل»                         | reused, v1 string 14 | the approved 88. The statement line for `payLabor`. «الدفعات» stays the subcontract card at `public/render.js` line 766 at `24fb8395`.                                                                                       |
+| «المُرجَع من الدفعة نقداً»            | reused, v1 string 70 | the approved 88                                                                                                                                                                                                              |
+| «السلف المصروفة له»                   | reused, v1 string 65 | the approved 88                                                                                                                                                                                                              |
+| «المُرجَع من السلف نقداً»             | reused, v1 string 66 | the approved 88                                                                                                                                                                                                              |
+| «صافي السلف»                          | reused, v1 string 67 | the approved 88                                                                                                                                                                                                              |
+| «الخصومات ومرتجعات المواد»            | reused, v1 string 62 | the approved 88                                                                                                                                                                                                              |
+| «تسوية سلفة»                          | reused, v1 string 21 | the approved 88                                                                                                                                                                                                              |
+| «رصيد أول المدة»                      | reused, v1 string 61 | the approved 88                                                                                                                                                                                                              |
+| «رصيد آخر المدة»                      | reused, v1 string 63 | the approved 88                                                                                                                                                                                                              |
+| «سلف قائمة عليه»                      | reused, v1 string 68 | the approved 88                                                                                                                                                                                                              |
+| «الصافي»                              | reused, v1 string 69 | label of `net`, not a second figure line                                                                                                                                                                                     |
+| «مستحق له»                            | reused, sentence 87  | EA decided C reuses sentence 87. On the person screen it labels `net` («الصافي»), not payable. See «أسئلة لأمير». The foreman badge at `public/foremen.js` lines 148 and 181 at `24fb8395` is a different account and stays. |
+| «مستحق عليه»                          | reused, v1 string 16 | recoverable, `max(-payableGross, 0)`. The screen draws it.                                                                                                                                                                   |
+| «بانتظار الاعتماد»                    | reused, v1 string 45 | the screen's heading for `pendingIds`                                                                                                                                                                                        |
+| «غير مدقّق»                           | reused, v1 string 71 | the screen's badge for `unreviewedCashIds`                                                                                                                                                                                   |
+| «لا يُعتمد الكشف وفيه مبلغ غير مدقّق» | reused, v1 string 72 | the screen, while `unreviewedCashIds` or `overLimitIds` is non-empty. C does not show it.                                                                                                                                    |
+| «معكوس»                               | reused               | already in `public/render.js`. Not a new statement line.                                                                                                                                                                     |
 
 Not used, and not added: «مواد معتمدة», «فرق سعر الصرف», «رصيد افتتاحي», «من إقفال الكشف السابق». Materials, USD, and a stored opening are out of v1. The advance-line overrun sentence is still the screens PR's question, as B's sketch left it. C ships the id list only.
 
@@ -408,14 +439,13 @@ This docs PR touches one new file. It does not bump `VERSION`.
 
 Parallel work, and what makes the later code PR sequential:
 
-- Baghdad-date bug fix. Files `public/session.js` and `public/render.js`. It merges first. C's code does not edit those files. Both PRs bump `public/sw.js` if they edit `public/`, so the code PR rebases the version after that fix. Pins: `tests/shell-cache.test.js` (three `aj-p0-v58` asserts, lines 43, 65, and 93 at `baf4f21f`) and `tests/webkit-upgrade.test.js` line 18 `MARK`.
-- Foreman export. Files `public/ledger.js` and `public/render.js`. C's code does not edit them. Shared bump is `public/sw.js` and those same pins.
-- PR B code. Files `public/accounts.js` and `tests/accounts.test.js`. C is sequential after B on those two files. Rebase C's code onto B. Do not edit them in parallel.
+- The date fix (#82) and the foreman export (#84) are on main. C's code does not edit `public/session.js`, `public/render.js`, or `public/ledger.js`. A later `public/` edit still rebases `public/sw.js`, the three pins in `tests/shell-cache.test.js` (lines 44, 67, and 96 at `24fb8395`), and `tests/webkit-upgrade.test.js` line 19 `MARK`.
+- PR B is merged. C edits `public/accounts.js` and `tests/accounts.test.js` on top of that file. Do not reopen B's `post` rules except for the amount guard in B-L4.
 - Other phase sketches. Other files under `docs/plans/`. This file's name is only C. No sequential dependency for this docs PR.
 
-`VERSION` at `baf4f21f` is `aj-p0-v58` (`public/sw.js` line 1). Q5 is approved: the code PR takes the next free number at merge time and does not pin one now. The date fix merges first as `aj-p0-v59` (earlier answer, 00:38 Baghdad, which wins over the proposed table that numbered C as v62). C does not claim v59, v62, or any other number. If a later edit of this lane does bump `public/sw.js`, that pin stays renumberable until merge. This docs PR does not bump it.
+`VERSION` at `24fb8395` is `aj-p0-v61` (`public/sw.js` line 2; line 1 is the Q5 comment). Q5 stays: the code PR takes the next free number at merge time and does not pin one now. v59 is the date fix and v60 is the export. v61 is B. The next free number is v62 unless another lane takes it first. C does not claim v62. This docs PR does not bump `VERSION`.
 
-`accounts.js` is already on the page (`public/index.html` line 71) and on `SHELL_FILES` (`public/session.js` line 271). C does not add a script tag.
+`accounts.js` is already on the page (`public/index.html` line 71) and on `SHELL_FILES` (`public/session.js` line 316). C does not add a script tag.
 
 ## Accounting advisor
 
@@ -448,20 +478,21 @@ That layout is the 480,000 fixture. The return of 100 that closes at 0 is the fu
 
 Q1 and Q10 أ already match this note. Cash counts when written. A deduct counts only after `approveDeduct`. Unapproved rows stay out of the arithmetic. The phrase «التصحيح يتم بقيد عكس، ومو بالحجب» is why an unreviewed payment stays in the net. It is not an instruction to subtract the `rev_` row on top of dropping the original.
 
-## Citation fixes at baf4f21f
+## Citation fixes at 24fb8395
 
-The plan cites older SHAs. These sentences are no longer true at `baf4f21fc54c156989334e826d19990b8e5e8a74`. The code PR uses the lines in this list.
+The plan cites older SHAs. These sentences are checked at `24fb839556bae41d9f721ad8f09ce61a0e0f55b5`. The code PR uses the lines in this list.
 
-- Plan lines 151 and 931. Service worker `VERSION` on main is `aj-p0-v56`, and the plan does not reserve `aj-p0-v57`. At this SHA `public/sw.js` line 1 is `aj-p0-v58`. v57 shipped in #71. v58 shipped in #72.
-- Plan line 555. `state.formId` is replaced after save at `public/render.js` line 1177. The field is still created at `public/render.js` line 40. The reset after save is line 1258. The entry object is built at line 1248.
-- Plan line 641. «قيود بلا عقد» at `public/render.js` line 707. It is line 755. «المقاولون» is still line 85. Plan line 734 puts «الدفعات» at `public/render.js` line 706. It is line 754.
-- Plan line 629. `countedEntries` at `public/ledger.js` lines 298-308. `totals` is still lines 27-39. `sign` is line 24. `countedEntries` is lines 307-310.
-- Plan line 931. `SHELL_FILES` at `public/session.js` line 263. It is line 271, and `accounts.js` is already on it. The script tag is `public/index.html` line 71, inside the plan's lines 69-72.
-- Plan line 434. `public/sync-status.js` lines 154-165 hide a refused id. Those lines are `messageAfterProjectProbe` (the function starts at line 157). The error map is read at line 190. The adopt compare the plan puts at `public/sync.js` lines 631-634 is `sameContent` at line 634 and `sameReversal` at line 635.
-- Plan lines 1034, 1038, and 1076. Q-strings and Q-rules still open in the plan text. Strings r2.23 records the 11:16 approval of the 88 and of «حسابات». Q-rules stays D. This sketch does not edit rules.
-- `public/app.js` lines 34-35 are still the demo owner and the demo site user. `firestore.rules` line 11 is still `isOwner()`, line 19 is still `idOk`, and lines 52-54 are still `projectOpen`. #72 did not edit the rules. `public/foremen.js` lines 367-368 are still `draft.formId || uuid()`.
+- Plan lines 151 and 931. Service worker `VERSION` on main was `aj-p0-v56`. At this SHA `public/sw.js` line 2 is `aj-p0-v61`. Line 1 is a comment. v59 is #82. v60 is #84. v61 is #81.
+- Plan line 555. `state.formId` is replaced after save at `public/render.js` line 1177 in the plan. The field is still created at `public/render.js` line 40. The reset after save is line 1270. The entry object is built at line 1260.
+- Plan line 641. «قيود بلا عقد» is `public/render.js` line 767. «المقاولون» is still line 85. «الدفعات» is line 766.
+- Plan line 629. `countedEntries` is `public/ledger.js` lines 307-310. The record parameter is lines 305-309. `sign` is line 24. `foremanDeleteBlock` is line 755.
+- Plan line 931. `SHELL_FILES` is `public/session.js` line 316, and `accounts.js` is on it. The script tag is `public/index.html` line 71.
+- Plan line 434. `messageAfterProjectProbe` starts at `public/sync-status.js` line 157. The error map is read at line 190. `sameContent` is `public/sync.js` line 634 and `sameReversal` is line 635.
+- `today()` is `public/session.js` lines 137-138. It is the Baghdad date, not the old UTC slice.
+- `public/app.js` lines 34-35 are still the demo owner and the demo site user. `firestore.rules` line 11 is still `isOwner()`, line 19 is still `idOk`, and lines 52-54 are still `projectOpen`. `public/foremen.js` line 396 is `draft.formId || uuid()`.
+- `personBalance` is `public/accounts.js` lines 484-501. `approvedDeductSum` is lines 415-430. `countedAmount` is lines 315-317. `markerId` is lines 240-242. `milestonePosition` is lines 199-218. The missing-mode check is lines 200-202.
 
-`public/accounts.js` did not change between PR A (`0f17cf31`) and this SHA. The shared statement tokens above are the PR A tokens.
+`types/checkjs.d.ts` has no `Accounts` interface at this SHA (`interface Window` is line 831, `interface LedgerApi` is line 353). C adds both `FoldDoc` and `Accounts`.
 
 ## Revert
 
@@ -471,9 +502,8 @@ The later code PR also reverts with `git revert`. C creates no Firestore documen
 
 ## Dependencies
 
-- PR A is on main. The nine purposes, `statementSign`, and the labor math are in `public/accounts.js`.
-- PR B's code lands first on `public/accounts.js` and `tests/accounts.test.js`. C rebases onto that. B adds `personBalance`, the payment actions, the cumulative cap, and the `approveLabor` / `approveDeduct` pointers. C does not rewrite `post` and does not add a second fold.
-- This docs PR does not wait for B's code. The r3 sketch is the contract.
+- PR A and PR B are on main. The nine purposes, `post`, and `personBalance` are in `public/accounts.js`. C replaces the body of `personBalance` with `balances(...).net` and does not add a second fold.
+- F r5 calls `Accounts.rowIndex`, `rowCounts`, `balances`, `statementLines`, and `periodBounds`. The names are fixed here.
 - D owns rules and `statementApprovals` creates. E owns adopt. F owns the screen that will call `statementLines`. K owns `projectCost`. K and B call `rowIndex` and `rowCounts`. They do not keep their own index or a second rev-of-rev rule. None of K's cost arithmetic is this phase.
 - Q2 stays «بعدين». `CONTRACTOR_COST_START` stays `null`. C does not set it.
 
