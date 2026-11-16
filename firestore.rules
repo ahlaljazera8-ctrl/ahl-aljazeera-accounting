@@ -363,5 +363,817 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if false;
     }
+
+    // Contractor PR D. Create-only parties, agreements, accountTxns, statementApprovals.
+    // Each create leaf's first line is one user get. No isOwner(), me(), allowlisted(), or projectOpen().
+    // accountTxnCreate and agreementsCreate do not get or exists. They call one leaf.
+
+    function ownerOk(user) {
+      return user.data.role == 'owner' && user.data.active == true;
+    }
+    function projectActive(project) {
+      return project.data.status == 'active';
+    }
+    function uuidOk(value) {
+      return value is string && value.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
+    }
+    function isSlotId(value) {
+      return value is string && value.matches('^000[0-9a-f]{32}[1-9]$');
+    }
+    function supCount(value) {
+      return value.matches('^sup_sup_sup_sup_sup_.*') ? 5
+        : value.matches('^sup_sup_sup_sup_.*') ? 4
+        : value.matches('^sup_sup_sup_.*') ? 3
+        : value.matches('^sup_sup_.*') ? 2
+        : value.matches('^sup_.*') ? 1
+        : 0;
+    }
+    function bodyIdOk(value) {
+      return uuidOk(value) || isSlotId(value) || (supCount(value) >= 1 && supCount(value) <= 4 && uuidOk(value.replace('sup_', '')));
+    }
+    function charGen(value, prefix) {
+      return value == prefix + '1' ? '1'
+        : value == prefix + '2' ? '2'
+        : value == prefix + '3' ? '3'
+        : value == prefix + '4' ? '4'
+        : value == prefix + '5' ? '5'
+        : value == prefix + '6' ? '6'
+        : value == prefix + '7' ? '7'
+        : value == prefix + '8' ? '8'
+        : value == prefix + '9' ? '9'
+        : '';
+    }
+    function prevChar(gen) {
+      return gen == '2' ? '1'
+        : gen == '3' ? '2'
+        : gen == '4' ? '3'
+        : gen == '5' ? '4'
+        : gen == '6' ? '5'
+        : gen == '7' ? '6'
+        : gen == '8' ? '7'
+        : gen == '9' ? '8'
+        : '0';
+    }
+    function slotGen(value, agreementId) {
+      return charGen(value, '000' + agreementId.replace('-', ''));
+    }
+    function methodKeys(method) {
+      return method == 'lump' ? ['lumpAmount']
+        : method == 'unit' ? ['unitRate', 'unitQty', 'unitName']
+        : method == 'daily' ? ['dayRate']
+        : method == 'milestone' ? ['milestoneAmount', 'milestoneMode']
+        : [];
+    }
+    function agreementBase() {
+      return ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId'];
+    }
+    // The emulator rejects list + list ("Unsupported operation error. Received: list + list").
+    // agreementKeys(method) is agreementBase() + methodKeys(method).
+    // reversalKeys(method) is that list plus ['reversesId', 'reversalReason'].
+    function agreementKeys(method) {
+      return method == 'lump'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'lumpAmount']
+        : method == 'unit'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'unitRate', 'unitQty', 'unitName']
+        : method == 'daily'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'dayRate']
+        : method == 'milestone'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'milestoneAmount', 'milestoneMode']
+        : ['id'];
+    }
+    function reversalKeys(method) {
+      return method == 'lump'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'lumpAmount', 'reversesId', 'reversalReason']
+        : method == 'unit'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'unitRate', 'unitQty', 'unitName', 'reversesId', 'reversalReason']
+        : method == 'daily'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'dayRate', 'reversesId', 'reversalReason']
+        : method == 'milestone'
+        ? ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'milestoneAmount', 'milestoneMode', 'reversesId', 'reversalReason']
+        : ['id'];
+    }
+    // == on every key of the original's group. A missing key errors and is denied.
+    function groupEquals(data, orig) {
+      return orig.method == 'lump' ? data.lumpAmount == orig.lumpAmount
+        : orig.method == 'unit' ? data.unitRate == orig.unitRate && data.unitQty == orig.unitQty && data.unitName == orig.unitName
+        : orig.method == 'daily' ? data.dayRate == orig.dayRate
+        : orig.method == 'milestone' ? data.milestoneAmount == orig.milestoneAmount && data.milestoneMode == orig.milestoneMode
+        : false;
+    }
+    function methodFieldsOk(data) {
+      return data.method == 'lump'
+          ? (data.lumpAmount is int && data.lumpAmount >= 1 && data.lumpAmount <= MAX_AMOUNT_IQD())
+        : data.method == 'unit'
+          ? (data.unitRate is int && data.unitRate >= 1 && data.unitRate <= 100000000
+            && data.unitQty is int && data.unitQty >= 1 && data.unitQty <= 1000000
+            && data.unitName is string && data.unitName.size() >= 1 && data.unitName.size() <= 80
+            && data.unitName == data.unitName.trim())
+        : data.method == 'daily'
+          ? (data.dayRate is int && data.dayRate >= 1 && data.dayRate <= 100000000)
+        : data.method == 'milestone'
+          ? (data.milestoneMode == 'amount'
+            && data.milestoneAmount is int && data.milestoneAmount >= 1 && data.milestoneAmount <= MAX_AMOUNT_IQD())
+        : false;
+    }
+    function headerOk(data, user) {
+      return data.createdBy == request.auth.uid
+        && data.createdAtServer == request.time
+        && data.deviceId is string
+        && data.deviceId.size() > 0
+        && data.deviceId.size() <= 128
+        && (!('createdByName' in data)
+          || (data.createdByName is string
+            && data.createdByName.size() >= 1
+            && data.createdByName.size() <= 80
+            && data.createdByName == user.data.displayName));
+    }
+    function rateOk(data) {
+      return data.currency == 'IQD' && data.fxRate == 1;
+    }
+    function moneyOk(data) {
+      return rateOk(data) && data.amount is int && data.amount >= 1 && data.amount <= MAX_AMOUNT_IQD();
+    }
+    function qtyOk(qty) {
+      return qty is int && qty >= 1 && qty <= 100000000;
+    }
+    function optDate(data) {
+      return !('txnDate' in data) || entryDateOk(data.txnDate);
+    }
+    function optDesc(data) {
+      return !('description' in data) || (data.description is string && data.description.size() <= 500);
+    }
+    function prevRevwId(targetId, gen) {
+      return gen == '1' ? 'revw_' + targetId
+        : gen == '2' ? 'revw_' + targetId + '_1'
+        : gen == '3' ? 'revw_' + targetId + '_2'
+        : gen == '4' ? 'revw_' + targetId + '_3'
+        : gen == '5' ? 'revw_' + targetId + '_4'
+        : gen == '6' ? 'revw_' + targetId + '_5'
+        : gen == '7' ? 'revw_' + targetId + '_6'
+        : gen == '8' ? 'revw_' + targetId + '_7'
+        : gen == '9' ? 'revw_' + targetId + '_8'
+        : 'revw_' + targetId + '_0';
+    }
+    function purposeOk(purpose, ledger) {
+      return ledger == 'labor' && (
+        purpose == 'laborQty' || purpose == 'approveLabor' || purpose == 'advanceLabor'
+        || purpose == 'payLabor' || purpose == 'returnAdvance' || purpose == 'refundLabor'
+        || purpose == 'deduct' || purpose == 'approveDeduct' || purpose == 'settle');
+    }
+    function needsApproval(purpose) {
+      return purpose == 'laborQty' || purpose == 'deduct';
+    }
+    function accountRead() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return ownerOk(user);
+    }
+    function approvalAmountOk(data, agreement, target) {
+      return agreement.method == 'unit'
+          ? (!isSlotId(data.targetId)
+            && qtyOk(data.qty) && data.qty == target.qty
+            && agreement.unitRate is int && agreement.unitRate >= 1 && agreement.unitRate <= 100000000
+            && agreement.unitQty is int && agreement.unitQty >= 1 && agreement.unitQty <= 1000000
+            && data.amount is int && data.amount >= 1 && data.amount <= MAX_AMOUNT_IQD()
+            && data.qty * agreement.unitRate <= 10000000000000000
+            && data.amount * agreement.unitQty <= 10000000000000000
+            && data.amount * agreement.unitQty == data.qty * agreement.unitRate)
+        : agreement.method == 'daily'
+          ? (!isSlotId(data.targetId)
+            && qtyOk(data.qty) && data.qty == target.qty
+            && agreement.dayRate is int && agreement.dayRate >= 1 && agreement.dayRate <= 100000000
+            && data.qty * agreement.dayRate <= 10000000000000000
+            && data.amount == data.qty * agreement.dayRate
+            && data.amount <= MAX_AMOUNT_IQD())
+        : agreement.method == 'lump'
+          ? (slotGen(data.targetId, data.agreementId) != ''
+            && !('qty' in data)
+            && data.amount == agreement.lumpAmount)
+        : agreement.method == 'milestone'
+          ? (slotGen(data.targetId, data.agreementId) != ''
+            && !('qty' in data)
+            && agreement.milestoneMode == 'amount'
+            && data.amount == agreement.milestoneAmount)
+        : false;
+    }
+
+    match /parties/{id} {
+      function d() { return request.resource.data; }
+      /**
+       * @returns {boolean}
+       * Reads: 1. user. No project. A party has no projectId.
+       */
+      function partyCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && idOk(id)
+          && d().id == id
+          && d().keys().hasOnly(['id', 'name', 'note', 'createdBy', 'createdAtServer', 'deviceId'])
+          && d().name is string
+          && d().name.size() >= 1
+          && d().name.size() <= 80
+          && d().name == d().name.trim()
+          && (!('note' in d()) || (d().note is string && d().note.size() <= 200));
+      }
+      allow read: if accountRead();
+      allow create: if partyCreate();
+      allow update, delete: if false;
+    }
+
+    match /agreements/{id} {
+      function d() { return request.resource.data; }
+      /**
+       * @returns {boolean}
+       * Reads: 3. user, project, party.
+       * The document id must pass uuidOk. reversesId is absent. reversalReason is absent.
+       */
+      function agreementCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && uuidOk(id)
+          && !id.matches('^rev_.*')
+          && d().id == id
+          && !('reversesId' in d())
+          && !('reversalReason' in d())
+          && d().keys().hasOnly(agreementKeys(d().method))
+          && d().currency == 'IQD'
+          && d().description is string
+          && d().description.size() >= 1
+          && d().description.size() <= 500
+          && idOk(d().partyId)
+          && idOk(d().projectId)
+          && d().partyId == party.data.id
+          && methodFieldsOk(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 3. user, the original agreement, project.
+       * hasOnly is agreementBase() + methodKeys(original.method) + reversesId + reversalReason.
+       * Every group key is compared with ==. A missing or changed key is denied.
+       * createdBy is the reverser. E adopts on the same id and reversesId, not on sameContent.
+       */
+      function agreementReversalCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let original = get(/databases/$(database)/documents/agreements/$(request.resource.data.reversesId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && d().id == id
+          && id == 'rev_' + d().reversesId
+          && uuidOk(d().reversesId)
+          && !d().reversesId.matches('^rev_.*')
+          && idOk(id)
+          && d().keys().hasOnly(reversalKeys(original.data.method))
+          && d().partyId == original.data.partyId
+          && d().projectId == original.data.projectId
+          && d().method == original.data.method
+          && d().currency == original.data.currency
+          && d().description == original.data.description
+          && groupEquals(d(), original.data)
+          && d().reversalReason is string
+          && d().reversalReason.size() >= 1
+          && d().reversalReason.size() <= 500;
+      }
+      /**
+       * Dispatcher for agreements/{id}. No get and no exists.
+       * An id that starts with rev_ calls agreementReversalCreate. Any other id calls agreementCreate.
+       */
+      function agreementsCreate() {
+        return id.matches('^rev_.*') ? agreementReversalCreate() : agreementCreate();
+      }
+      allow read: if accountRead();
+      allow create: if agreementsCreate();
+      allow update, delete: if false;
+    }
+
+    match /accountTxns/{id} {
+      function d() { return request.resource.data; }
+      /**
+       * @returns {boolean}
+       * Lump or amount-milestone body. Generation 1 reads 5.
+       * Generation past 1 also exists the previous appr reversal or the previous rej.
+       */
+      function slotBodyCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let agreement = get(/databases/$(database)/documents/agreements/$(request.resource.data.agreementId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let open = !exists(/databases/$(database)/documents/agreements/$('rev_' + request.resource.data.agreementId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && idOk(id)
+          && d().id == id
+          && uuidOk(d().agreementId)
+          && open
+          && d().kind == 'body'
+          && d().purpose == 'laborQty'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'qty', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && !('qty' in d())
+          && !('amount' in d())
+          && rateOk(d())
+          && d().partyId == agreement.data.partyId
+          && d().projectId == agreement.data.projectId
+          && (agreement.data.method == 'lump' || (agreement.data.method == 'milestone' && agreement.data.milestoneMode == 'amount'))
+          && slotGen(id, d().agreementId) != ''
+          && (slotGen(id, d().agreementId) == '1'
+            || exists(/databases/$(database)/documents/accountTxns/$('rev_appr_000' + d().agreementId.replace('-', '') + prevChar(slotGen(id, d().agreementId))))
+            || exists(/databases/$(database)/documents/accountTxns/$('rej_000' + d().agreementId.replace('-', '') + prevChar(slotGen(id, d().agreementId)))))
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Unit or daily laborQty whose id is a uuid. Reads: 5.
+       */
+      function laborQtyCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let agreement = get(/databases/$(database)/documents/agreements/$(request.resource.data.agreementId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let open = !exists(/databases/$(database)/documents/agreements/$('rev_' + request.resource.data.agreementId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && uuidOk(id)
+          && d().id == id
+          && uuidOk(d().agreementId)
+          && open
+          && d().kind == 'body'
+          && d().purpose == 'laborQty'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'qty', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && qtyOk(d().qty)
+          && !('amount' in d())
+          && rateOk(d())
+          && d().partyId == agreement.data.partyId
+          && d().projectId == agreement.data.projectId
+          && (agreement.data.method == 'unit' || agreement.data.method == 'daily')
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 5, or 6 when the body stores agreementId.
+       * Presence and value of agreementId match the old body. No extra get.
+       */
+      function supCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let old = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.supersedesId));
+        let notApproved = !exists(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.supersedesId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && idOk(id)
+          && d().id == id
+          && d().kind == 'sup'
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'supersedesId', 'qty', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && id == 'sup_' + d().supersedesId
+          && supCount(id) >= 1
+          && supCount(id) <= 4
+          && uuidOk(id.replace('sup_', ''))
+          && bodyIdOk(d().supersedesId)
+          && !isSlotId(d().supersedesId)
+          && needsApproval(old.data.purpose)
+          && d().purpose == old.data.purpose
+          && d().ledger == old.data.ledger
+          && d().ledger == 'labor'
+          && d().partyId == old.data.partyId
+          && d().projectId == old.data.projectId
+          && d().get('agreementId', null) == old.data.get('agreementId', null)
+          && d().currency == old.data.currency
+          && d().fxRate == old.data.fxRate
+          && rateOk(d())
+          && notApproved
+          && (!('agreementId' in d()) || (uuidOk(d().agreementId) && !exists(/databases/$(database)/documents/agreements/$('rev_' + d().agreementId))))
+          && optDate(d())
+          && optDesc(d())
+          && (d().purpose == 'laborQty'
+            ? (qtyOk(d().qty) && !('amount' in d()) && !('targetId' in d()))
+            : (moneyOk(d()) && d().targetId == old.data.targetId && !('qty' in d())));
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 8. user, target, agreement, project, party, rej, sup, agreements/rev_.
+       */
+      function approveLaborCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let target = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let agreement = get(/databases/$(database)/documents/agreements/$(request.resource.data.agreementId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let noRej = !exists(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
+        let noSup = !exists(/databases/$(database)/documents/accountTxns/$('sup_' + request.resource.data.targetId));
+        let open = !exists(/databases/$(database)/documents/agreements/$('rev_' + request.resource.data.agreementId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && idOk(id)
+          && d().id == id
+          && uuidOk(d().agreementId)
+          && open
+          && noRej
+          && noSup
+          && d().kind == 'appr'
+          && d().purpose == 'approveLabor'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && id == 'appr_' + d().targetId
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'targetId', 'amount', 'qty', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && target.data.purpose == 'laborQty'
+          && d().partyId == target.data.partyId
+          && d().projectId == target.data.projectId
+          && d().agreementId == target.data.agreementId
+          && d().ledger == target.data.ledger
+          && d().currency == target.data.currency
+          && d().fxRate == target.data.fxRate
+          && d().partyId == agreement.data.partyId
+          && d().projectId == agreement.data.projectId
+          && rateOk(d())
+          && moneyOk(d())
+          && approvalAmountOk(d(), agreement.data, target.data)
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Call sites: 9. Generation 1 requires 8. Generation past 1 requires all 9.
+       * The ninth is exists of rev_ of the previous stl_, not a get.
+       */
+      function laborStlCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let measurement = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let approval = get(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.targetId));
+        let approvalLive = !exists(/databases/$(database)/documents/accountTxns/$('rev_appr_' + request.resource.data.targetId));
+        let advance = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.settlesId));
+        let advanceLive = !exists(/databases/$(database)/documents/accountTxns/$('rev_' + request.resource.data.settlesId));
+        let notRejected = !exists(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
+        let prevReversed = exists(/databases/$(database)/documents/accountTxns/$('rev_stl_' + request.resource.data.targetId + '_' + prevChar(charGen(request.resource.data.id, 'stl_' + request.resource.data.targetId + '_'))));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && idOk(id)
+          && d().id == id
+          && d().kind == 'stl'
+          && d().purpose == 'settle'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'settlesId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && charGen(id, 'stl_' + d().targetId + '_') != ''
+          && !id.matches('.*appr_.*')
+          && measurement.data.purpose == 'laborQty'
+          && approval.data.purpose == 'approveLabor'
+          && advance.data.purpose == 'advanceLabor'
+          && approvalLive
+          && advanceLive
+          && notRejected
+          && (charGen(id, 'stl_' + d().targetId + '_') == '1' || prevReversed)
+          && d().partyId == measurement.data.partyId
+          && d().projectId == measurement.data.projectId
+          && d().currency == measurement.data.currency
+          && d().partyId == approval.data.partyId
+          && d().projectId == approval.data.projectId
+          && d().currency == approval.data.currency
+          && d().partyId == advance.data.partyId
+          && d().projectId == advance.data.projectId
+          && d().currency == advance.data.currency
+          && moneyOk(d())
+          && d().amount <= advance.data.amount
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * payLabor or advanceLabor. Reads: 3. Does not read revw_.
+       */
+      function cashBodyCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && uuidOk(id)
+          && d().id == id
+          && d().kind == 'body'
+          && (d().purpose == 'payLabor' || d().purpose == 'advanceLabor')
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && moneyOk(d())
+          && !('targetId' in d())
+          && !('settlesId' in d())
+          && !('supersedesId' in d())
+          && !('reversesId' in d())
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 5. user, project, party, the named advanceLabor, exists of rev_ of that advance.
+       */
+      function returnAdvanceCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let named = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let live = !exists(/databases/$(database)/documents/accountTxns/$('rev_' + request.resource.data.targetId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && uuidOk(id)
+          && d().id == id
+          && d().kind == 'body'
+          && d().purpose == 'returnAdvance'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && moneyOk(d())
+          && live
+          && named.data.kind == 'body'
+          && named.data.purpose == 'advanceLabor'
+          && d().amount <= named.data.amount
+          && d().partyId == named.data.partyId
+          && d().projectId == named.data.projectId
+          && d().currency == named.data.currency
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 5. user, project, party, the named payLabor, exists of rev_ of that payment.
+       */
+      function refundLaborCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let named = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let live = !exists(/databases/$(database)/documents/accountTxns/$('rev_' + request.resource.data.targetId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && uuidOk(id)
+          && d().id == id
+          && d().kind == 'body'
+          && d().purpose == 'refundLabor'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && moneyOk(d())
+          && live
+          && named.data.kind == 'body'
+          && named.data.purpose == 'payLabor'
+          && d().amount <= named.data.amount
+          && d().partyId == named.data.partyId
+          && d().projectId == named.data.projectId
+          && d().currency == named.data.currency
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 5. user, project, party, get of the approveLabor, exists of rev_ of that approval.
+       */
+      function deductCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let approval = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let live = !exists(/databases/$(database)/documents/accountTxns/$('rev_' + request.resource.data.targetId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && uuidOk(id)
+          && d().id == id
+          && d().kind == 'body'
+          && d().purpose == 'deduct'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && moneyOk(d())
+          && live
+          && approval.data.purpose == 'approveLabor'
+          && d().amount <= approval.data.amount
+          && d().partyId == approval.data.partyId
+          && d().projectId == approval.data.projectId
+          && d().currency == approval.data.currency
+          && optDate(d())
+          && optDesc(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 6. Stores no amount.
+       */
+      function approveDeductCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let body = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let noRej = !exists(/databases/$(database)/documents/accountTxns/$('rej_' + request.resource.data.targetId));
+        let noSup = !exists(/databases/$(database)/documents/accountTxns/$('sup_' + request.resource.data.targetId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && idOk(id)
+          && d().id == id
+          && d().kind == 'appr'
+          && d().purpose == 'approveDeduct'
+          && d().ledger == 'labor'
+          && purposeOk(d().purpose, d().ledger)
+          && id == 'appr_' + d().targetId
+          && !('amount' in d())
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && body.data.purpose == 'deduct'
+          && noRej
+          && noSup
+          && d().partyId == body.data.partyId
+          && d().projectId == body.data.projectId
+          && d().ledger == body.data.ledger
+          && d().currency == body.data.currency
+          && d().fxRate == body.data.fxRate
+          && rateOk(d());
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 5. Denied when appr_ of the target is already stored.
+       */
+      function rejCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let target = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let project = get(/databases/$(database)/documents/projects/$(target.data.projectId));
+        let party = get(/databases/$(database)/documents/parties/$(target.data.partyId));
+        let noAppr = !exists(/databases/$(database)/documents/accountTxns/$('appr_' + request.resource.data.targetId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && party.data.name is string
+          && idOk(id)
+          && d().id == id
+          && d().kind == 'rej'
+          && id == 'rej_' + d().targetId
+          && d().keys().hasOnly(['id', 'kind', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && !('amount' in d())
+          && !('purpose' in d())
+          && needsApproval(target.data.purpose)
+          && noAppr;
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 3. user, the row named by reversesId, project. No separate party get.
+       * agreementId presence matches the original. No extra get.
+       */
+      function revCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let original = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.reversesId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && idOk(id)
+          && d().id == id
+          && d().kind == 'rev'
+          && id == 'rev_' + d().reversesId
+          && idOk(d().reversesId)
+          && original.data.kind in ['body', 'sup', 'appr', 'stl', 'revw']
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'ledger', 'projectId', 'partyId', 'agreementId', 'amount', 'currency', 'fxRate', 'reversesId', 'reversalReason', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && d().purpose == original.data.purpose
+          && d().ledger == original.data.ledger
+          && d().projectId == original.data.projectId
+          && d().partyId == original.data.partyId
+          && d().currency == original.data.currency
+          && d().fxRate == original.data.fxRate
+          && d().get('amount', null) == original.data.get('amount', null)
+          && d().get('agreementId', null) == original.data.get('agreementId', null)
+          && d().reversalReason is string
+          && d().reversalReason.size() >= 1
+          && d().reversalReason.size() <= 500
+          && d().currency == 'IQD'
+          && d().fxRate == 1;
+      }
+      /**
+       * @returns {boolean}
+       * First mark reads 3. A later mark also exists rev_ of the previous mark.
+       */
+      function revwCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let cash = get(/databases/$(database)/documents/accountTxns/$(request.resource.data.targetId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && projectActive(project)
+          && idOk(id)
+          && d().id == id
+          && d().kind == 'revw'
+          && !('amount' in d())
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'ledger', 'projectId', 'partyId', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && cash.data.purpose in ['payLabor', 'advanceLabor', 'returnAdvance', 'refundLabor']
+          && d().purpose == cash.data.purpose
+          && d().ledger == 'labor'
+          && d().ledger == cash.data.ledger
+          && d().partyId == cash.data.partyId
+          && d().projectId == cash.data.projectId
+          && d().currency == cash.data.currency
+          && d().fxRate == cash.data.fxRate
+          && rateOk(d())
+          && (id == 'revw_' + d().targetId
+            || (charGen(id, 'revw_' + d().targetId + '_') != ''
+              && exists(/databases/$(database)/documents/accountTxns/$('rev_' + prevRevwId(d().targetId, charGen(id, 'revw_' + d().targetId + '_'))))));
+      }
+      /**
+       * Dispatcher. No get and no exists. Exactly one leaf runs.
+       * kind is read with in. purpose is read only when the key is present.
+       */
+      function accountTxnCreate() {
+        return !('kind' in request.resource.data) ? false
+          : request.resource.data.kind == 'rej' ? rejCreate()
+          : request.resource.data.kind == 'rev' ? revCreate()
+          : request.resource.data.kind == 'revw' ? revwCreate()
+          : request.resource.data.kind == 'sup' ? supCreate()
+          : request.resource.data.kind == 'stl' && 'purpose' in request.resource.data && request.resource.data.purpose == 'settle' ? laborStlCreate()
+          : request.resource.data.kind == 'appr' && 'purpose' in request.resource.data && request.resource.data.purpose == 'approveLabor' ? approveLaborCreate()
+          : request.resource.data.kind == 'appr' && 'purpose' in request.resource.data && request.resource.data.purpose == 'approveDeduct' ? approveDeductCreate()
+          : request.resource.data.kind == 'body' && 'purpose' in request.resource.data && request.resource.data.purpose == 'laborQty' && isSlotId(id) ? slotBodyCreate()
+          : request.resource.data.kind == 'body' && 'purpose' in request.resource.data && request.resource.data.purpose == 'laborQty' ? laborQtyCreate()
+          : request.resource.data.kind == 'body' && 'purpose' in request.resource.data && (request.resource.data.purpose == 'payLabor' || request.resource.data.purpose == 'advanceLabor') ? cashBodyCreate()
+          : request.resource.data.kind == 'body' && 'purpose' in request.resource.data && request.resource.data.purpose == 'returnAdvance' ? returnAdvanceCreate()
+          : request.resource.data.kind == 'body' && 'purpose' in request.resource.data && request.resource.data.purpose == 'refundLabor' ? refundLaborCreate()
+          : request.resource.data.kind == 'body' && 'purpose' in request.resource.data && request.resource.data.purpose == 'deduct' ? deductCreate()
+          : false;
+      }
+      allow read: if accountRead();
+      allow create: if accountTxnCreate();
+      allow update, delete: if false;
+    }
+
+    match /statementApprovals/{id} {
+      function d() { return request.resource.data; }
+      function periodOk() {
+        return (d().periodKind == 'week' || d().periodKind == 'month')
+          && entryDateOk(d().periodStart)
+          && entryDateOk(d().periodEnd)
+          && d().periodStart <= d().periodEnd
+          && d().createdBy == request.auth.uid
+          && d().createdAtServer == request.time
+          && uuidOk(id)
+          && d().id == id
+          && idOk(d().partyId);
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 3. user, party, project. Used only when projectId is present.
+       */
+      function statementWithProjectCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        let project = get(/databases/$(database)/documents/projects/$(request.resource.data.projectId));
+        return ownerOk(user)
+          && projectActive(project)
+          && party.data.name is string
+          && 'projectId' in d()
+          && idOk(d().projectId)
+          && d().keys().hasOnly(['id', 'partyId', 'projectId', 'periodKind', 'periodStart', 'periodEnd', 'createdBy', 'createdAtServer'])
+          && periodOk();
+      }
+      /**
+       * @returns {boolean}
+       * Reads: 2. user, party. No project get. Consolidated: projectId is absent.
+       */
+      function statementConsolidatedCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let party = get(/databases/$(database)/documents/parties/$(request.resource.data.partyId));
+        return ownerOk(user)
+          && party.data.name is string
+          && !('projectId' in d())
+          && d().keys().hasOnly(['id', 'partyId', 'periodKind', 'periodStart', 'periodEnd', 'createdBy', 'createdAtServer'])
+          && periodOk();
+      }
+      function statementCreate() {
+        return 'projectId' in request.resource.data ? statementWithProjectCreate() : statementConsolidatedCreate();
+      }
+      allow read: if accountRead();
+      allow create: if statementCreate();
+      allow update, delete: if false;
+    }
   }
 }
