@@ -16,9 +16,23 @@ let chrome;
   const tgt = opened.page;
   const ws = await openCdpSocket(tgt.webSocketDebuggerUrl);
   const navLoaders = [];
+  /** @type {{ kind: 'frameNavigated' | 'loadingFinished', loaderId: string }[]} */
+  const navSeen = [];
+  /** @type {Record<string, string>} */
+  const requestLoader = {};
+  let networkEnabled = false;
   const { send, ev } = createCdpSession(ws, {
     onEvent(d) {
       if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
+      if (d.method === 'Network.requestWillBeSent' && d.params && d.params.requestId) {
+        requestLoader[d.params.requestId] = d.params.loaderId || '';
+      }
+      if (d.method === 'Page.frameNavigated' && d.params && d.params.frame) {
+        navSeen.push({ kind: 'frameNavigated', loaderId: d.params.frame.loaderId || '' });
+      }
+      if (d.method === 'Network.loadingFinished' && d.params && d.params.requestId) {
+        navSeen.push({ kind: 'loadingFinished', loaderId: requestLoader[d.params.requestId] || '' });
+      }
     }
   });
   await send('Page.enable'); await send('Runtime.enable');
@@ -43,6 +57,7 @@ let chrome;
         const now = await ev(`({o:performance.timeOrigin,r:document.body&&document.body.dataset.ready==='1'})`);
         return !!(now && now.o !== origin && now.r);
       } catch (e) {
+        if (isCdpTimeout(e)) logNav(loaderId);
         if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
         return false;
       }
@@ -68,7 +83,32 @@ let chrome;
       return false;
     }
   };
-  const go = async url => {
+  let netOffline = false;
+  const setNetwork = async offline => {
+    netOffline = !!offline;
+    await send('Network.emulateNetworkConditions', {
+      offline: netOffline,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1,
+    });
+  };
+  const assertDeclared = opts => {
+    const declared = !!(opts && opts.offline);
+    if (netOffline && !declared) throw new Error('browser-check: navigating while offline; pass {offline:true}');
+    if (!netOffline && declared) throw new Error('browser-check: navigating while online; do not pass {offline:true}');
+  };
+  /**
+   * @param {string} loaderId
+   */
+  const logNav = loaderId => {
+    const unknown = !loaderId || loaderId === 'reload';
+    const frame = unknown ? 'n/a' : (navSeen.some(row => row.kind === 'frameNavigated' && row.loaderId === loaderId) ? 'yes' : 'no');
+    const finished = unknown || !networkEnabled ? 'n/a' : (navSeen.some(row => row.kind === 'loadingFinished' && row.loaderId === loaderId) ? 'yes' : 'no');
+    console.error('browser-check: navigation ' + loaderId + ' frameNavigated=' + frame + ' loadingFinished=' + finished);
+  };
+  const go = async (url, opts) => {
+    assertDeclared(opts);
     const origin = await ev('performance.timeOrigin');
     const message = await send('Page.navigate', { url });
     const loaderId = loaderOf(message);
@@ -98,7 +138,8 @@ let chrome;
     }
     await waitReady(url, loaderId, origin);
   };
-  const reload = async params => {
+  const reload = async (params, opts) => {
+    assertDeclared(opts);
     const origin = await ev('performance.timeOrigin');
     const url = await ev('location.href');
     const before = navLoaders.length;
@@ -341,8 +382,10 @@ let chrome;
   // offline reload: SW must control page, then block network
   await ev(`navigator.serviceWorker.ready.then(()=>1)`); await go(`${BASE}index.html?role=owner#home`);
   check('service worker controls page', await ev('!!navigator.serviceWorker.controller'));
-  await send('Network.enable'); await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-  await reload({ ignoreCache: false });
+  await send('Network.enable');
+  networkEnabled = true;
+  await setNetwork(true);
+  await reload({ ignoreCache: false }, { offline: true });
   const off = await ev(`(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const n=String((AJ.get('outbox')||[]).length);return {t:document.querySelector('main')?.innerText||'', label:(btn&&btn.getAttribute('aria-label'))||'', badge:badge?badge.textContent:'', hidden:!(badge&&badge.hidden===false), on:navigator.onLine, n}})()`);
   check('offline reload renders app with data', off.t.includes('صافي الربح') && off.n === String(after) && off.label.includes('لم يُرسل بعد: ' + off.n) && off.label.includes('بدون إنترنت') && off.badge === off.n && off.hidden === false && off.on === false);
   await send('Page.captureScreenshot', { format: 'png' }).then(s => fs.writeFileSync(path.join(SHOTS, 'offline-reload-owner-home.png'), Buffer.from(s.result.data, 'base64')));
@@ -520,7 +563,7 @@ let chrome;
   await sleep(200);
   const hiddenContract = await ev(`document.querySelector('#main').innerText`);
   check('site project still has no contract after the owner save', !hiddenContract.includes('قيمة العقد') && !hiddenContract.includes('1,234,567') && !hiddenContract.includes('60,000,000') && await ev(`!document.querySelector('#contract')`));
-  await go(`${BASE}index.html?role=owner#entry`);
+  await go(`${BASE}index.html?role=owner#entry`, { offline: true });
   const keptForm = await ev(`(()=>{
     document.querySelector('#desc').value = 'ملاحظة لا تُمسح';
     document.querySelector('#party').value = 'جهة لا تُمسح';
@@ -697,7 +740,7 @@ let chrome;
   } catch (e) { return String(e && e.message || e); } })()`);
   check('many entries are stored in the local cache', wrote === 'ok');
   await ev(`location.hash='#entries/p-school'; 1`);
-  await send('Page.reload', { ignoreCache: false });
+  await reload({ ignoreCache: false }, { offline: true });
   await sleep(1500);
   for (let i = 0; i < 40 && !(await ev(`document.body && document.body.dataset.ready==='1' && location.hash.indexOf('#entries/p-school')===0`)); i++) await sleep(150);
   const paged = await listView('owner', 'p-school');
@@ -844,7 +887,7 @@ let chrome;
   })()`);
   check('a long recorder name can be stored', planted === 'stored');
   await send('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true });
-  await go(`${BASE}index.html?role=owner&fresh=long#project/p-school`);
+  await go(`${BASE}index.html?role=owner&fresh=long#project/p-school`, { offline: true });
   await ev(`dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(300);
   const longRow = await ev(`(async ()=>{
@@ -915,7 +958,7 @@ let chrome;
     return { bad: bad.id, good: good.id, goodAmount: good.amount };
   })()`);
   check('a rejected entry id was chosen for the export', !!(rejectedId && rejectedId.bad && rejectedId.good));
-  await go(`${BASE}index.html?role=owner&fresh=csv#home`);
+  await go(`${BASE}index.html?role=owner&fresh=csv#home`, { offline: true });
   await sleep(300);
   const csvExport = await ev(`(async () => {
     const orig = URL.createObjectURL;
@@ -986,7 +1029,7 @@ let chrome;
     });
   })()`);
   check('view-all fixtures are stored', plantedView === 'ok');
-  await go(`${BASE}index.html?role=owner&fresh=viewall#entries/p-school`);
+  await go(`${BASE}index.html?role=owner&fresh=viewall#entries/p-school`, { offline: true });
   await ev(`dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(300);
   const viewAll = await ev(`(()=>{
@@ -1016,7 +1059,7 @@ let chrome;
   })()`);
   console.log('view-all rejected ' + JSON.stringify(viewAll));
   check('view-all count and list drop a server rejection and keep a pending entry', viewAll && viewAll.pendingOk === true && viewAll.rejectedStored === true && viewAll.rejectedIds.length >= 1 && viewAll.listHasRejected === false && viewAll.listHasPending === true && viewAll.textHasRejectedParty === false && viewAll.textHasPendingParty === true && viewAll.shown === viewAll.rows && viewAll.rows > 0 && viewAll.total === viewAll.stored - viewAll.rejectedIds.length && viewAll.total < viewAll.stored && viewAll.shown <= viewAll.total);
-  await go(`${BASE}index.html?role=owner#project/p-market`);
+  await go(`${BASE}index.html?role=owner#project/p-market`, { offline: true });
   await ev(`document.querySelector('#project-manage').scrollIntoView({block:'center'})`);
   await sleep(250);
   const shotView = async file => { const s = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, file), Buffer.from(s.result.data, 'base64')); };
@@ -1064,7 +1107,7 @@ let chrome;
   await ev(`document.querySelector('[data-list="open"]').click(); 1`);
   await sleep(150);
   check('the restored project is back on the main list', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';return text.includes('بناية السوق')&&text.includes('مشروع المدرسة')&&!!document.querySelector('#newproj')})()`));
-  await go(`${BASE}index.html?role=owner#entry/p-school`);
+  await go(`${BASE}index.html?role=owner#entry/p-school`, { offline: true });
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   const overPaid = await ev(`(()=>{
@@ -1091,7 +1134,7 @@ let chrome;
     return { before, after: rows.length, amount: row && row.amount, date: row && row.date, controls: document.querySelectorAll('#main button').length };
   })()`);
   check('subcontracts: an amendment is appended and the form does not offer edit or delete', added && added.after === added.before + 1 && added.amount === 200000 && added.date === '2026-10-28');
-  await go(`${BASE}index.html?role=owner#project/p-school`);
+  await go(`${BASE}index.html?role=owner#project/p-school`, { offline: true });
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   await ev(`document.querySelector('#project-manage').scrollIntoView({block:'center'}); 1`);
@@ -1148,7 +1191,7 @@ let chrome;
     market:(AJ.get('entries')||[]).filter(e=>e.projectId==='p-market').length,
     road:(AJ.get('projects')||[]).some(p=>p.id==='p-road'),
   })`);
-  await go(`${BASE}index.html?role=owner#project/p-market`);
+  await go(`${BASE}index.html?role=owner#project/p-market`, { offline: true });
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   await ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-delete').click(); document.querySelector('#confirm-yes').click(); 1`);
@@ -1335,7 +1378,8 @@ let chrome;
   })()`);
   check('a saved foreman tag does not carry onto the next expense', cleared && cleared.emptyBefore===true && cleared.first==='fm-hassan' && cleared.empty===true && (cleared.second===undefined || cleared.second===''));
   await send('Network.enable');
-  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  networkEnabled = true;
+  await setNetwork(true);
   const cachedOffline = await ev(`(()=>{
     history.replaceState(null, '', location.pathname + '#people');
     const owner = (get(K.users)||[]).find(u => u.uid==='u-ameer');
@@ -1356,7 +1400,7 @@ let chrome;
     return { name: name ? name.value : '', uid: uid ? uid.value : '', err: !!document.querySelector('#people-error'), note: !!document.querySelector('#people-sync') };
   })()`);
   check('owner with cached people offline still opens the person', cachedPerson && cachedPerson.uid==='u-ahmed' && cachedPerson.name.indexOf('أحمد')===0 && cachedPerson.err===false && cachedPerson.note===true);
-  await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await setNetwork(false);
   await go(BASE + 'index.html?role=owner#home');
   const hanging = await ev(`(async()=>{
     history.replaceState(null, '', location.pathname + '#people');
@@ -1479,7 +1523,7 @@ let chrome;
   check('a saved person whose refresh fails shows the update note, not the save error', savedRefresh && !savedRefresh.thrown && savedRefresh.hash==='#people' && savedRefresh.msg!=='تعذر حفظ الشخص' && savedRefresh.note.includes('تعذّر التحديث') && savedRefresh.note.includes('آخر تحديث') && savedRefresh.note.includes('غير متصل')===false && savedRefresh.name==='أحمد المحفوظ');
   check('the local save stays one row and the next refresh replaces it', savedRefresh && savedRefresh.count===1 && savedRefresh.refreshed===true && savedRefresh.nextCount===1 && savedRefresh.nextName==='أحمد الخادم');
   check('a failed people refresh does not advance the last update', savedRefresh && savedRefresh.synced===savedRefresh.stamp && savedRefresh.stamp>0);
-  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await setNetwork(true);
   const savedOffline = await ev(`(async()=>{
     const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };
     const ahmed = { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] };
@@ -1586,6 +1630,14 @@ let chrome;
     return { hash: location.hash, msg: msg ? msg.textContent : '' };
   })()`);
   check('a rejected save still says the person was not saved', saveFailed && saveFailed.hash.indexOf('#person/')===0 && saveFailed.msg==='تعذر حفظ الشخص');
+  // The app files are shared-global scripts, so the rejected-save mock is what performFlush calls
+  // (firebase-client.js:624). The mock has no writeLocal, so the write fails, the id leaves the outbox,
+  // queuePendingFinance puts p-school back, and the tail at firebase-client.js:747-755 calls flushRemote again.
+  // That loop runs as microtasks and starves the page. These stubs stop it on this document only. The next go
+  // discards the page. How the old offline navigation entered the same loop is still unproven.
+  await ev('window.flushRemote = () => Promise.resolve(); window.refreshDirectory = () => {}; 1');
+  await setNetwork(false);
+  await ev('AJ.flush().then(()=>1)');
   await go(`${BASE}index.html?role=owner&fresh=rejected#home`);
   await sleep(300);
   const rejectedHome = await ev(`(async () => {
