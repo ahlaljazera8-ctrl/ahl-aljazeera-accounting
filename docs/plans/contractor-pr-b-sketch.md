@@ -159,7 +159,7 @@ function personBalance(docs)
 function projectCost(projectId, txns) // return 0. PR K replaces this.
 ```
 
-`workPosition` keeps its current signature and also accepts `method: 'milestone'`. If `milestoneMode` is missing, it treats the agreement as an amount milestone. If method fields are mixed (more than one method field set), it refuses with `method` (plan 545, 594: exactly one method field set). `milestoneAmount` must be an integer from 1 to 1e10 (plan 545, 594). The #71 test fixture `{ method: 'milestone', lumpAmount: 1 }` then fails as `milestone`, not `method`: `method: 'milestone'` is now a known method, and the fixture has no valid `milestoneAmount`.
+`workPosition` keeps its current signature and also accepts `method: 'milestone'`. If `milestoneMode` is missing, it is refused with `milestone`. If method fields are mixed (more than one method field set), it refuses with `method` (plan 545, 594: exactly one method field set). `milestoneAmount` must be an integer from 1 to 1e10 (plan 545, 594). The #71 test fixture `{ method: 'milestone', lumpAmount: 1 }` then fails as `milestone`, not `method`: `method: 'milestone'` is now a known method, and the fixture has no valid `milestoneAmount`.
 
 `PURPOSES.approveLabor.points` becomes `{ targetId: ['laborQty'] }` and `required` includes `'targetId'`. `PURPOSES.approveDeduct.points` becomes `{ targetId: ['deduct'] }` and `required` includes `'targetId'`. No other purpose row gains a material ledger.
 
@@ -197,7 +197,7 @@ Two offline phones can each post a valid row, because each sees no siblings. Rul
 
 `projectCost` does not read `txns`. The 600,000 project-cost half of the fixture is PR K, against plan line 629 (legacy `countedEntries` plus approved cost, reversals netted, `syncErrors` and superseded rows omitted, a `deduct` silent until `approveDeduct`). B must not grow the current loop.
 
-Spec 8. An agreement `{ method: 'milestone', milestoneMode: 'amount', milestoneAmount: N }` earns N when approved, and a different `amount` is refused. `{ milestoneMode: 'percent' }` is refused. Missing `milestoneMode` and mixed method fields follow the `workPosition` rules above. B does not build the slot id `000` plus the agreement hex plus a generation. That id is PR D and PR E.
+Spec 8. An agreement `{ method: 'milestone', milestoneMode: 'amount', milestoneAmount: N }` earns N when approved, and a different `amount` is refused. `{ milestoneMode: 'percent' }` is refused. Missing `milestoneMode` is refused with `milestone`. Mixed method fields follow the `workPosition` rules above. B does not build the slot id `000` plus the agreement hex plus a generation. That id is PR D and PR E.
 
 LOW-3, only if Ameer includes it. Still optional and pending. In `uuid()`, after the 16 bytes are filled and before the hex is written:
 
@@ -219,7 +219,7 @@ All in `tests/accounts.test.js`. Each asserts a number, a purpose, or an error c
 - `refundLabor` 50,000 against a `payLabor` of 600,000. Person effect +1, cost 0. A refund of 600,001 is refused.
 - `deduct` 50,000 with no `approveDeduct` does not change `personBalance`. The same list plus `approveDeduct` aimed at that deduct's `id` lowers `personBalance` by 50,000. `projectCost` stays 0. `post('approveDeduct')` stores no amount.
 - `settle` of an advance has cost 0, person 0, and cash 0, and `personBalance` does not move. A settle above the named advance is refused, so the open advance cannot go negative.
-- Amount milestone 250,000 earns 250,000. A partial amount is refused. Percent is refused. Missing `milestoneMode` on an amount milestone earns the amount. Mixed method fields are `method`. `milestoneAmount` 0 or above 1e10 is refused. The old `{ method: 'milestone', lumpAmount: 1 }` fixture is `milestone`.
+- Amount milestone 250,000 earns 250,000. A partial amount is refused. Percent is refused. Missing `milestoneMode` on an amount milestone is refused with `milestone`. Mixed method fields are `method`. `milestoneAmount` 0 or above 1e10 is refused. The old `{ method: 'milestone', lumpAmount: 1 }` fixture is `milestone`.
 - Caps: `unitQty` 1000001, `qty` 100000001, a product above 1e16, an amount above 1e10, a negative quantity, a fractional quantity, `approveLabor` with earned 0, a payment of 0 and a payment above 1e10.
 - `cashPointerErrors` on the real table is empty. A copy that points `payLabor` at `approveLabor` is not empty. A copy that points `refundLabor` at `laborQty` is not empty.
 - A missing or wrong-purpose target is `targetId`, or `settlesId` for `settle`. Passing both `ledger` and explicit `target` / `siblings` / `reversedIds` is `ledger`. A sibling that is not on the same line does not count toward the cap.

@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const path = require('node:path');
 const Accounts = require('../public/accounts.js');
 
 const bricks = { method: 'unit', unitRate: 300000, unitQty: 4000, unitName: 'طابوقة' };
@@ -597,4 +599,729 @@ test('a capped amount outside 1 through the row is range, and a bad stored amoun
   // @ts-expect-error id is required at runtime
   assert.deepEqual(Accounts.post('payment', { paidAs: 'payLabor', amount: 1 }).errors, ['id']);
   assert.deepEqual(Accounts.post('laborQty', { id: 'no-ag' }).errors, ['agreement']);
+});
+
+function doc(fields) {
+  return Object.assign({ ledger: /** @type {'labor'} */ ('labor') }, fields);
+}
+
+function deleteGuard(net) {
+  if (typeof net !== 'number' || !Number.isFinite(net) || net === 0) return { block: false, stringId: 0, amount: 0 };
+  if (net > 0) return { block: true, stringId: 87, amount: net };
+  return { block: true, stringId: 86, amount: -net };
+}
+
+function fixture480(withDeductApproval) {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', partyId: 'person', projectId: 'job', txnDate: '2026-11-01' }),
+    doc({ id: 'appr_m', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'person', projectId: 'job', txnDate: '2026-11-01' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr_m', partyId: 'person', projectId: 'job', txnDate: '2026-11-02' }),
+    doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000, partyId: 'person', projectId: 'job', txnDate: '2026-11-03' }),
+    doc({ id: 'ret', purpose: 'returnAdvance', amount: 30000, targetId: 'adv', partyId: 'person', projectId: 'job', txnDate: '2026-11-04' }),
+  ];
+  if (withDeductApproval) {
+    rows.push(doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd', partyId: 'person', projectId: 'job', txnDate: '2026-11-05' }));
+  }
+  return rows;
+}
+
+function lineBy(statement, key) {
+  const line = statement.lines.find((item) => item.key === key);
+  assert.ok(line);
+  return line;
+}
+
+test('spec 15: 600000, deduct 50000, advance 100000, return 30000, with approveDeduct', () => {
+  const rows = fixture480(true);
+  const balance = Accounts.balances(rows, { partyId: 'person', projectId: 'job', currency: 'IQD' });
+  assert.equal(balance.net, 480000);
+  assert.equal(balance.payableGross, 550000);
+  assert.equal(balance.payable, 550000);
+  assert.equal(balance.recoverable, 0);
+  assert.equal(balance.netAdvances, 70000);
+  assert.equal(balance.openAdvances, 70000);
+  assert.equal(balance.payableGross - balance.openAdvances, 480000);
+  assert.deepEqual(deleteGuard(balance.net), { block: true, stringId: 87, amount: 480000 });
+  assert.equal(Accounts.personBalance(rows), 480000);
+});
+
+test('spec 15: the 530000 case when that appr_ is absent', () => {
+  const rows = fixture480(false);
+  const balance = Accounts.balances(rows);
+  assert.equal(balance.net, 530000);
+  assert.equal(balance.pendingIds.includes('d'), true);
+  assert.equal(balance.openAdvances, 70000);
+  const statement = Accounts.statementLines(rows);
+  assert.equal(lineBy(statement, 'deduct').amount, 0);
+});
+
+test('property: closing equals net on the 480000 fixture', () => {
+  const filter = { partyId: 'person', projectId: 'job', currency: /** @type {'IQD'} */ ('IQD') };
+  const rows = fixture480(true);
+  const statement = Accounts.statementLines(rows, filter);
+  assert.equal(statement.closing, 480000);
+  assert.equal(statement.closing, Accounts.balances(rows, filter).net);
+});
+
+test('property: closing equals net on the 530000 case', () => {
+  const rows = fixture480(false);
+  const filter = { partyId: 'person', projectId: 'job', currency: /** @type {'IQD'} */ ('IQD') };
+  assert.equal(Accounts.statementLines(rows, filter).closing, 530000);
+  assert.equal(Accounts.balances(rows, filter).net, 530000);
+});
+
+test('property: closing equals net through periodEnd', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', txnDate: '2026-11-01' }),
+    doc({ id: 'pay', purpose: 'payLabor', amount: 100000, txnDate: '2026-11-15' }),
+    doc({ id: 'later', purpose: 'payLabor', amount: 50000, txnDate: '2026-11-21' }),
+  ];
+  const filter = { periodStart: '2026-11-14', periodEnd: '2026-11-20', currency: /** @type {'IQD'} */ ('IQD') };
+  const statement = Accounts.statementLines(rows, filter);
+  const closed = Accounts.balances(rows, { periodEnd: '2026-11-20', currency: 'IQD' });
+  assert.equal(statement.closing, closed.net);
+  assert.equal(closed.net, 500000);
+  assert.equal(Accounts.balances(rows, { periodEnd: '2026-11-20' }).payments, 100000);
+});
+
+test('second fixture: settle 40000', () => {
+  const rows = fixture480(true);
+  rows.push(doc({
+    id: 'stl_m_1',
+    purpose: 'settle',
+    amount: 40000,
+    targetId: 'm',
+    settlesId: 'adv',
+    partyId: 'person',
+    projectId: 'job',
+  }));
+  const balance = Accounts.balances(rows);
+  assert.equal(balance.net, 480000);
+  assert.equal(balance.payableGross, 510000);
+  assert.equal(balance.payable, 510000);
+  assert.equal(balance.netAdvances, 70000);
+  assert.equal(balance.openAdvances, 30000);
+  const statement = Accounts.statementLines(rows);
+  assert.equal(statement.closing, 480000);
+  const entered = statement.lines.reduce((sum, line) => sum + (line.entersClosing ? line.amount * line.sign : 0), 0);
+  assert.equal(entered, 480000);
+  const asOpen = statement.lines.reduce((sum, line) => {
+    if (line.key === 'netAdvances') return sum + lineBy(statement, 'openAdvances').amount * -1;
+    return sum + (line.entersClosing ? line.amount * line.sign : 0);
+  }, 0);
+  assert.equal(asOpen, 520000);
+});
+
+test('advance 100 returned in full', () => {
+  const rows = [
+    doc({ id: 'adv', purpose: 'advanceLabor', amount: 100 }),
+    doc({ id: 'ret', purpose: 'returnAdvance', amount: 100, targetId: 'adv' }),
+  ];
+  const statement = Accounts.statementLines(rows);
+  assert.equal(statement.closing, 0);
+  assert.equal(lineBy(statement, 'netAdvances').amount, 0);
+  assert.equal(lineBy(statement, 'cashReturned').key, 'cashReturned');
+  assert.notEqual(lineBy(statement, 'cashReturned').key, 'deduct');
+});
+
+test('payments term, labor shape of plan line 350', () => {
+  const rows = [
+    doc({ id: 'pay', purpose: 'payLabor', amount: 200000 }),
+    doc({ id: 'rf', purpose: 'refundLabor', amount: 50000, targetId: 'pay' }),
+  ];
+  const statement = Accounts.statementLines(rows);
+  assert.equal(statement.closing, -150000);
+  assert.equal(lineBy(statement, 'payments').amount * lineBy(statement, 'payments').sign, -200000);
+  assert.equal(lineBy(statement, 'paymentRefund').amount * lineBy(statement, 'paymentRefund').sign, 50000);
+  assert.equal(rows.some((row) => row.purpose === 'refundPayment'), false);
+});
+
+test('spec 9 and 13: opening is the live fold before periodStart', () => {
+  const filter = { periodStart: '2026-11-14', periodEnd: '2026-11-20' };
+  const first = [
+    doc({ id: 'm', purpose: 'laborQty', txnDate: '2026-11-13' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', txnDate: '2026-11-13' }),
+    doc({ id: 'pay', purpose: 'payLabor', amount: 100000, txnDate: '2026-11-15' }),
+    doc({ id: 'old-adv', purpose: 'advanceLabor', amount: 10000, txnDate: '2026-11-01' }),
+  ];
+  const statement = Accounts.statementLines(first, filter);
+  assert.equal(statement.opening, 590000);
+  assert.equal(lineBy(statement, 'approvedLabor').amount, 0);
+  assert.equal(lineBy(statement, 'payments').amount, 100000);
+  assert.equal(statement.closing, 490000);
+  assert.equal(lineBy(statement, 'openAdvances').amount, 10000);
+  const again = Accounts.statementLines(first.concat([
+    doc({ id: 'm2', purpose: 'laborQty', txnDate: '2026-11-13' }),
+    doc({ id: 'appr2', purpose: 'approveLabor', amount: 1000, targetId: 'm2', txnDate: '2026-11-13' }),
+  ]), filter);
+  assert.equal(again.opening, 591000);
+  assert.equal(statement.opening, 590000);
+});
+
+test('spec 9 and 13: opening uses txnDate < periodStart', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', txnDate: '2026-11-14' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', txnDate: '2026-11-14' }),
+  ];
+  const statement = Accounts.statementLines(rows, { periodStart: '2026-11-14', periodEnd: '2026-11-20' });
+  assert.equal(statement.opening, 0);
+  assert.equal(lineBy(statement, 'approvedLabor').amount, 600000);
+});
+
+test('spec 13: the week starts Saturday, and February has 28 days in 2026', () => {
+  for (const day of ['2026-11-15', '2026-11-14', '2026-11-20']) {
+    assert.deepEqual(Accounts.periodBounds('week', day), { periodStart: '2026-11-14', periodEnd: '2026-11-20' });
+  }
+  assert.deepEqual(Accounts.periodBounds('week', '2026-11-21'), { periodStart: '2026-11-21', periodEnd: '2026-11-27' });
+  assert.deepEqual(Accounts.periodBounds('month', '2026-11-15'), { periodStart: '2026-11-01', periodEnd: '2026-11-30' });
+  assert.deepEqual(Accounts.periodBounds('month', '2026-02-15'), { periodStart: '2026-02-01', periodEnd: '2026-02-28' });
+  assert.equal(Accounts.periodBounds('week', '2026-02-31'), null);
+  assert.equal(Accounts.periodBounds('month', 'nope'), null);
+  const script = `
+    const Accounts = require(${JSON.stringify(path.join(__dirname, '../public/accounts.js'))});
+    const week = Accounts.periodBounds('week', '2026-11-15');
+    const month = Accounts.periodBounds('month', '2026-02-15');
+    if (!week || week.periodStart !== '2026-11-14' || week.periodEnd !== '2026-11-20') process.exit(2);
+    if (!month || month.periodStart !== '2026-02-01' || month.periodEnd !== '2026-02-28') process.exit(3);
+  `;
+  const child = spawnSync(process.execPath, ['-e', script], { env: Object.assign({}, process.env, { TZ: 'Asia/Baghdad' }) });
+  assert.equal(child.status, 0, String(child.stderr || child.stdout));
+});
+
+test('spec 10: IQD only, balances come from the rows', () => {
+  const iqd = [doc({ id: 'pay', purpose: 'payLabor', amount: 100 })];
+  const usd = iqd.concat([doc({ id: 'usd', purpose: 'payLabor', amount: 100, currency: 'USD' })]);
+  assert.equal(Accounts.balances(usd).net, -100);
+  assert.equal(Accounts.balances(iqd).net, Accounts.balances([doc({ id: 'pay', purpose: 'payLabor', amount: 100 })]).net);
+  const bare = [doc({ id: 'pay', purpose: 'payLabor', amount: 100 })];
+  delete bare[0].currency;
+  assert.equal(Accounts.balances(bare).net, -100);
+  const before = bare[0].amount;
+  Accounts.balances(bare);
+  assert.equal(bare[0].amount, before);
+  assert.notEqual(Accounts.balances([doc({ id: 'pay', purpose: 'payLabor', amount: 50 })]).net, Accounts.balances(bare).net);
+});
+
+test('spec 15: one project and the consolidated person', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', partyId: 'person', projectId: 'a' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'person', projectId: 'a' }),
+    doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000, partyId: 'person', projectId: 'b' }),
+    doc({ id: 'other', purpose: 'payLabor', amount: 1, partyId: 'someone', projectId: 'a' }),
+  ];
+  assert.equal(Accounts.balances(rows, { partyId: 'person', projectId: 'a' }).net, 600000);
+  assert.equal(Accounts.balances(rows, { partyId: 'person', projectId: 'b' }).net, -100000);
+  assert.equal(Accounts.balances(rows, { partyId: 'person' }).net, 500000);
+});
+
+test('one statement line per purpose', () => {
+  const tokens = Object.values(Accounts.PURPOSES).map((purpose) => purpose.statementLine);
+  assert.equal(new Set(tokens).size, tokens.length);
+  assert.equal(tokens.every((token) => token.length > 0), true);
+  for (const purpose of Object.values(Accounts.PURPOSES)) {
+    assert.equal(purpose.statementSign, purpose.effect.person);
+  }
+  const keys = Accounts.statementLines(fixture480(true)).lines.map((line) => line.key);
+  assert.deepEqual(keys, [
+    'opening', 'approvedLabor', 'payments', 'paymentRefund', 'advancesPaid', 'cashReturned',
+    'netAdvances', 'deduct', 'settle', 'closing', 'openAdvances',
+  ]);
+  assert.equal(keys.includes('outside'), false);
+  assert.equal(keys.includes('notInSum'), false);
+  assert.equal(keys.includes('approvedMaterials'), false);
+  const statement = Accounts.statementLines(fixture480(true));
+  const entered = statement.lines.reduce((sum, line) => sum + (line.entersClosing ? line.amount * line.sign : 0), 0);
+  assert.equal(entered, 480000);
+  assert.equal(lineBy(statement, 'approvedLabor').label, 'عمل معتمد');
+});
+
+test('a reversed approval of 600000 nets to 0', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'rev_appr', purpose: 'approveLabor', amount: 600000, reversesId: 'appr' }),
+  ];
+  const balance = Accounts.balances(rows);
+  assert.equal(balance.net, 0);
+  assert.equal(Accounts.statementLines(rows).lines.find((line) => line.key === 'approvedLabor').amount, 0);
+});
+
+test('syncErrors drops the approval and not a second copy', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+  ];
+  const syncErrors = { appr: 'رُفض الإرسال' };
+  assert.equal(Accounts.balances(rows, { syncErrors }).net, 0);
+  assert.equal(Accounts.personBalance(rows, syncErrors), 0);
+});
+
+test('M2: a sup_ replaces an unapproved deduct', () => {
+  const rows = fixture480(false);
+  rows.push(
+    doc({ id: 'd-new', purpose: 'deduct', amount: 50000, targetId: 'appr_m', supersedesId: 'd' }),
+    doc({ id: 'sup_d-new', purpose: 'deduct', amount: 40000, targetId: 'appr_m', supersedesId: 'd-new' }),
+    doc({ id: 'ad-sup', purpose: 'approveDeduct', targetId: 'sup_d-new' }),
+  );
+  const balance = Accounts.balances(rows);
+  assert.equal(balance.net, 490000);
+  const index = Accounts.rowIndex(rows);
+  assert.equal(Accounts.rowCounts(rows.find((row) => row.id === 'd'), index), false);
+  assert.equal(Accounts.rowCounts(rows.find((row) => row.id === 'sup_d-new'), index), true);
+  assert.equal(Accounts.rowCounts(doc({ id: 'rev_x', kind: 'rev' }), index), false);
+});
+
+test('rejection wins over approveDeduct', () => {
+  const rows = fixture480(true);
+  rows.push(doc({ id: 'rej_d', kind: 'rej', targetId: 'd' }));
+  assert.equal(Accounts.balances(rows).net, 530000);
+});
+
+test('M1: rejection wins over approveLabor', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'rej_m', kind: 'rej', targetId: 'm' }),
+  ];
+  const index = Accounts.rowIndex(rows);
+  assert.equal(Accounts.rowCounts(rows[1], index), false);
+  assert.equal(Accounts.balances(rows).net, 0);
+  assert.equal(Accounts.statementLines(rows).lines.find((line) => line.key === 'approvedLabor').amount, 0);
+  rows.push(
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd' }),
+  );
+  assert.equal(Accounts.balances(rows).net, 0);
+});
+
+test('L1: a settle drops when the measurement is rejected', () => {
+  const before = [
+    doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000 }),
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr_m', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'stl_m_1', purpose: 'settle', amount: 40000, targetId: 'm', settlesId: 'adv' }),
+  ];
+  const open = Accounts.balances(before);
+  assert.equal(open.net, 500000);
+  assert.equal(open.settlements, 40000);
+  assert.equal(open.openAdvances, 60000);
+  const after = before.concat([doc({ id: 'rej_m', kind: 'rej', targetId: 'm' })]);
+  const shut = Accounts.balances(after);
+  assert.equal(shut.net, -100000);
+  assert.equal(shut.settlements, 0);
+  assert.equal(shut.openAdvances, 100000);
+});
+
+test('L1: a settle drops when the approval is reversed', () => {
+  const rows = [
+    doc({ id: 'adv', purpose: 'advanceLabor', amount: 100000 }),
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr_m', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'stl_m_1', purpose: 'settle', amount: 40000, targetId: 'm', settlesId: 'adv' }),
+    doc({ id: 'rev_appr_m', kind: 'rev', reversesId: 'appr_m' }),
+  ];
+  const balance = Accounts.balances(rows);
+  assert.equal(balance.net, -100000);
+  assert.equal(balance.settlements, 0);
+  assert.equal(balance.openAdvances, 100000);
+});
+
+test('rev-of-rev puts the approval back, and D denies that path', () => {
+  const once = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' }),
+  ];
+  assert.equal(Accounts.balances(once).net, 0);
+  const twice = once.concat([doc({ id: 'rev_rev_appr', kind: 'rev', reversesId: 'rev_appr' })]);
+  assert.equal(Accounts.balances(twice).net, 600000);
+  const index = Accounts.rowIndex(twice);
+  assert.equal(Accounts.rowCounts(twice[2], index), false);
+  assert.equal(Accounts.rowCounts(twice[3], index), false);
+});
+
+test('rowCounts is false for a marker', () => {
+  const rows = [
+    doc({ id: 'rej_x', kind: 'rej' }),
+    doc({ id: 'rev_x', kind: 'rev' }),
+    doc({ id: 'revw_x', kind: 'revw' }),
+    doc({ id: 'sup_body', purpose: 'laborQty', kind: 'sup' }),
+  ];
+  const index = Accounts.rowIndex(rows);
+  assert.equal(Accounts.rowCounts(rows[0], index), false);
+  assert.equal(Accounts.rowCounts(rows[1], index), false);
+  assert.equal(Accounts.rowCounts(rows[2], index), false);
+});
+
+test('M1: a refused rej_ does not drop the approval', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'rej_m', kind: 'rej', targetId: 'm' }),
+  ];
+  assert.equal(Accounts.balances(rows, { syncErrors: { rej_m: 'رُفض الإرسال' } }).net, 600000);
+});
+
+test('M1: a refused rev_ does not drop the approval', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' }),
+  ];
+  assert.equal(Accounts.balances(rows, { syncErrors: { rev_appr: 'رُفض الإرسال' } }).net, 600000);
+});
+
+test('M1: a refused rev-of-rev does not restore', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' }),
+    doc({ id: 'rev_rev_appr', kind: 'rev', reversesId: 'rev_appr' }),
+  ];
+  assert.equal(Accounts.balances(rows, { syncErrors: { rev_rev_appr: 'رُفض الإرسال' } }).net, 0);
+});
+
+test('M3: the index is the full list', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', partyId: 'person' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'person' }),
+    doc({ id: 'rej_m', kind: 'rej', targetId: 'm', partyId: 'other' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', partyId: 'person' }),
+  ];
+  assert.equal(Accounts.balances(rows, { partyId: 'person' }).net, 0);
+  const doubled = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+  ];
+  assert.equal(Accounts.balances(doubled).net, 600000);
+});
+
+test('M3: a rev_ after periodEnd still removes the original', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', txnDate: '2026-11-15' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', txnDate: '2026-11-15' }),
+    doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr', txnDate: '2026-11-28' }),
+  ];
+  assert.equal(Accounts.statementLines(rows, { periodStart: '2026-11-14', periodEnd: '2026-11-20' }).closing, 0);
+});
+
+test('L4: order does not matter, and a rev_ alone is 0', () => {
+  const rows = fixture480(true);
+  assert.equal(Accounts.balances(rows).net, Accounts.balances(rows.slice().reverse()).net);
+  const alone = [doc({ id: 'rev_missing', purpose: 'approveLabor', amount: 600000, reversesId: 'missing' })];
+  assert.equal(Accounts.balances(alone).net, 0);
+});
+
+test('L4: a reversed approveDeduct returns 480000 to 530000', () => {
+  const rows = fixture480(true).concat([doc({ id: 'rev_ad', kind: 'rev', reversesId: 'ad' })]);
+  assert.equal(Accounts.balances(rows).net, 530000);
+});
+
+test('L4: an approveLabor whose body is reversed or refused is out', () => {
+  const body = doc({ id: 'm', purpose: 'laborQty' });
+  const approval = doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' });
+  assert.equal(Accounts.balances([body, approval, doc({ id: 'rev_m', kind: 'rev', reversesId: 'm' })]).net, 0);
+  assert.equal(Accounts.balances([body, approval], { syncErrors: { m: 'رُفض الإرسال' } }).net, 0);
+  assert.equal(Accounts.balances([approval]).net, 600000);
+});
+
+test('overLimit keeps both rows', () => {
+  const rows = [
+    doc({ id: 'pay', purpose: 'payLabor', amount: 600000 }),
+    doc({ id: 'rf1', purpose: 'refundLabor', amount: 400000, targetId: 'pay' }),
+    doc({ id: 'rf2', purpose: 'refundLabor', amount: 400000, targetId: 'pay' }),
+  ];
+  const balance = Accounts.balances(rows);
+  assert.equal(balance.net, 200000);
+  assert.equal(balance.overLimitIds.includes('pay'), true);
+});
+
+test('personBalance matches balances().net', () => {
+  assert.equal(Accounts.personBalance(fixture480(true)), Accounts.balances(fixture480(true)).net);
+  const measurement = doc({ id: 'm', purpose: 'laborQty' });
+  const approval = doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' });
+  const paid = doc({ id: 'pay', purpose: 'payLabor', amount: 600000 });
+  assert.equal(Accounts.personBalance([measurement, approval, paid]), 0);
+  assert.equal(Accounts.personBalance([measurement, approval, doc({ id: 'pay', purpose: 'payLabor', amount: 700000 })]), -100000);
+  const deduct = doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr' });
+  assert.equal(Accounts.personBalance([measurement, approval, deduct]), 600000);
+  assert.equal(Accounts.personBalance([
+    measurement, approval, deduct, doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd' }),
+  ]), 550000);
+});
+
+test('an unreviewed payment still counts', () => {
+  const pay = doc({ id: 'pay', purpose: 'payLabor', amount: 100000 });
+  assert.equal(Accounts.balances([pay]).net, -100000);
+  assert.equal(Accounts.balances([pay]).unreviewedCashIds.includes('pay'), true);
+  const reviewed = [pay, doc({ id: 'revw_pay', kind: 'revw' })];
+  assert.equal(Accounts.balances(reviewed).net, -100000);
+  assert.equal(Accounts.balances(reviewed).unreviewedCashIds.includes('pay'), false);
+  const undone = reviewed.concat([doc({ id: 'rev_revw_pay', kind: 'rev', reversesId: 'revw_pay' })]);
+  assert.equal(Accounts.balances(undone).net, -100000);
+  assert.equal(Accounts.balances(undone).unreviewedCashIds.includes('pay'), true);
+  const later = undone.concat([doc({ id: 'revw_pay_1', kind: 'revw' })]);
+  assert.equal(Accounts.balances(later).net, -100000);
+  assert.equal(Accounts.balances(later).unreviewedCashIds.includes('pay'), false);
+});
+
+test('B-L1 A9: a deduct on another approval does not count toward the cap', () => {
+  const first = approvalOf('a9-first', measure('a9-m1'));
+  const second = approvalOf('a9-second', measure('a9-m2'));
+  const onSecond = posted(Accounts.post('deduct', {
+    id: 'a9-d2', targetId: second.id, target: second, amount: second.amount, siblings: [first, second],
+  }));
+  const onFirst = Accounts.post('deduct', {
+    id: 'a9-d1', targetId: first.id, target: first, amount: first.amount, siblings: [first, second, onSecond],
+  });
+  assert.deepEqual(onFirst.errors, []);
+  assert.equal(onFirst.doc && onFirst.doc.amount, first.amount);
+});
+
+test('B-L1 A29: a reversed approved deduct is not inside approveDeduct', () => {
+  const approval = approvalOf('a29-a', measure('a29-m'));
+  const deduct = posted(Accounts.post('deduct', {
+    id: 'a29-d', targetId: approval.id, target: approval, amount: 400000,
+  }));
+  const approved = posted(Accounts.post('approveDeduct', {
+    id: 'a29-ad', targetId: deduct.id, target: deduct, siblings: [approval],
+  }));
+  const reversed = marker('rev_' + deduct.id);
+  const next = posted(Accounts.post('deduct', {
+    id: 'a29-d2', targetId: approval.id, amount: 400000, ledger: [approval, deduct, approved, reversed],
+  }));
+  const again = posted(Accounts.post('approveDeduct', {
+    id: 'a29-ad2',
+    targetId: next.id,
+    ledger: [approval, deduct, approved, reversed, next],
+  }));
+  assert.equal(again.purpose, 'approveDeduct');
+});
+
+test('B-L1 A10: a rejected deduct that also has approveDeduct is not in that sum', () => {
+  const approval = approvalOf('a10-a', measure('a10-m'));
+  const deduct = posted(Accounts.post('deduct', {
+    id: 'a10-d', targetId: approval.id, target: approval, amount: 400000,
+  }));
+  const approved = posted(Accounts.post('approveDeduct', {
+    id: 'a10-ad', targetId: deduct.id, target: deduct, siblings: [approval],
+  }));
+  const next = posted(Accounts.post('deduct', {
+    id: 'a10-d2', targetId: approval.id, target: approval, amount: 400000,
+  }));
+  const again = Accounts.post('approveDeduct', {
+    id: 'a10-ad2',
+    targetId: next.id,
+    ledger: [approval, deduct, approved, marker('rej_' + deduct.id), next],
+  });
+  assert.deepEqual(again.errors, []);
+});
+
+test('B-L1 A14: a reversed approveDeduct does not approve the deduct', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd' }),
+    doc({ id: 'rev_ad', kind: 'rev', reversesId: 'ad' }),
+  ];
+  assert.equal(Accounts.balances(rows).net, 600000);
+});
+
+test('B-L1 A15: the approval of a reversed deduct does not lower net', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd' }),
+    doc({ id: 'rev_d', kind: 'rev', reversesId: 'd' }),
+  ];
+  assert.equal(Accounts.balances(rows).net, 600000);
+});
+
+test('B-L1 A16: a rejected deduct stays out of net', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd' }),
+    doc({ id: 'rej_d', kind: 'rej', targetId: 'd' }),
+  ];
+  assert.equal(Accounts.balances(rows).net, 600000);
+});
+
+test('B-L1 A19: an empty id is id', () => {
+  assert.deepEqual(Accounts.post('payment', { id: '', paidAs: 'payLabor', amount: 100 }).errors, ['id']);
+});
+
+test('B-L1 A24: a target with no numeric amount is targetId', () => {
+  const payment = doc({ id: 'pay', purpose: 'payLabor', ledger: 'labor', effect: { cost: 0, person: -1, cash: 1 } });
+  const advance = doc({ id: 'adv', purpose: 'advanceLabor', ledger: 'labor', effect: { cost: 0, person: -1, cash: 1 } });
+  assert.deepEqual(Accounts.post('refundLabor', {
+    id: 'rf', targetId: 'pay', amount: 1, ledger: [payment],
+  }).errors, ['targetId']);
+  assert.deepEqual(Accounts.post('settle', {
+    id: 'stl', settlesId: 'adv', amount: 1, ledger: [advance],
+  }).errors, ['settlesId']);
+});
+
+test('B-L1 A25: a rev_ of a refund copies purpose and targetId, and neither field reverses the payment', () => {
+  const rows = [
+    doc({ id: 'P', purpose: 'payLabor', amount: 600000 }),
+    doc({ id: 'R', purpose: 'refundLabor', amount: 100000, targetId: 'P' }),
+    doc({ id: 'rev_R', purpose: 'refundLabor', amount: 100000, targetId: 'P', reversesId: 'R' }),
+  ];
+  const index = Accounts.rowIndex(rows);
+  assert.equal(Accounts.balances(rows).net, -600000);
+  assert.equal(Accounts.rowLive(rows[0], index), true);
+  const payment = posted(Accounts.post('payment', { id: 'A25-P', paidAs: 'payLabor', amount: 100 }));
+  const copied = doc({ id: 'rev_A25-R', purpose: 'refundLabor', amount: 100, targetId: 'A25-P' });
+  const full = Accounts.post('refundLabor', {
+    id: 'A25-full', targetId: 'A25-P', target: payment, amount: 100, siblings: [copied],
+  });
+  assert.deepEqual(full.errors, []);
+});
+
+test('B-L2: a rev_ or rej_ with purpose approveDeduct does not approve the deduct', () => {
+  const labor = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr' }),
+  ];
+  const reversed = labor.concat([doc({
+    id: 'rev_ad', purpose: 'approveDeduct', targetId: 'd', reversesId: 'other',
+  })]);
+  const revIndex = Accounts.rowIndex(reversed);
+  assert.equal(Accounts.balances(reversed).net, 600000);
+  assert.equal(Accounts.personBalance(reversed), 600000);
+  assert.equal(Accounts.rowLive(reversed[2], revIndex), true);
+  const rejected = labor.concat([doc({ id: 'rej_ad', purpose: 'approveDeduct', targetId: 'd' })]);
+  const rejIndex = Accounts.rowIndex(rejected);
+  assert.equal(Accounts.rowLive(rejected[2], rejIndex), false);
+  assert.equal(Accounts.balances(rejected).net, 600000);
+  assert.equal(Accounts.balances(rejected).pendingIds.includes('d'), false);
+});
+
+test('N5: a rev_ targetId does not reverse the payment, and the delete blocks', () => {
+  const rows = [
+    doc({ id: 'P', purpose: 'payLabor', amount: 600000 }),
+    doc({ id: 'R', purpose: 'refundLabor', amount: 100000, targetId: 'P' }),
+    doc({ id: 'rev_R', purpose: 'refundLabor', targetId: 'P', reversesId: 'R' }),
+  ];
+  const index = Accounts.rowIndex(rows);
+  assert.equal(Accounts.rowLive(rows[0], index), true);
+  assert.equal(Accounts.rowLive(rows[1], index), false);
+  assert.equal(Accounts.balances(rows).net, -600000);
+  assert.deepEqual(deleteGuard(Accounts.balances(rows).net), { block: true, stringId: 86, amount: 600000 });
+  const byId = [
+    doc({ id: 'P', purpose: 'payLabor', amount: 600000 }),
+    doc({ id: 'R', purpose: 'refundLabor', amount: 100000, targetId: 'P' }),
+    doc({ id: 'rev_R', purpose: 'refundLabor', targetId: 'P' }),
+  ];
+  assert.equal(Accounts.balances(byId).net, -600000);
+  const labor = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr_m', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'appr_m' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'd' }),
+    doc({ id: 'rev_d', purpose: 'deduct', reversesId: 'd', targetId: 'appr_m' }),
+  ];
+  assert.equal(Accounts.balances(labor).net, 600000);
+  assert.equal(Accounts.rowLive(labor[1], Accounts.rowIndex(labor)), true);
+});
+
+test('B-L3: a missing milestoneMode is milestone', () => {
+  const missing = Accounts.workPosition({ method: 'milestone', milestoneAmount: 250000 }, { approved: true });
+  assert.equal(missing.earned, 0);
+  assert.deepEqual(missing.errors, ['milestone']);
+});
+
+test('B-L4: a fractional, negative, huge, NaN, Infinity, or string amount adds 0', () => {
+  for (const amount of [1.5, -100, 1e20, NaN, Infinity, '100']) {
+    const row = doc({ id: 'bad', purpose: 'payLabor', amount });
+    assert.equal(Accounts.balances([row]).net, 0);
+    const payment = posted(Accounts.post('payment', { id: 'cap-pay', paidAs: 'payLabor', amount: 100 }));
+    const sibling = doc({ id: 'cap-bad', purpose: 'refundLabor', amount, targetId: 'cap-pay' });
+    const postedRefund = Accounts.post('refundLabor', {
+      id: 'cap-ok', targetId: 'cap-pay', target: payment, amount: 100, siblings: [sibling],
+    });
+    assert.deepEqual(postedRefund.errors, []);
+  }
+  assert.equal(Accounts.balances([doc({ id: 'ok', purpose: 'payLabor', amount: 100 })]).net, -100);
+});
+
+test('N2: a pending row is live and does not count', () => {
+  const pending = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'd', purpose: 'deduct', amount: 50000, targetId: 'missing' }),
+  ];
+  const index = Accounts.rowIndex(pending);
+  assert.equal(Accounts.rowLive(pending[0], index), true);
+  assert.equal(Accounts.rowCounts(pending[0], index), false);
+  assert.equal(Accounts.rowLive(pending[1], index), true);
+  assert.equal(Accounts.rowCounts(pending[1], index), false);
+  const rejected = pending.concat([
+    doc({ id: 'rej_m', kind: 'rej', targetId: 'm' }),
+    doc({ id: 'rej_d', kind: 'rej', targetId: 'd' }),
+  ]);
+  const rejectedIndex = Accounts.rowIndex(rejected);
+  assert.equal(Accounts.rowLive(rejected[0], rejectedIndex), false);
+  assert.equal(Accounts.rowCounts(rejected[0], rejectedIndex), false);
+  assert.equal(Accounts.rowLive(rejected[1], rejectedIndex), false);
+  assert.equal(Accounts.rowCounts(rejected[1], rejectedIndex), false);
+  const refusedIndex = Accounts.rowIndex(pending, { m: 'رُفض الإرسال', d: 'رُفض الإرسال' });
+  assert.equal(Accounts.rowLive(pending[0], refusedIndex), false);
+  assert.equal(Accounts.rowCounts(pending[0], refusedIndex), false);
+  assert.equal(Accounts.rowLive(pending[1], refusedIndex), false);
+  assert.equal(Accounts.rowCounts(pending[1], refusedIndex), false);
+  const superseded = [doc({ id: 'm', purpose: 'laborQty' }), doc({ id: 'sup_m', purpose: 'laborQty' })];
+  const supIndex = Accounts.rowIndex(superseded);
+  assert.equal(Accounts.rowLive(superseded[0], supIndex), false);
+  assert.equal(Accounts.rowCounts(superseded[0], supIndex), false);
+});
+
+test('N3: supersede wins', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty' }),
+    doc({ id: 'appr_m', purpose: 'approveLabor', amount: 600000, targetId: 'm' }),
+    doc({ id: 'sup_m', purpose: 'laborQty' }),
+    doc({ id: 'appr_sup_m', purpose: 'approveLabor', amount: 500000, targetId: 'sup_m' }),
+  ];
+  assert.equal(Accounts.balances(rows).net, 500000);
+  assert.equal(Accounts.balances(rows.slice().reverse()).net, 500000);
+  const waiting = rows.slice(0, 3);
+  const waitingBalance = Accounts.balances(waiting);
+  assert.equal(waitingBalance.net, 0);
+  assert.equal(waitingBalance.pendingIds.includes('sup_m'), true);
+});
+
+test('N4: the 480000 fixture with effect removed is still 480000', () => {
+  const rows = fixture480(true).map((row) => {
+    const copy = Object.assign({}, row);
+    delete copy.effect;
+    return copy;
+  });
+  assert.equal(Accounts.balances(rows).net, 480000);
+});
+
+test('L-e: a reversal inside the period of an earlier approval', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', txnDate: '2026-11-01' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', txnDate: '2026-11-01' }),
+    doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr', txnDate: '2026-11-15' }),
+  ];
+  const filter = { periodStart: '2026-11-14', periodEnd: '2026-11-20' };
+  const statement = Accounts.statementLines(rows, filter);
+  assert.equal(statement.opening, 0);
+  assert.equal(lineBy(statement, 'approvedLabor').amount, 0);
+  assert.equal(statement.closing, 0);
+  const refused = [
+    doc({ id: 'm', purpose: 'laborQty', txnDate: '2026-11-01' }),
+    doc({ id: 'appr', purpose: 'approveLabor', amount: 600000, targetId: 'm', txnDate: '2026-11-01' }),
+  ];
+  const shut = Accounts.statementLines(refused, Object.assign({ syncErrors: { appr: 'رُفض الإرسال' } }, filter));
+  assert.equal(shut.opening, 0);
+  assert.equal(shut.closing, 0);
 });
