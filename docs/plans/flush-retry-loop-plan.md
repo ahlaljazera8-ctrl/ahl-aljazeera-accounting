@@ -204,20 +204,20 @@ Not a new rule. Counted entries already skip `syncErrors` (`public/render.js` `c
 
 ## 11. Decisions for Ameer via EA
 
-Plain words. Each one is a recommendation. None of these is a new sentence.
+Answered by EA 21:20, delegated, under Ameer's 00:19 delegation. No new strings.
 
 ### Refuse, or clear the stored flag
 
-Recommendation: refuse. Do not clear `pending` and do not delete it. When this flush cannot send a pending contract or subcontract amount, record the existing «رُفض الإرسال» and leave the number on the phone. Clearing the flag would rewrite stored data on a real device, and it would not stop an amount that is a whole number outside the allowed range.
+Yes. EA 21:20, delegated. Refuse, never clear. Record the existing «رُفض الإرسال». The number stays on the phone. Nothing is deleted or cleared (Ameer's condition: never delete his real data).
 
 ### Are example projects terminal
 
-Recommendation: yes, when the example project still has a pending amount. The amount stays. The bell shows the existing refusal and the flush stops. A real phone does not use example ids. Section 9 question 4 already accepts this on the demo device. That question is a behaviour change: the sample project stops retrying and keeps a permanent refusal in the bell.
+Yes. EA 21:20, delegated. Demo or sample projects with a pending amount become terminal. The amount stays, the existing refusal shows in the bell, and sending stops. This applies to demo projects only; real projects keep their data.
 
 ### How many re-flushes per trigger
 
-Recommendation: one extra flush after a real trigger, and only when the pending amount is not the amount just sent. A save, coming back online, the bell, or opening the app starts the count again. The short timer does not. That is two rounds at most. In the Architect's model, the out-of-range amount fell from about 449 writes a second to two rounds, and a normal contract stayed one round. Do not add a backoff. A backoff would be a poll.
+Yes. EA 21:20, delegated. One extra re-flush per trigger, only when the pending amount differs from what was sent. At most two rounds, no backoff.
 
-### Profit
+### For the reviewer
 
-Any change to the profit figure goes to محاسب أهل الجزيرة. This plan does not change it.
+The Architect must confirm in review that profits, advances and exports are unchanged.
