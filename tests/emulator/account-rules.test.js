@@ -401,6 +401,105 @@ testSeq('project: statementWithProjectCreate denies a closed project, an archive
   await deny(sendStatement(OWNER_A, uuid(4), Object.assign({ projectId: 'missing-project' }, base)));
 });
 
+testSeq('project: slotBodyCreate denies a missing project', async () => {
+  await seed();
+  const id = uuid(1);
+  await allow(send(OWNER_A, 'agreements', id, lump(id)));
+  const slot = slotBody(id, 1, { projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', slot.id, slot));
+});
+
+testSeq('project: laborQtyCreate denies a missing project', async () => {
+  await seed();
+  const id = uuid(1);
+  await allow(send(OWNER_A, 'agreements', id, unitAgreement(id)));
+  const body = measurement(uuid(11), id, 8, { projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', body.id, body));
+});
+
+testSeq('project: supCreate denies a missing project', async () => {
+  await seed();
+  const body = await putUnit(uuid(1), uuid(11), 8);
+  const next = supOf(body, { projectId: 'missing-project', qty: 4 });
+  await deny(send(OWNER_A, 'accountTxns', next.id, next));
+});
+
+testSeq('project: approveLaborCreate denies a missing project', async () => {
+  await seed();
+  const body = await putUnit(uuid(1), uuid(11), 8000);
+  const mark = approval(body.id, uuid(1), 600000, 8000, { projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', mark.id, mark));
+});
+
+testSeq('project: laborStlCreate denies a missing project', async () => {
+  await seed();
+  const { body } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const advance = cash(uuid(21), 'advanceLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
+  const row1 = settle(body.id, advance.id, 1, 500, { projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', row1.id, row1));
+});
+
+testSeq('project: returnAdvanceCreate denies a missing project', async () => {
+  await seed();
+  const advance = cash(uuid(1), 'advanceLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
+  const back = cash(uuid(2), 'returnAdvance', 100, { targetId: advance.id, projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', back.id, back));
+});
+
+testSeq('project: refundLaborCreate denies a missing project', async () => {
+  await seed();
+  const pay = cash(uuid(1), 'payLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
+  const refund = cash(uuid(2), 'refundLabor', 100, { targetId: pay.id, projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', refund.id, refund));
+});
+
+testSeq('project: deductCreate denies a missing project', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const deduct = deductOf(uuid(21), mark.id, 10, { projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', deduct.id, deduct));
+});
+
+testSeq('project: approveDeductCreate denies a missing project', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const deduct = deductOf(uuid(21), mark.id, 100);
+  await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
+  const approved = approveDeductOf(deduct);
+  approved.projectId = 'missing-project';
+  await deny(send(OWNER_A, 'accountTxns', approved.id, approved));
+});
+
+testSeq('project: rejCreate denies a missing project', async () => {
+  await seed();
+  const id = uuid(11);
+  await adminSet('accountTxns', id, Object.assign(measurement(id, uuid(1), 8, { projectId: 'missing-project' }), {
+    createdBy: OWNER_A, createdAtServer: new Date(), deviceId: 'admin',
+  }));
+  const rej = rejOf(id);
+  await deny(send(OWNER_A, 'accountTxns', rej.id, rej));
+});
+
+testSeq('project: revCreate denies a missing project', async () => {
+  await seed();
+  const pay = cash(uuid(1), 'payLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
+  const rev = txnRev(pay, { projectId: 'missing-project' });
+  await deny(send(OWNER_A, 'accountTxns', rev.id, rev));
+});
+
+testSeq('project: revwCreate denies a missing project', async () => {
+  await seed();
+  const pay = cash(uuid(1), 'payLabor', 1000);
+  await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
+  const mark = revwOf(pay);
+  mark.projectId = 'missing-project';
+  await deny(send(OWNER_A, 'accountTxns', mark.id, mark));
+});
+
 testSeq('cancel: slot generation 1 denies agreements/rev_<agreementId>', async () => {
   await seed();
   const openId = uuid(1);

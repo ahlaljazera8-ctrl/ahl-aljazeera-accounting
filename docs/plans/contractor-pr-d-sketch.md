@@ -537,6 +537,7 @@ Project state, on a create that has `projectId`:
 - `project: agreementCreate denies a closed project, an archived project, and a missing project`
 - `project: cashBodyCreate denies a closed project, an archived project, and a missing project`
 - `project: statementWithProjectCreate denies a closed project, an archived project, and a missing project`
+- The other twelve create leaves in this section also `get` the project and require `projectActive`, so a missing project is denied on each of them.
 
 Cancelled agreement. The document is `agreements/rev_<agreementId>`. Each path below is denied when that document exists, and allowed when it does not:
 
