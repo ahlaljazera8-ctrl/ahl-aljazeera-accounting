@@ -312,16 +312,16 @@ function deductCreate()
 
 /**
  * @returns {boolean}
- * Reads: 6. `user`, the `deduct` body, project, party, `exists` of `rej_` of that body,
- * `exists` of `sup_` of that body. Stores no `amount`.
+ * Reads: 6. `user`, the `deduct` body, project, party, `existsAfter` of `rej_` of that body,
+ * `existsAfter` of `sup_` of that body. Stores no `amount`.
  */
 function approveDeductCreate()
 
 /**
  * @returns {boolean}
- * Reads: 5. `user`, the target body, project, party, `exists` of `appr_` of that body.
- * Denied when that `appr_` is already stored. A race where neither doc exists yet
- * can still land both. The fold that lets `rej_` win is not this PR.
+ * Reads: 5. `user`, the target body, project, party, `existsAfter` of `appr_` of that body.
+ * Denied when that `appr_` is already stored. A same-batch `appr_` + `rej_` is denied by `existsAfter`.
+ * Two separate concurrent requests can still both land; the fold lets `rej_` win (B/C, shipped).
  */
 function rejCreate()
 
@@ -435,13 +435,13 @@ A running total of several refunds, several deducts, or `returnAdvance` plus `se
 
 Slot id, for `lump` and amount `milestone` only: `'000' + agreementId.replace('-', '') + gen` with `gen` one character `1`–`9`, length 36. In rules, `string.replace` is a regex replace-all, so every hyphen goes. The test vector locks it: agreement `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee` produces `000aaaaaaaabbbbccccddddeeeeeeeeeeee1`. If the emulator replaces only the first hyphen, that test fails and the code PR stops. The phone must not copy the rules call with JavaScript `replace`, which removes one hyphen. E's slot id uses `replaceAll`. Generation `n` greater than 1 is allowed when `rev_` of `appr_` of slot `n-1` exists, or when `rej_` of slot `n-1` exists. It is denied while slot `n-1` is still pending, and while that slot is approved and its `appr_` is not reversed. A uuid body on that agreement is denied. `sup_` of a slot id is denied. There is no generation 10.
 
-`stl_` id is `stl_` plus the measurement id plus `_` plus one generation character. It does not contain `appr_`. Generation past 1 requires `rev_` of the previous `stl_`. The approval `appr_` plus the measurement id must be live: the approval exists and `rev_` of it does not. The advance named by `settlesId` must be a live `advanceLabor`. `rej_` of the measurement must be absent. Same party, project, and currency on the measurement, the approval, and the advance. Currency is `IQD` on both sides.
+`stl_` id is `stl_` plus the measurement id plus `_` plus one generation character. It does not contain `appr_`. Generation past 1 requires `rev_` of the previous `stl_`. The approval `appr_` plus the measurement id must be live: the approval exists and `rev_` of it does not. The advance named by `settlesId` must be a live `advanceLabor`. A parent named by id must have the parent kind; a `rev_` copy is never a parent. `rej_` of the measurement must be absent. Same party, project, and currency on the measurement, the approval, and the advance. Currency is `IQD` on both sides.
 
 `revw_` names a cash body: `payLabor`, `advanceLabor`, `returnAdvance`, or `refundLabor`. `revw_` of a `deduct` is denied. The cash create does not read `revw_`. The first id is `revw_` plus the cash id. After `rev_` of that id, the next id is `revw_` plus the cash id plus `_` plus `1`, and so on through `9`. No `amount`.
 
 `statementApprovals` stores only the `StatementApproval` keys. `periodKind` is `week` or `month` (Q10). Anything else is denied. The server accepts the document while cash rows are still unreviewed. Two owners can each create one, because each id is a fresh uuid. `periodStart` and `periodEnd` pass `entryDateOk`, and `periodStart <= periodEnd`. A start after the end is denied. An extra key, including `includedIds` or a figure, is denied. A missing party is denied. The week starting on Saturday is a screen rule. It is not a rules predicate. The project `get` lives only in `statementWithProjectCreate`. `statementConsolidatedCreate` does not get a project.
 
-The reversal document is `agreements/rev_<agreementId>` (Q9). `hasOnly` is the `Agreement` keys with exactly the original's method group, plus `reversesId` and `reversalReason`. `createdBy` is the reverser. `agreementsCreate` picks the leaf from the id before any `get`. A normal agreement cannot be written at a `rev_` id, and `agreementCreate` requires `uuidOk` on its own id and no `reversesId`. The reversal's `partyId`, `projectId`, `method`, `currency`, `description`, and method group equal the original already read. `reversalReason` is 1–500 characters. Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. None of the r3 checks adds a read. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read), and its identity fields equal the old body. Deny tests cover each of those paths.
+The reversal document is `agreements/rev_<agreementId>` (Q9). The check is `keys().hasOnly` of the `Agreement` base plus the original's method group plus `reversesId` and `reversalReason`, and every group key is compared with `==`. A missing or changed group key is denied. The Firestore emulator rejects `list + list` (`Unsupported operation error. Received: list + list.`), so `reversalKeys(original.method)` spells that same union. `createdBy` is the reverser. Two owners' reversals differ in `createdBy` and `reversalReason`, so E adopts on the same id and `reversesId`, not on `sameContent`. `agreementsCreate` picks the leaf from the id before any `get`. A normal agreement cannot be written at a `rev_` id, and `agreementCreate` requires `uuidOk` on its own id and no `reversesId`. The reversal's `partyId`, `projectId`, `method`, `currency`, `description`, and method group equal the original already read. `reversalReason` is 1–500 characters. Every labor measurement (`laborQtyCreate`), every slot body (`slotBodyCreate`, both generations), and `approveLaborCreate` require `uuidOk(agreementId)` and `!exists(/databases/$(database)/documents/agreements/$('rev_' + agreementId))`. That is one `exists`, not a `get`, and not a document under `accountTxns`. Q9 does not drop this check. س٢-ب (2026-11-16 00:36 via EA) is the earlier answer and it wins: a cancelled agreement refuses new work and new approval. The counts stay inside 10: measurement 5, slot generation 1 is 5, slot past generation 1 is 7, `approveLabor` is 8. None of the r3 checks adds a read. A `sup_` of a `laborQty` uses the same `exists` when it stores `agreementId` (the sixth read), and its identity fields equal the old body. Deny tests cover each of those paths.
 
 `rej_` is a marker: shared header plus `targetId`. No `amount` and no `purpose`. It is denied when `appr_` of that target is already stored. The target purpose has `needsApproval`. A slot may be rejected. That rejection is what frees the next slot generation.
 
@@ -455,31 +455,31 @@ Agreement method groups, `hasOnly` plus the one group: `lumpAmount`, or `unitRat
 
 One access per named document. No `exists` plus `get` of the same document. No call to `projectOpen` or `isOwner` from a new function. Firebase documents `&&` and `||` as short-circuit, and documents a cap of 10 `let` bindings per function. It does not document that `let` is lazy. This sketch does not claim that. A binding that is not required on every allow path of that function is an `exists`, never a `get` of a document that may be missing. A `get` that is not on every allow path is a separate function, chosen by the dispatcher before any `get`. The source test fails a function with more than 10 `let` bindings. `laborStlCreate` has 9. One more `let` would reach the cap, so ids are written inline in the `get` and `exists` paths. The emulator does not return a read counter. The behaviour matrix below is the proof that each condition can change allow into deny.
 
-| Create                           | Reads     | What is read                                                                                                                   |
-| -------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `partyCreate`                    | 1         | `user`                                                                                                                         |
-| `agreementCreate`                | 3         | `user`, project, party                                                                                                         |
-| `agreementReversalCreate`        | 3         | `user`, original agreement, project                                                                                            |
-| Slot body, generation 1          | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                     |
-| Slot body, generation past 1     | 7         | those five, `rev_` of the previous `appr_`, `rej_` of the previous slot                                                        |
-| Unit or daily `laborQty`         | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                     |
-| `supCreate`                      | 5, or 6   | `user`, project, party, old body, `appr_` of that body, and `agreements/rev_<agreementId>` when `agreementId` is present       |
-| `approveLabor`                   | 8         | `user`, target, agreement, project, party, `rej_` of the target, `sup_` of the target, `exists` `agreements/rev_<agreementId>` |
-| Labor `stl_`, generation 1       | 8         | `user`, project, measurement, `appr_`, that approval's `rev_`, the advance, the advance's `rev_`, `rej_` of the measurement    |
-| Labor `stl_`, generation past 1  | 9         | the generation-1 list plus `rev_` of the previous `stl_`                                                                       |
-| `payLabor` or `advanceLabor`     | 3         | `user`, project, party                                                                                                         |
-| `returnAdvance` or `refundLabor` | 5         | `user`, project, party, the named row, `rev_` of that row                                                                      |
-| Labor `deduct`                   | 5         | `user`, project, party, the `approveLabor`, `rev_` of that approval                                                            |
-| `approveDeduct`                  | 6         | `user`, the `deduct` body, project, party, `rej_` of that body, `sup_` of that body                                            |
-| `rejCreate`                      | 5         | `user`, target body, project, party, `appr_` of that body                                                                      |
-| `revCreate`                      | 3         | `user`, the row named by `reversesId`, project                                                                                 |
-| `revw_`, first mark              | 3         | `user`, the cash row, project                                                                                                  |
-| `revw_`, generation mark         | 4         | those three, plus `rev_` of the previous mark                                                                                  |
-| `statementWithProjectCreate`     | 3         | `user`, party, project                                                                                                         |
-| `statementConsolidatedCreate`    | 2         | `user`, party                                                                                                                  |
-| `accountRead`                    | 1 per doc | `user`                                                                                                                         |
+| Create                           | Reads     | What is read                                                                                                                                               |
+| -------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partyCreate`                    | 1         | `user`                                                                                                                                                     |
+| `agreementCreate`                | 3         | `user`, project, party                                                                                                                                     |
+| `agreementReversalCreate`        | 3         | `user`, original agreement, project                                                                                                                        |
+| Slot body, generation 1          | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                                                 |
+| Slot body, generation past 1     | 7         | those five, `rev_` of the previous `appr_`, `rej_` of the previous slot                                                                                    |
+| Unit or daily `laborQty`         | 5         | `user`, agreement, project, party, `exists` `agreements/rev_<agreementId>`                                                                                 |
+| `supCreate`                      | 5, or 6   | `user`, project, party, old body, `existsAfter` `appr_` of that body, and `agreements/rev_<agreementId>` when `agreementId` is present                     |
+| `approveLabor`                   | 8         | `user`, target, agreement, project, party, `existsAfter` `rej_` of the target, `existsAfter` `sup_` of the target, `exists` `agreements/rev_<agreementId>` |
+| Labor `stl_`, generation 1       | 8         | `user`, project, measurement, `appr_`, that approval's `rev_`, the advance, the advance's `rev_`, `rej_` of the measurement                                |
+| Labor `stl_`, generation past 1  | 9         | the generation-1 list plus `rev_` of the previous `stl_`                                                                                                   |
+| `payLabor` or `advanceLabor`     | 3         | `user`, project, party                                                                                                                                     |
+| `returnAdvance` or `refundLabor` | 5         | `user`, project, party, the named row, `rev_` of that row                                                                                                  |
+| Labor `deduct`                   | 5         | `user`, project, party, the `approveLabor`, `rev_` of that approval                                                                                        |
+| `approveDeduct`                  | 6         | `user`, the `deduct` body, project, party, `existsAfter` `rej_` of that body, `existsAfter` `sup_` of that body                                            |
+| `rejCreate`                      | 5         | `user`, target body, project, party, `existsAfter` `appr_` of that body                                                                                    |
+| `revCreate`                      | 3         | `user`, the row named by `reversesId`, project                                                                                                             |
+| `revw_`, first mark              | 3         | `user`, the cash row, project                                                                                                                              |
+| `revw_`, generation mark         | 4         | those three, plus `rev_` of the previous mark                                                                                                              |
+| `statementWithProjectCreate`     | 3         | `user`, party, project                                                                                                                                     |
+| `statementConsolidatedCreate`    | 2         | `user`, party                                                                                                                                              |
+| `accountRead`                    | 1 per doc | `user`                                                                                                                                                     |
 
-The worst create is still 9. `approveLabor` is 8 after the reversal `exists`. Slot generation past 1 is 7. Unit or daily `laborQty` is 5. All stay under 10. Party, agreement, `sup_`, `rej_`, and the unit/daily body are not separate rows in the plan's v1 table. The counts above are that same convention, plus the one `exists` Ameer required for a reversed agreement. They are not a new cap.
+The worst create is still 9. `approveLabor` is 8 after the reversal `exists`. Slot generation past 1 is 7. Unit or daily `laborQty` is 5. All stay under 10. Six checks use `existsAfter`, counted as one access each: `approveLabor`'s `rej_` and `sup_`, `approveDeduct`'s `rej_` and `sup_`, `rejCreate`'s `appr_`, and `supCreate`'s `appr_`. The other reads stay `exists` or `get`. A same-batch pair of those is at most 8 plus 5, which is 13, under the batch cap of 20. Party, agreement, `sup_`, `rej_`, and the unit/daily body are not separate rows in the plan's v1 table. The counts above are that same convention, plus the one `exists` Ameer required for a reversed agreement. They are not a new cap.
 
 `laborStlCreate` generation past 1, in order:
 
@@ -537,6 +537,7 @@ Project state, on a create that has `projectId`:
 - `project: agreementCreate denies a closed project, an archived project, and a missing project`
 - `project: cashBodyCreate denies a closed project, an archived project, and a missing project`
 - `project: statementWithProjectCreate denies a closed project, an archived project, and a missing project`
+- The other twelve create leaves in this section also `get` the project and require `projectActive`, so a missing project is denied on each of them.
 
 Cancelled agreement. The document is `agreements/rev_<agreementId>`. Each path below is denied when that document exists, and allowed when it does not:
 
@@ -628,7 +629,13 @@ Two owners, rules half. The adopt step stays in E. These are creates only:
 
 - `two owners: the same slot id, appr_, rej_, sup_, rev_, labor stl_, and revw_ — the first create is allowed and the second is denied`
 - `two owners: two payLabor rows with fresh uuids both land`
-- `two owners: one writeBatch holds an appr_ and a rej_ of one body, and both land` [U]. `get` and `exists` see the state before the batch, so each check still passes. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. The mark stays until the emulator run confirms that. Two separate requests are not this test: the first to land would deny the second
+- `batch: appr_ then rej_ of one laborQty in one writeBatch is denied; neither document exists after`
+- `batch: rej_ then appr_ of one laborQty in one writeBatch is denied; neither document exists after`
+- `batch: approveDeduct and rej_ of one deduct in one writeBatch is denied in both orders; neither document exists after`
+- `batch: appr_ and sup_ of one body in one writeBatch is denied in both orders; neither document exists after`
+- `probe: two writes to the same appr_ id in one batch`. The emulator printed `BATCH_SAME_ID {"client":"accepted","commit":"permission-denied","exists":false,"amount":null}`. The document does not exist afterwards
+- `single approveLabor, approveDeduct, rej_, and sup_ are still allowed`
+- `existsAfter` sees the other write in the same batch, so each of those batches is denied. The reads are 8 plus 5, which is 13, inside the batch cap of 20, and each operation stays at most 10. Two separate concurrent requests are not this test: they can still both land, and the fold lets `rej_` win
 - `two owners, distinct uids, each create a party as themselves, and each can read the other's party`
 - `a site user cannot read or create any of the four collections`
 
@@ -643,7 +650,7 @@ Also:
 - source: `firestore.rules` contains no `hashing.sha256`, no `lockId`, and no `inv_`. The parties key list contains no `roles`. The new functions contain no uid literal
 - source: `slotBodyCreate`, `laborQtyCreate`, and `approveLaborCreate` each contain `agreements` and `'rev_' +`
 
-After a project delete at a zero balance, the account rows stay. `revCreate` gets the project, so those rows cannot be reversed once the project is gone. C and F label them. D does not delete them. The phone block is F's `projectDeleteBlock` (`docs/plans/contractor-pr-f-sketch.md` on this merge: F owns the guard, called from `deleteConfirm` and `deleteProjectNow`). D's rules do not add that guard. s7.8 only denies a project-delete batch that also deletes an account row.
+After a project delete at a zero balance, the account rows stay. `revCreate` gets the project, so those rows cannot be reversed once the project is gone. C and F label them. D does not delete them. The phone block is F's `projectDeleteBlock` (`docs/plans/contractor-pr-f-sketch.md` on this merge: F owns the guard, called from `deleteConfirm` and `deleteProjectNow`). On this base `public/render.js` line 944 is `function projectDeleteBlock(id)`, called at line 960 inside `deleteConfirm` and at line 1020 inside `deleteProjectNow`. D's rules do not add that guard. s7.8 only denies a project-delete batch that also deletes an account row.
 
 Code-PR detail, Architect r3 INFO I1, not a sketch blocker. `agreementId` is optional. `supCreate` and `revCreate` compare presence as well as value, `request.resource.data.get('agreementId', null)` against the document already read, so a `sup_` or a `rev_` cannot add or drop the key. The `sup:` test and the `rev:` field-diff test each include an "added" case. No extra read.
 
@@ -659,16 +666,16 @@ No reused string is added to a screen. The v1 string count does not change.
 
 Parallel work, and the files that make D wait:
 
-| Other work                     | Files it edits                                                              | Shared with D                                                                                                                                                                              |
-| ------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Baghdad-date fix, merges first | `public/session.js`, `public/render.js`                                     | none. D does not bump `sw.js`                                                                                                                                                              |
-| Foreman export                 | `public/ledger.js`, `public/render.js`                                      | none                                                                                                                                                                                       |
-| PR B code                      | `public/accounts.js`, and a `sw.js` bump if that PR edits `public/`         | no `public/` file. Both may append `docs/PSTACK_INVENTORY.md`. Rebase the evidence sentence. The `PURPOSES` source test reads ledger and `needsApproval`, which B's sketch does not change |
-| PR C                           | balances in `public/accounts.js`                                            | none, aside from the inventory file if C also appends it                                                                                                                                   |
-| Another phase sketch           | a different file under `docs/plans/`                                        | none. This sketch is `docs/plans/contractor-pr-d-sketch.md` only                                                                                                                           |
-| Receipt-photo PR-R             | `firestore.rules`, `firestore.indexes.json`, `tests/emulator/rules.test.js` | `firestore.rules`. D merges first. PR-R rebases onto that merge.                                                                                                                           |
-| #74                            | `ci.yml` emulator command                                                   | Adds `tests/emulator/offline-cold-start.test.js` and shifts the command and the pass floor by one line. The code PR reads `main`, it does not keep the `baf4f21` line numbers.             |
-| #83                            | unit-test lists in `ci.yml` and `package.json`                              | Those lists become 35 files. D adds no unit file.                                                                                                                                          |
+| Other work                      | Files it edits                                                              | Shared with D                                                                                                                                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baghdad-date fix, merged as #82 | `public/session.js`, `public/render.js`                                     | none. Already on this base. D does not bump `sw.js`                                                                                                                                                              |
+| Foreman export, merged as #84   | `public/ledger.js`, `public/render.js`                                      | none. Already on this base                                                                                                                                                                                       |
+| PR B code, merged as #81        | `public/accounts.js`, and a `sw.js` bump because that PR edits `public/`    | no `public/` file. Already on this base. Both may append `docs/PSTACK_INVENTORY.md`. Rebase the evidence sentence. The `PURPOSES` source test reads ledger and `needsApproval`, which B's sketch does not change |
+| PR C, merged as #75             | balances in `public/accounts.js`                                            | none, aside from the inventory file if C also appends it. Already on this base                                                                                                                                   |
+| Another phase sketch            | a different file under `docs/plans/`                                        | none. This sketch is `docs/plans/contractor-pr-d-sketch.md` only                                                                                                                                                 |
+| Receipt-photo PR-R              | `firestore.rules`, `firestore.indexes.json`, `tests/emulator/rules.test.js` | `firestore.rules`. D merges first. PR-R rebases onto that merge.                                                                                                                                                 |
+| #74                             | `ci.yml` emulator command                                                   | Adds `tests/emulator/offline-cold-start.test.js` and shifts the command and the pass floor by one line. The code PR reads `main`, it does not keep the `baf4f21` line numbers.                                   |
+| #83                             | unit-test lists in `ci.yml` and `package.json`                              | Those lists become 35 files. D adds no unit file.                                                                                                                                                                |
 
 The code PR inserts its emulator path into whatever command `main` has at that base, and sets the pass floor from one green run of that command.
 
@@ -703,7 +710,7 @@ The code PR reverts with `git revert` of that commit on `main`, then a deploy of
 
 ## Dependencies
 
-- PR A is on this base. `Accounts.PURPOSES` already has the nine purposes, all ledger `labor`, with `needsApproval` true only on `laborQty` and `deduct` (`public/accounts.js`). `workPosition` at this base has no `milestone`. The rules still deny percent and allow an amount milestone, because that is the v1 cut, not a new purpose row.
+- PR A is on this base. `Accounts.PURPOSES` already has the nine purposes, all ledger `labor`, with `needsApproval` true only on `laborQty` and `deduct` (`public/accounts.js`). `workPosition` handles `milestone` by calling `milestonePosition` (`public/accounts.js` lines 167 and 199). The rules still deny percent and allow an amount milestone, because that is the v1 cut, not a new purpose row.
 - PR B's sketch is the client half: payments, the cumulative phone refuse, and amount-milestone math. D does not edit `accounts.js`. The code PR rebases onto B if B changes a ledger or a `needsApproval` flag. B's sketch does not.
 - PR C computes balances and the statement. `statementApprovals` stores no figures, so C remains the source of the numbers.
 - E's adopt path waits until Ameer has deployed D. This sketch does not deploy. If E merged first, every new write would be denied. That precondition is E's, and it is why D stays rules-only.
