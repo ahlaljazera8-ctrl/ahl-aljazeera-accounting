@@ -1,14 +1,14 @@
-# Plan: the hot flush loop (r2)
+# Plan: the hot flush loop (r3)
 
-Revision after AgentLab Architect NOTES on the plan at `24910af5` (review sha256 prefix `0ec8e431`). Not an approval. This text sits on `bbac5639`, which records EA's answers. Plan only. No application code in this change. Nothing under `public/`, `tests/`, or `firestore.rules`. The code pull request waits until Architect and EA have reviewed this revision. Ameer approves the merge and any behaviour change.
+Revision after AgentLab Architect NOTES on the plan at `172f6f55`. Not an approval. This text sits on `bec4aeee`, which records EA's answers of 21:20. Plan only. No application code in this change. Nothing under `public/`, `tests/`, or `firestore.rules`. The code pull request waits until Architect and EA have read this revision. Ameer approves the merge and any behaviour change.
 
 - **Repo.** `ahl-aljazeera-accounting`, read at `main` = `d40535a68714dafff60a8fed0481eb37ce751874`.
 - **Gates.** Ameer approves every merge and every behaviour or rules change. All 4 CI checks stay, with no skips and no retries. No spending. `arena` is banned, so the shapes below were written by hand, not spawned.
-- **محاسب أهل الجزيرة was not asked.** This sketch does not change which amounts count, an advance, a ledger rule, an export, or `firestore.rules`. Section 9 records the display answers, EA 21:02, delegated. Section 11 lists the behaviour decisions still for Ameer via EA. Any change to the profit figure asks the advisor before it is treated as a house rule.
+- **محاسب أهل الجزيرة was not asked.** This sketch does not change which amounts count, an advance, a ledger rule, an export, or `firestore.rules`. Section 9 records the display answers, EA 21:02, delegated. Section 11 records the behaviour answers, EA 21:20, delegated, and one line for EA to confirm. Any change to the profit figure asks the advisor before it is treated as a house rule.
 
 ## 0. What the next agent is building
 
-A bound on the immediate `flushRemote()` tail in `public/firebase-client.js`, and one refusal for a pending finance or terms row this flush did not send. The outbox list, the row bodies, the stored amounts, and the `pending` flag stay. No new on-screen sentence. No new IndexedDB field. No edit to a stored flag. No Firestore lock document. No backoff.
+A bound on the immediate `flushRemote()` tail in `public/firebase-client.js`, and one refusal for a pending finance or terms id this round tried to send and did not. The outbox list, the row bodies, the stored amounts, and the `pending` flag stay. No new on-screen sentence. No new IndexedDB field. No edit to a stored flag. No Firestore lock document. No backoff.
 
 r1 named two endless paths and three changes: refuse a seed, clear a bare `pending` flag, and a 0ms timer. Those three do not stop a third path. Architect's model, which is not the app and not the emulator, still did a project write on every round of that path (445 writes in 1,023ms; the review summary is 449 rounds/s). The 0ms timer only stops the page freezing. It does not cap the rate. r2 adds the cap and the general refusal. The timer stays as defence in depth.
 
@@ -108,17 +108,24 @@ A single denied `setDoc` is one attempt. It is not the quota risk. Whether that 
 
 Screened against the architect red flags. The next reader sees one file and copies the nearest call. r1 had two tail sentences that do not agree. "Arm only for an id this flush did not already attempt" drops the in-flight contract, which was attempted, synced, and then re-queued because the amount changed. "Arm unless the id was `failed` or `kept`" re-arms path (c) forever, because that id was `synced`. Both sentences are withdrawn.
 
-**One tail rule.** After a flush that a real trigger started, the tail may arm at most one `setTimeout(flushRemote, 0)`. It arms only when a re-queued id's pending amount differs from the amount this round sent. It does not arm for an id this flush marked `failed` or `kept`. The timer does not reset the count, and it does not count as a new trigger. The next save, online event, bell, boot, `session.js` flush, or `foremen.js` flush resets the count. No backoff. A backoff would be a poll.
+**One tail rule.** This is the preferred fix, not the narrow rule that would leave an edit saved during a flush unsent until the next real trigger. It is for EA to confirm, because it widens the 21:20 wording that the extra flush happens only when the pending amount differs. The cap is one extra round per real trigger. A real trigger that arrives while a flush is running resets that count, even though `flushRemote` returns the run already going (`:525`). Within that same cap of one, the tail may arm one `setTimeout(flushRemote, 0)` when any of these is true: an outbox id was not in this round's `ids`; `statusPending` gained an id this round (`freshStatus`, the check already at `:752-760`); or an id this round did try to send, and its pending amount now differs from the amount this round sent. It does not arm for an id this flush marked `failed` or `kept`. The timer does not reset the count and does not count as a new trigger. No backoff. A backoff would be a poll.
 
-**One refusal, no stored-flag edit.** A pending finance or terms row that this flush did not send is `failed` with `SyncStatus.REJECTED` (`رُفض الإرسال`). The integer stays. `pending` is not cleared and not deleted. This is decided after `writeLocal` returns and before `queuePendingFinance` runs, so the error is already set when the tail looks. It covers:
+A real caller is told apart from the timer because every real caller still uses `flushRemote`, and that call resets the count. The timer calls a module-local starter that does not reset the count. There is no new exported function. When the timer fires it checks `sessionEpoch` and does nothing if the session changed. `disposeFirebase` (`:505`) and a session change clear both the count and the timer.
 
-- (a) a seed, because `write` never runs and the pending amount was not sent;
+**One refusal, no stored-flag edit.** Only an id in this round's `ids` snapshot. If that id is a seed, or its write returned without sending `projectFinance` or `subcontractTerms`, it is `failed` with `SyncStatus.REJECTED` (`رُفض الإرسال`). A row whose `pending` was set after the snapshot was not attempted, so it is not refused: a contract typed during the flush must not gain a sticky error. The integer stays. `pending` is not cleared and not deleted. This is decided after `writeLocal` returns and before `queuePendingFinance` runs, so the error is already set when the tail looks. It covers:
+
+- (a) a seed in this round's `ids`, because `write` never runs and the pending amount was not sent;
 - (b) a `pending` row with no integer, because `splitProjectSave` returns no finance;
-- (c) an integer below 0 or above `MAX_AMOUNT_IQD`, because `splitProjectSave` returns no finance after the project `setDoc`.
+- (c) an integer below 0 or above `MAX_AMOUNT_IQD`, because `splitProjectSave` returns no finance after the project `setDoc`;
+- (d) a non-owner, because `writeLocal` returns at `:270` (`!Ledger.can(user, 'owner')`) before any finance write.
 
 A legacy amount on the project row is not this case. `splitProjectSave` uses `contractAmountOf` when the finance row has no integer, sends that amount, and the existing success path clears `pending` only after that send. The code pull request must not refuse that row and must not clear it before the send.
 
-The in-flight contract is not this case either. `writeLocal` sends the amount it had and leaves `pending` when a newer amount arrived during the write (`:278-283`). The pending amount differs from the amount sent, so the one allowed re-arm sends the newer amount. A stable amount then clears `pending` and stops, as the valid-contract row already does in one round.
+The amount this round sent comes from a local map for that round only, filled by the `write` wrapper inside `performFlush`. It is not a stored field.
+
+The in-flight contract is not a refusal. `writeLocal` sends the amount it had and leaves `pending` when a newer amount arrived during the write (`:278-283`). The pending amount differs from the amount in that map, so the one allowed re-arm sends the newer amount. A stable amount then clears `pending` and stops, as the valid-contract row already does in one round.
+
+The NOTES on `172f6f55` include a model, not the app and not the emulator. Under this wider rule, paths (a), (b), and (c) stay one round with the amount and `pending` kept, and an amount that changes on every round without a new save still stops at two rounds. Those are the same results as the narrower r2 rule. The wider rule is what also sends an entry saved during the pull, and a contract re-saved during the re-flush.
 
 The 0ms timer is only so a mistaken re-arm yields a task, and the page can paint. It is not the rate cap. The cap is. The refusal is what stops (a), (b), and (c) from being re-queued at all.
 
@@ -130,13 +137,13 @@ Shapes that were not chosen: r1's clear of a bare flag, because it rewrites stor
 
 `FlushCall`, `flushOutbox`'s result (`synced`, `kept`, `failed`, `adopted`, `authDead`), and `syncErrors` stay the types in `types/checkjs.d.ts`. No new field. No new store. The outbox remains a list of ids (`public/session.js` writes `{id, queuedAt}` and reads the ids back).
 
-| File                                 | Change                                                                                                                                                                                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/firebase-client.js`          | After `applyFlush`, mark an unsent pending finance or terms row `failed` with `رُفض الإرسال`. Do not edit `pending` or the amount. The tail is the one rule in section 4. The real triggers listed in section 1 reset the re-arm count. |
-| `public/sw.js`                       | At merge, the next free `aj-p0-vN` as section 0 says. Required because `public/` changes.                                                                                                                                               |
-| `tests/flush-retry.test.js`          | The behaviour in section 8 that does not need the emulator, with fake timers. Add the file to the ledger job's `node --test` list in `.github/workflows/ci.yml` and to `package.json` `"test"`.                                         |
-| `tests/emulator/flush-retry.test.js` | The rules denial, the one project write then stop for path (c), and the restore. Add the file to the emulator job's explicit list and to `package.json` `"test:emulator"`.                                                              |
-| `docs/PSTACK_INVENTORY.md`           | No row in this plan. The code pull request can add a section then. `setup-pstack` stays «ناقصة».                                                                                                                                        |
+| File                                 | Change                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/firebase-client.js`          | After `applyFlush`, refuse only an id in this round's `ids` that was not sent, including the non-owner return at `:270`. The amount just sent is a per-round local map. The tail is the one rule in section 4. `flushRemote` resets the count; the timer's starter does not. Clear both on session change. |
+| `public/sw.js`                       | At merge, the next free `aj-p0-vN` as section 0 says. Required because `public/` changes.                                                                                                                                                                                                                  |
+| `tests/flush-retry.test.js`          | The behaviour in section 8 that does not need the emulator, with fake timers. Add the file to the ledger job's `node --test` list in `.github/workflows/ci.yml` and to `package.json` `"test"`.                                                                                                            |
+| `tests/emulator/flush-retry.test.js` | The rules denial, the one project write then stop for path (c), and the restore. Add the file to the emulator job's explicit list and to `package.json` `"test:emulator"`.                                                                                                                                 |
+| `docs/PSTACK_INVENTORY.md`           | No row in this plan. The code pull request can add a section then. `setup-pstack` stays «ناقصة».                                                                                                                                                                                                           |
 
 `queuePendingFinance` and `queuePendingSubcontracts` keep their predicate. `applyFlush` stays the writer of the outbox filter; the refusal adds the error before the tail, by the same `failed` shape `applyFlush` already understands. `public/render.js` stays. EA 21:02, delegated: no new sentence. `shownContract` (`public/render.js:154-157`) still returns the integer and does not read `syncErrors`. This sketch does not change that.
 
@@ -156,7 +163,7 @@ The outbox is per device database, `aj-u-<uid>` (`public/session.js`). Two owner
 
 The measured check: owner B's cache was deep-equal after owner A's denial. The code pull request repeats that with two signed-in owners, each with his own cache, and asserts the one who did not flush is unchanged.
 
-Two tabs of the same user share IndexedDB and do not share memory. `get` and `set` in `public/session.js` read and write that tab's `cache`. One tab can record the refusal while the other tab's memory still has no error and would re-queue. Each tab also has its own `flushing` flag and its own re-arm count, so a loop on one tab does not stop the other. The cap in section 4 applies per tab. The code pull request's test uses one shared store and two memories, runs path (c) on both, and asserts each tab stops inside the cap and the shared integer is still there.
+Two tabs of the same user share IndexedDB and do not share memory. `get` and `set` in `public/session.js` read and write that tab's `cache`. `set` writes the whole `syncErrors` map, so one tab's memory can overwrite the other's. That overwrite already happens today. One tab can record the refusal while the other tab's memory still has no error and would re-queue. Each tab also has its own `flushing` flag and its own re-arm count, so a loop on one tab does not stop the other. The cap in section 4 applies per tab, so path (c) costs at most one project write per real trigger per tab. The code pull request's test uses one shared store and two memories, runs path (c) on both, and asserts each tab stops inside the cap and the shared integer is still there.
 
 ## 8. Tests
 
@@ -167,7 +174,7 @@ These fail on `d40535a6`, where the cap and the refusal are absent. Run them the
 1. A seed project with a pending integer, online, with a session user: after the fake timers drain, at most 2 rounds, no project `setDoc`, the project and the integer still there, `pending` still set, the error `رُفض الإرسال`.
 2. Path (c), an integer above `MAX_AMOUNT_IQD` with `pending`: one project `setDoc`, then stop. The integer and `pending` stay. The error is `رُفض الإرسال`. A second project write after the drain fails the test.
 3. `{pending:true}` with no integer: one project `setDoc`, then stop. The project row stays. `pending` is not deleted.
-4. An id whose pending amount changes on every round: at most 2 rounds. This is the cap's own test.
+4. An id whose pending amount changes on every round, with no new save: at most 2 rounds. This is the cap's own test.
 
 These stay green on the fix, and the mutations below must turn the matching ones red:
 
@@ -178,12 +185,18 @@ These stay green on the fix, and the mutations below must turn the matching ones
 9. Offline: no `setDoc`.
 10. A valid owner contract: one round, one project write, one finance write, the integer remains, `pending` is gone.
 11. A legacy `contractAmount` on the project row, with a finance row that is `pending` and has no integer: that legacy amount is sent. It is not refused, and it is not cleared before the send.
-12. An amount that changes during the one write: the single re-arm sends the new integer, then stops. The first integer is not deleted before the second write. A third round fails the test.
+12. An amount that changes during the one write, with no further save: the single re-arm sends the new integer, then stops. The first integer is not deleted before the second write. A third round fails the test only in that case, where the amount changes without a save. A save during the re-flush is a real trigger: it resets the count, and the new amount is sent.
 13. Two owners: after one denial, the other owner's outbox, finance, and rows are deep-equal.
-14. Two tabs, one user: shared store, separate memory, path (c) on both. Each tab stays inside the cap. The shared integer remains.
+14. Two tabs, one user: shared store, separate memory, path (c) on both. Each tab stays inside the cap. The shared integer remains. The whole-map overwrite of `syncErrors` is the one that already exists today.
 15. The restore in section 6, twice, on the emulator.
+16. An entry saved during the pull is sent after the timers drain.
+17. A contract re-saved during the re-flush is sent.
+18. A contract saved on a second project during the flush is not refused and is sent.
+19. A non-owner return at `writeLocal` `:270`, with a pending finance row on that id: the row is refused, the amount stays, and `pending` is not cleared.
 
-Mutations, each of which must make a green test red: remove the one-re-arm cap (test 4 exceeds 2 rounds); restore `return flushRemote()` and drop the unsent-pending refusal (tests 1, 2, and 3 no longer stop); refuse a legacy project-level amount (test 11 goes red).
+Mutations, each of which must make a green test red: remove the one-re-arm cap (test 4 exceeds 2 rounds); drop only the unsent-pending refusal (tests 1, 2, and 3 no longer stop); remove only the cap, with the refusal left in place (test 4 still exceeds 2 rounds); restore `return flushRemote()` and drop the refusal together (tests 1, 2, and 3 no longer stop); refuse a legacy project-level amount (test 11 goes red). The refusal-only mutation and the cap-only mutation are run on their own, not only as a pair.
+
+Carried from #85, and not part of this fix: the browser-check source guard matches single-quoted `send('Page...')` only, and the timeout diagnostic covers only the wait after navigation.
 
 All four jobs stay: `lint, format, types`, `ledger tests`, `browser checks`, `emulator rules and sync`. The new node file goes on the ledger job's explicit list. The new emulator file goes on the emulator job's explicit list. The pass floors (34 and 45) are not lowered. `tests/browser-check.js` is not edited, so its 226 checks stay, and the 30s CDP deadline stays. No `it.skip`, no retry of a failed check, no second attempt hidden in the test.
 
@@ -208,7 +221,7 @@ Answered by EA 21:20, delegated, under Ameer's 00:19 delegation. No new strings.
 
 ### Refuse, or clear the stored flag
 
-Yes. EA 21:20, delegated. Refuse, never clear. Record the existing «رُفض الإرسال». The number stays on the phone. Nothing is deleted or cleared (Ameer's condition: never delete his real data).
+Yes. EA 21:20, delegated. Refuse, never clear. Record the existing «رُفض الإرسال». The number stays on the phone. Nothing is deleted or cleared (Ameer's condition: never delete his real data). Clearing the flag does not fix path (c): an out-of-range amount is still a whole number, so a clear that only removes a flag with no integer leaves that row pending, and the project write repeats.
 
 ### Are example projects terminal
 
@@ -216,7 +229,13 @@ Yes. EA 21:20, delegated. Demo or sample projects with a pending amount become t
 
 ### How many re-flushes per trigger
 
-Yes. EA 21:20, delegated. One extra re-flush per trigger, only when the pending amount differs from what was sent. At most two rounds, no backoff.
+Yes. EA 21:20, delegated. One extra re-flush per trigger, only when the pending amount differs from what was sent. At most two rounds, no backoff. In the Architect's model, not an emulator run, about 449 writes a second drops to 2 rounds, and a normal contract stays at 1 round.
+
+For EA to confirm: the preferred fix widens that 21:20 wording, "only when the pending amount differs". The same cap of one also re-arms for an outbox id that was not in this round and for a new status change, and a real trigger that arrives during a flush resets the count. Still at most one extra round per trigger. The narrow rule is not the one in this plan. That rule would leave the edit unsent until the next real trigger, and EA would have to accept that delay.
+
+### Profit
+
+Any change to the profit figure goes to محاسب أهل الجزيرة. This plan does not change it.
 
 ### For the reviewer
 
