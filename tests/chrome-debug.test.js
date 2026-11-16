@@ -210,8 +210,33 @@ test('a hash navigation that misses its url throws both hrefs', () => {
   );
   assert.doesNotThrow(() => landed(expected, expected));
   const src = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
-  const go = src.slice(src.indexOf('const go = async url'), src.indexOf('const reload = async'));
+  const go = src.slice(src.indexOf('const go = async'), src.indexOf('const reload = async'));
   assert.match(go, /^( *)if \(!\(await sameDocument\(url\)\)\) \{\n(?:\1 [^\n]*\n)*?\1 +assertHashLanded\(/m);
+});
+
+function sliceBetween(src, startMark, endMark) {
+  const start = src.indexOf(startMark);
+  const end = src.indexOf(endMark, start + startMark.length);
+  assert.ok(start >= 0, startMark);
+  assert.ok(end >= 0, endMark);
+  assert.ok(start < end);
+  return src.slice(start, end);
+}
+
+test('browser-check owns network emulation and document loads', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
+  const helper = sliceBetween(src, 'const setNetwork = async offline', 'const assertDeclared');
+  assert.ok(helper.includes('Network.emulateNetworkConditions'));
+  assert.equal(src.replace(helper, '').includes('Network.emulateNetworkConditions'), false);
+  const goBody = sliceBetween(src, 'const go = async', 'const reload = async');
+  assert.equal(goBody.includes("send('Page.navigate'"), true);
+  assert.equal(goBody.includes("send('Page.reload'"), false);
+  const reloadBody = sliceBetween(src, 'const reload = async', 'const results = []');
+  assert.equal(reloadBody.includes("send('Page.reload'"), true);
+  assert.equal(reloadBody.includes("send('Page.navigate'"), false);
+  const outside = src.replace(goBody, '').replace(reloadBody, '');
+  assert.equal(outside.includes("send('Page.navigate'"), false);
+  assert.equal(outside.includes("send('Page.reload'"), false);
 });
 
 test('stopAndWait throws when the process ignores the kill', { timeout: 10000 }, async () => {

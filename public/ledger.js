@@ -765,6 +765,295 @@
     return 'لا يمكن الحذف: فيه مصاريف عهدة لـ ' + names.join('، ') + '. سوِّ العهدة أو أرشف المشروع';
   }
 
+  const FOREMAN_CUSTODY_COLS = [
+    'رقم الخلفة', 'اسم الخلفة', 'نوع الصف', 'النوع', 'الرقم', 'التاريخ', 'رقم المشروع', 'اسم المشروع',
+    'المبلغ', 'المبلغ بإشارته', 'أثر العهدة', 'الملاحظة', 'قيد عكسي', 'رقم المعكوس', 'سبب التصحيح',
+    'أدخله', 'وقت الجهاز', 'رقم الجهاز',
+  ];
+  const FOREMAN_SUMMARY_COLS = [
+    'رقم الخلفة', 'اسم الخلفة', 'السلف', 'التسديد', 'مجموع المصروف', 'الاستلام (المُرجَع)', 'المتبقي معه', 'مستحق للخلفة',
+  ];
+  /** @type {Readonly<Record<'advance' | 'settle' | 'return', string>>} */
+  const MOVE_KIND_LABEL = { advance: 'سلفة', settle: 'تسديد', return: 'استلام' };
+  const CUSTODY_ROW_MOVE = 'حركة';
+  const CUSTODY_ROW_EXPENSE = 'مصروف من عهدة';
+  const CUSTODY_YES = 'نعم';
+  const CUSTODY_NO = 'لا';
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function westernDigits(value) {
+    const raw = value == null ? '' : String(value);
+    return raw
+      .replace(/[\u0660-\u0669]/g, digit => String(digit.charCodeAt(0) - 0x0660))
+      .replace(/[\u06F0-\u06F9]/g, digit => String(digit.charCodeAt(0) - 0x06F0));
+  }
+
+  /** @param {unknown} value */
+  function custodyCell(value) {
+    return csvCell(westernDigits(value));
+  }
+
+  /** @param {unknown} value */
+  function plainText(value) {
+    return value == null ? '' : String(value);
+  }
+
+  /**
+   * @param {unknown} amount
+   * @param {number} effectSign
+   * @param {number} sign
+   */
+  function custodyMoney(amount, effectSign, sign) {
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) {
+      return { amount: '', signedAmount: '', custodyEffect: '', signed: /** @type {number | null} */ (null) };
+    }
+    const signed = amount * sign;
+    return {
+      amount: String(amount),
+      signedAmount: String(signed),
+      custodyEffect: effectSign === 0 ? '' : String(effectSign * signed),
+      signed,
+    };
+  }
+
+  /**
+   * @typedef {{
+   *   foremanId: string,
+   *   foremanName: string,
+   *   rowType: string,
+   *   kind: string,
+   *   bucket: string,
+   *   id: string,
+   *   date: string,
+   *   projectId: string,
+   *   projectName: string,
+   *   amount: string,
+   *   signedAmount: string,
+   *   custodyEffect: string,
+   *   note: string,
+   *   isReversal: string,
+   *   reversesId: string,
+   *   reversalReason: string,
+   *   createdBy: string,
+   *   createdAtDevice: string,
+   *   deviceId: string,
+   *   sortDevice: number,
+   *   signed: number | null,
+   * }} CustodyRow
+   */
+
+  /**
+   * @param {readonly Foreman[] | null | undefined} foremen
+   * @param {readonly ForemanMove[] | null | undefined} moves
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {readonly LedgerProject[] | null | undefined} projects
+   * @param {Record<string, unknown> | null | undefined} [errors]
+   * @returns {CustodyRow[]}
+   */
+  function foremanCustodyRows(foremen, moves, entries, projects, errors) {
+    const err = errors || {};
+    /** @param {{ id?: string } | null | undefined} row */
+    const live = row => !!(row && row.id && !err[row.id]);
+    /** @type {Map<string, string>} */
+    const foremanNames = new Map();
+    /** @type {string[]} */
+    const listedIds = [];
+    for (const person of foremen || []) {
+      if (!person || typeof person.id !== 'string' || !person.id || foremanNames.has(person.id)) continue;
+      foremanNames.set(person.id, typeof person.name === 'string' ? person.name : '');
+      listedIds.push(person.id);
+    }
+    /** @type {Map<string, string>} */
+    const projectNames = new Map();
+    for (const project of projects || []) {
+      if (!project || typeof project.id !== 'string' || !project.id || projectNames.has(project.id)) continue;
+      projectNames.set(project.id, typeof project.name === 'string' ? project.name : '');
+    }
+    /** @type {CustodyRow[]} */
+    const rows = [];
+    for (const move of moves || []) {
+      if (!live(move) || typeof move.foremanId !== 'string' || !move.foremanId) continue;
+      const bucket = move.kind === 'advance' || move.kind === 'settle' || move.kind === 'return' ? move.kind : '';
+      const effectSign = bucket === 'return' ? -1 : bucket ? 1 : 0;
+      const money = custodyMoney(move.amount, effectSign, rowSign(move));
+      const device = move.createdAtDevice;
+      rows.push({
+        foremanId: move.foremanId,
+        foremanName: foremanNames.has(move.foremanId) ? /** @type {string} */ (foremanNames.get(move.foremanId)) : '',
+        rowType: CUSTODY_ROW_MOVE,
+        kind: bucket ? MOVE_KIND_LABEL[bucket] : '',
+        bucket,
+        id: plainText(move.id),
+        date: plainText(move.date),
+        projectId: '',
+        projectName: '',
+        amount: money.amount,
+        signedAmount: money.signedAmount,
+        custodyEffect: money.custodyEffect,
+        note: plainText(move.note),
+        isReversal: move.isReversal === true ? CUSTODY_YES : CUSTODY_NO,
+        reversesId: plainText(move.reversesMoveId),
+        reversalReason: plainText(move.reversalReason),
+        createdBy: plainText(move.createdBy),
+        createdAtDevice: plainText(device),
+        deviceId: plainText(move.deviceId),
+        sortDevice: typeof device === 'number' && Number.isFinite(device) ? device : 0,
+        signed: money.signed,
+      });
+    }
+    for (const entry of entries || []) {
+      if (!live(entry) || entry.direction !== 'expense' || typeof entry.foremanId !== 'string' || !entry.foremanId) continue;
+      const typeInfo = entry.entryType ? ENTRY_TYPES[entry.entryType] : null;
+      const money = custodyMoney(entry.amount, -1, rowSign(entry));
+      const projectId = typeof entry.projectId === 'string' ? entry.projectId : '';
+      const device = entry.createdAtDevice;
+      rows.push({
+        foremanId: entry.foremanId,
+        foremanName: foremanNames.has(entry.foremanId) ? /** @type {string} */ (foremanNames.get(entry.foremanId)) : '',
+        rowType: CUSTODY_ROW_EXPENSE,
+        kind: typeInfo ? typeInfo.label : '',
+        bucket: 'expense',
+        id: plainText(entry.id),
+        date: plainText(entry.entryDate),
+        projectId,
+        projectName: projectId && projectNames.has(projectId) ? /** @type {string} */ (projectNames.get(projectId)) : '',
+        amount: money.amount,
+        signedAmount: money.signedAmount,
+        custodyEffect: money.custodyEffect,
+        note: plainText(entry.description),
+        isReversal: entry.isReversal === true ? CUSTODY_YES : CUSTODY_NO,
+        reversesId: plainText(entry.reversesEntryId),
+        reversalReason: plainText(entry.reversalReason),
+        createdBy: plainText(entry.createdBy),
+        createdAtDevice: plainText(device),
+        deviceId: plainText(entry.deviceId),
+        sortDevice: typeof device === 'number' && Number.isFinite(device) ? device : 0,
+        signed: money.signed,
+      });
+    }
+    /** @type {Map<string, number>} */
+    const order = new Map();
+    listedIds.forEach((id, index) => order.set(id, index));
+    /** @type {string[]} */
+    const unknown = [];
+    const seenUnknown = new Set();
+    for (const row of rows) {
+      if (order.has(row.foremanId) || seenUnknown.has(row.foremanId)) continue;
+      seenUnknown.add(row.foremanId);
+      unknown.push(row.foremanId);
+    }
+    unknown.sort();
+    unknown.forEach((id, index) => order.set(id, listedIds.length + index));
+    rows.sort((a, b) => {
+      const left = order.get(a.foremanId) || 0;
+      const right = order.get(b.foremanId) || 0;
+      if (left !== right) return left - right;
+      if (a.date < b.date) return -1;
+      if (a.date > b.date) return 1;
+      if (a.sortDevice !== b.sortDevice) return a.sortDevice - b.sortDevice;
+      if (a.id < b.id) return -1;
+      if (a.id > b.id) return 1;
+      return 0;
+    });
+    return rows;
+  }
+
+  /**
+   * @param {CustodyRow} row
+   * @returns {string}
+   */
+  function custodyLine(row) {
+    return [
+      row.foremanId, row.foremanName, row.rowType, row.kind, row.id, row.date, row.projectId, row.projectName,
+      row.amount, row.signedAmount, row.custodyEffect, row.note, row.isReversal, row.reversesId, row.reversalReason,
+      row.createdBy, row.createdAtDevice, row.deviceId,
+    ].map(cell => custodyCell(cell)).join(',');
+  }
+
+  /**
+   * @param {readonly string[]} header
+   * @param {readonly string[]} lines
+   */
+  function csvDocument(header, lines) {
+    return '\uFEFF' + [header.join(',')].concat(lines).join('\r\n') + '\r\n';
+  }
+
+  /**
+   * @param {readonly Foreman[] | null | undefined} foremen
+   * @param {readonly ForemanMove[] | null | undefined} moves
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {readonly LedgerProject[] | null | undefined} projects
+   * @param {Record<string, unknown> | null | undefined} [errors]
+   */
+  function foremanCustodyToCSV(foremen, moves, entries, projects, errors) {
+    const rows = foremanCustodyRows(foremen, moves, entries, projects, errors);
+    return csvDocument(FOREMAN_CUSTODY_COLS, rows.map(custodyLine));
+  }
+
+  /**
+   * @param {readonly Foreman[] | null | undefined} foremen
+   * @param {string} id
+   */
+  function listedForemanName(foremen, id) {
+    for (const person of foremen || []) {
+      if (person && person.id === id) return typeof person.name === 'string' ? person.name : '';
+    }
+    return '';
+  }
+
+  /**
+   * @param {readonly Foreman[] | null | undefined} foremen
+   * @param {readonly ForemanMove[] | null | undefined} moves
+   * @param {readonly LedgerEntry[] | null | undefined} entries
+   * @param {Record<string, unknown> | null | undefined} [errors]
+   */
+  function foremanSummaryToCSV(foremen, moves, entries, errors) {
+    const rows = foremanCustodyRows(foremen, moves, entries, null, errors);
+    /** @type {string[]} */
+    const ids = [];
+    const seen = new Set();
+    for (const person of foremen || []) {
+      if (!person || typeof person.id !== 'string' || !person.id || seen.has(person.id)) continue;
+      seen.add(person.id);
+      ids.push(person.id);
+    }
+    /** @type {string[]} */
+    const extra = [];
+    for (const row of rows) {
+      if (seen.has(row.foremanId)) continue;
+      seen.add(row.foremanId);
+      extra.push(row.foremanId);
+    }
+    extra.sort();
+    const lines = ids.concat(extra).map(id => {
+      const mine = rows.filter(row => row.foremanId === id);
+      const add = (/** @type {string} */ bucket) => mine.reduce((total, row) => {
+        if (row.bucket !== bucket || row.signed == null) return total;
+        return total + row.signed;
+      }, 0);
+      const fig = foremanBalance(id, moves, entries, errors);
+      /** @type {ForemanExportSummary} */
+      const summary = {
+        foremanId: id,
+        foremanName: mine.length ? mine[0].foremanName : listedForemanName(foremen, id),
+        advances: add('advance'),
+        settled: add('settle'),
+        spent: add('expense'),
+        returned: add('return'),
+        remaining: fig.remaining,
+        owedToForeman: fig.owedToForeman,
+      };
+      return [
+        summary.foremanId, summary.foremanName, summary.advances, summary.settled, summary.spent,
+        summary.returned, summary.remaining, summary.owedToForeman,
+      ].map(cell => custodyCell(cell)).join(',');
+    });
+    return csvDocument(FOREMAN_SUMMARY_COLS, lines);
+  }
+
   /**
    * @param {unknown} check
    * @param {string} projectId
@@ -782,8 +1071,71 @@
     }
   }
 
+  const PERSON_DELETE_UNCHECKED = 'لا يمكن الحذف: تعذر التحقق من رصيد الشخص.';
+
+  /**
+   * @param {number} amount
+   */
+  function personDeleteAmount(amount) {
+    return fmt(amount);
+  }
+
+  /**
+   * @param {string} name
+   * @param {number} amount
+   * @param {string} word
+   */
+  function personDeleteSentence(name, amount, word) {
+    return 'لا يمكن الحذف: رصيد ' + name + ' في هذا المشروع ليس صفراً (' + word + ' ' + personDeleteAmount(amount) + ' د.ع). سوِّ الحساب أو أرشف المشروع';
+  }
+
+  /**
+   * @param {string} projectId
+   * @param {readonly FoldDoc[] | null | undefined} docs
+   * @param {readonly { id?: string, name?: string }[] | null | undefined} parties
+   * @param {Record<string, unknown> | null | undefined} syncErrors
+   * @param {((docs: readonly FoldDoc[], filter: BalanceFilter) => { net: number }) | null | undefined} balancesFn
+   * @returns {string}
+   * The missing-function check runs before the person walk.
+   * A missing balancesFn returns the unchecked sentence even when no person has a row.
+   * The whole body is in one try. A non-array docs or parties returns the unchecked sentence.
+   * net must pass Number.isFinite. NaN and Infinity are the unchecked sentence.
+   * A project row whose partyId is missing from parties, or whose name is empty, is the unchecked sentence.
+   * '' when every named person with a row on projectId has net 0.
+   * String 87 when net is above 0. The amount is net.
+   * String 86 when net is below 0. The amount is -net.
+   * Does not read Accounts.
+   */
+  function personProjectDeleteBlock(projectId, docs, parties, syncErrors, balancesFn) {
+    if (typeof balancesFn !== 'function') return PERSON_DELETE_UNCHECKED;
+    try {
+      if (!Array.isArray(docs) || !Array.isArray(parties)) return PERSON_DELETE_UNCHECKED;
+      const errors = syncErrors && typeof syncErrors === 'object' ? syncErrors : {};
+      /** @type {string[]} */
+      const seen = [];
+      for (const doc of docs) {
+        if (!doc || doc.projectId !== projectId || typeof doc.partyId !== 'string' || doc.partyId.length === 0) continue;
+        if (seen.indexOf(doc.partyId) < 0) seen.push(doc.partyId);
+      }
+      for (const partyId of seen) {
+        const person = parties.find(item => item && item.id === partyId);
+        const name = person && typeof person.name === 'string' ? person.name.trim() : '';
+        if (!name) return PERSON_DELETE_UNCHECKED;
+        const balance = balancesFn(docs, { partyId, projectId, syncErrors: errors });
+        const net = balance && balance.net;
+        if (typeof net !== 'number' || !Number.isFinite(net)) return PERSON_DELETE_UNCHECKED;
+        if (net > 0) return personDeleteSentence(name, net, 'مستحق له');
+        if (net < 0) return personDeleteSentence(name, -net, 'مستحق عليه');
+      }
+      return '';
+    } catch {
+      return PERSON_DELETE_UNCHECKED;
+    }
+  }
+
   return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
-    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete,
-    rememberedProjectName, deletedProjectEntries, canExportRejected, rejectedLogoutBlocked, rejectedEntriesToCSV, REJECTED_HEADERS };
+    baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete, personProjectDeleteBlock,
+    rememberedProjectName, deletedProjectEntries, canExportRejected, rejectedLogoutBlocked, rejectedEntriesToCSV, REJECTED_HEADERS,
+    FOREMAN_CUSTODY_COLS, FOREMAN_SUMMARY_COLS, foremanCustodyToCSV, foremanSummaryToCSV };
 });

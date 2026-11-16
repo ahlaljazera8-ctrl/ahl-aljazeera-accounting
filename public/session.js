@@ -2,7 +2,7 @@
 // IndexedDB "aj-p0" / "aj-u-<uid>" (stores: projects, entries, outbox, meta).
 // Loaded into memory at boot; every write is persisted (write-through, serialized).
 // Outbox = ids not sent yet (no syncState). Login and logout live here too.
-var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending', peopleSynced:'peopleSynced', goneProjectNames:'goneProjectNames', rejectedExportedIds:'rejectedExportedIds' };
+var K = { projects:'projects', entries:'entries', outbox:'outbox', users:'users', finance:'projectFinance', subcontracts:'subcontracts', terms:'subcontractTerms', amendments:'subcontractAmendments', foremen:'foremen', foremanMoves:'foremanMoves', parties:'parties', agreements:'agreements', accountTxns:'accountTxns', role:'role', device:'deviceId', seeded:'seeded', sessionUser:'sessionUser', syncErrors:'syncErrors', pullWatermark:'pullWatermark', statusPending:'statusPending', peopleSynced:'peopleSynced', goneProjectNames:'goneProjectNames', rejectedExportedIds:'rejectedExportedIds' };
 /** @type {Record<string, 1>} */
 var LIST = { projects:1, entries:1, outbox:1 };
 /** @type {SessionCache} */
@@ -91,7 +91,52 @@ function uuid() {
   for (let i = 0; i < 16; i++) hex += bytes[i].toString(16).padStart(2, '0');
   return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
 }
-function today() { return new Date().toISOString().slice(0, 10); }
+// Baghdad is UTC+3 all year (Iraq abolished DST in 2008). The +3 h path runs
+// only when Intl lacks the zone or throws, or when formatToParts is not YYYY-MM-DD.
+// render.js calls today() once per entry inside a filter, so the formatter is built once.
+var BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000;
+/** @type {Intl.DateTimeFormat | null} */
+var baghdadFmt = null;
+var baghdadFmtFailed = false;
+
+/**
+ * Calendar day in Asia/Baghdad for an instant, as YYYY-MM-DD.
+ * Ignores the phone's zone setting; depends only on the clock value.
+ * @param {number} ms epoch milliseconds
+ * @returns {string}
+ */
+function baghdadDate(ms) {
+  if (!baghdadFmtFailed) {
+    try {
+      const fmt =
+        baghdadFmt ||
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Baghdad',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        });
+      baghdadFmt = fmt;
+      const parts = fmt.formatToParts(new Date(ms));
+      /** @param {string} type */
+      const g = type => {
+        const part = parts.find(p => p.type === type);
+        return part ? part.value : '';
+      };
+      const day = g('year') + '-' + g('month') + '-' + g('day');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+    } catch (err) {
+      baghdadFmtFailed = true;
+      baghdadFmt = null;
+    }
+  }
+  return new Date(ms + BAGHDAD_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** @returns {string} today's Baghdad calendar day, YYYY-MM-DD */
+function today() {
+  return baghdadDate(Date.now());
+}
 function demoRole() { const r = new URLSearchParams(location.search).get('role'); return r === 'owner' || r === 'site' ? r : ''; }
 function me() {
   // Cast: get() is unknown, and a guard is not the same as s && s.uid.
@@ -268,7 +313,7 @@ async function outboxEmpty() {
   } catch (e) { return false; }
 }
 /** @type {Record<string, 1>} */
-var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'accounts-view.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
 /**
  * @param {string} raw
  * @returns {boolean}
@@ -369,7 +414,7 @@ async function enterSession(fb, uid, data) {
   set(K.sessionUser, profile);
   showApp();
   render();
-  flushRemote();
+  flushRemote({ fromOutside: true });
 }
 // Classic-script globals app.js calls. The var and function bindings are already
 // the same window properties; naming them here keeps the cross-file use visible.

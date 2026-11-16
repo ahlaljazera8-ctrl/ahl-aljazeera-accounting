@@ -1,6 +1,7 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
 const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
+const { createCdpSession, openCdpSocket, isCdpTimeout, isCdpSocketError } = require('./cdp-session.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function assertHashLanded(expected, actual) {
@@ -13,15 +14,27 @@ let chrome;
   const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
   chrome = opened.chrome;
   const tgt = opened.page;
-  const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
-  let id = 0; const pend = {}; const navLoaders = [];
-  ws.onmessage = m => {
-    const d = JSON.parse(m.data);
-    if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
-    if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; }
-  };
-  const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
-  const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
+  const ws = await openCdpSocket(tgt.webSocketDebuggerUrl);
+  const navLoaders = [];
+  /** @type {{ kind: 'frameNavigated' | 'loadingFinished', loaderId: string }[]} */
+  const navSeen = [];
+  /** @type {Record<string, string>} */
+  const requestLoader = {};
+  let networkEnabled = false;
+  const { send, ev } = createCdpSession(ws, {
+    onEvent(d) {
+      if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
+      if (d.method === 'Network.requestWillBeSent' && d.params && d.params.requestId) {
+        requestLoader[d.params.requestId] = d.params.loaderId || '';
+      }
+      if (d.method === 'Page.frameNavigated' && d.params && d.params.frame) {
+        navSeen.push({ kind: 'frameNavigated', loaderId: d.params.frame.loaderId || '' });
+      }
+      if (d.method === 'Network.loadingFinished' && d.params && d.params.requestId) {
+        navSeen.push({ kind: 'loadingFinished', loaderId: requestLoader[d.params.requestId] || '' });
+      }
+    }
+  });
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   fs.mkdirSync('/tmp/aj-dl', { recursive: true });
@@ -43,7 +56,11 @@ let chrome;
       try {
         const now = await ev(`({o:performance.timeOrigin,r:document.body&&document.body.dataset.ready==='1'})`);
         return !!(now && now.o !== origin && now.r);
-      } catch (e) { return false; }
+      } catch (e) {
+        if (isCdpTimeout(e)) logNav(loaderId);
+        if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
+        return false;
+      }
     };
     if (roleDemo(url)) {
       await sleep(900);
@@ -62,10 +79,36 @@ let chrome;
       const href = await ev('location.href');
       return !!href && new URL(href).href === new URL(target).href;
     } catch (e) {
+      if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
       return false;
     }
   };
-  const go = async url => {
+  let netOffline = false;
+  const setNetwork = async offline => {
+    netOffline = !!offline;
+    await send('Network.emulateNetworkConditions', {
+      offline: netOffline,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1,
+    });
+  };
+  const assertDeclared = opts => {
+    const declared = !!(opts && opts.offline);
+    if (netOffline && !declared) throw new Error('browser-check: navigating while offline; pass {offline:true}');
+    if (!netOffline && declared) throw new Error('browser-check: navigating while online; do not pass {offline:true}');
+  };
+  /**
+   * @param {string} loaderId
+   */
+  const logNav = loaderId => {
+    const unknown = !loaderId || loaderId === 'reload';
+    const frame = unknown ? 'n/a' : (navSeen.some(row => row.kind === 'frameNavigated' && row.loaderId === loaderId) ? 'yes' : 'no');
+    const finished = unknown || !networkEnabled ? 'n/a' : (navSeen.some(row => row.kind === 'loadingFinished' && row.loaderId === loaderId) ? 'yes' : 'no');
+    console.error('browser-check: navigation ' + loaderId + ' frameNavigated=' + frame + ' loadingFinished=' + finished);
+  };
+  const go = async (url, opts) => {
+    assertDeclared(opts);
     const origin = await ev('performance.timeOrigin');
     const message = await send('Page.navigate', { url });
     const loaderId = loaderOf(message);
@@ -77,6 +120,7 @@ let chrome;
         try {
           actual = String((await ev('location.href')) || '');
         } catch (e) {
+          if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
           actual = '';
         }
         let expectedHref = url;
@@ -94,7 +138,8 @@ let chrome;
     }
     await waitReady(url, loaderId, origin);
   };
-  const reload = async params => {
+  const reload = async (params, opts) => {
+    assertDeclared(opts);
     const origin = await ev('performance.timeOrigin');
     const url = await ev('location.href');
     const before = navLoaders.length;
@@ -337,8 +382,10 @@ let chrome;
   // offline reload: SW must control page, then block network
   await ev(`navigator.serviceWorker.ready.then(()=>1)`); await go(`${BASE}index.html?role=owner#home`);
   check('service worker controls page', await ev('!!navigator.serviceWorker.controller'));
-  await send('Network.enable'); await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-  await reload({ ignoreCache: false });
+  await send('Network.enable');
+  networkEnabled = true;
+  await setNetwork(true);
+  await reload({ ignoreCache: false }, { offline: true });
   const off = await ev(`(()=>{const btn=document.querySelector('#outbox');const badge=btn&&btn.querySelector('.bell-badge');const n=String((AJ.get('outbox')||[]).length);return {t:document.querySelector('main')?.innerText||'', label:(btn&&btn.getAttribute('aria-label'))||'', badge:badge?badge.textContent:'', hidden:!(badge&&badge.hidden===false), on:navigator.onLine, n}})()`);
   check('offline reload renders app with data', off.t.includes('صافي الربح') && off.n === String(after) && off.label.includes('لم يُرسل بعد: ' + off.n) && off.label.includes('بدون إنترنت') && off.badge === off.n && off.hidden === false && off.on === false);
   await send('Page.captureScreenshot', { format: 'png' }).then(s => fs.writeFileSync(path.join(SHOTS, 'offline-reload-owner-home.png'), Buffer.from(s.result.data, 'base64')));
@@ -516,7 +563,7 @@ let chrome;
   await sleep(200);
   const hiddenContract = await ev(`document.querySelector('#main').innerText`);
   check('site project still has no contract after the owner save', !hiddenContract.includes('قيمة العقد') && !hiddenContract.includes('1,234,567') && !hiddenContract.includes('60,000,000') && await ev(`!document.querySelector('#contract')`));
-  await go(`${BASE}index.html?role=owner#entry`);
+  await go(`${BASE}index.html?role=owner#entry`, { offline: true });
   const keptForm = await ev(`(()=>{
     document.querySelector('#desc').value = 'ملاحظة لا تُمسح';
     document.querySelector('#party').value = 'جهة لا تُمسح';
@@ -693,7 +740,7 @@ let chrome;
   } catch (e) { return String(e && e.message || e); } })()`);
   check('many entries are stored in the local cache', wrote === 'ok');
   await ev(`location.hash='#entries/p-school'; 1`);
-  await send('Page.reload', { ignoreCache: false });
+  await reload({ ignoreCache: false }, { offline: true });
   await sleep(1500);
   for (let i = 0; i < 40 && !(await ev(`document.body && document.body.dataset.ready==='1' && location.hash.indexOf('#entries/p-school')===0`)); i++) await sleep(150);
   const paged = await listView('owner', 'p-school');
@@ -767,7 +814,7 @@ let chrome;
   })()`);
   console.log('owner tabs ' + JSON.stringify(tabs));
   const green = 'rgb(15, 92, 77)';
-  check('owner home fills the home tab and keeps five tappable tabs', tabs && tabs.order === 'home,entry,projects,people,foremen' && tabs.labels === 'الرئيسية|قيد جديد|المشاريع|الأشخاص|العُهد' && tabs.icons === true && tabs.rtl === true && tabs.on === 'home' && tabs.bg === green && tabs.color === 'rgb(255, 255, 255)' && tabs.others.indexOf(green) === -1 && tabs.boxes.every(b => b.w >= 44 && b.h >= 44) && tabs.radius >= 20 && tabs.shadow && tabs.shadow !== 'none' && tabs.side >= 8 && tabs.bottom >= 46 && tabs.pad >= 170 && tabs.hz === false);
+  check('owner home fills the home tab and keeps six tappable tabs', tabs && tabs.order === 'home,entry,projects,people,foremen,accounts' && tabs.labels === 'الرئيسية|قيد جديد|المشاريع|الأشخاص|العُهد|حسابات' && tabs.icons === true && tabs.rtl === true && tabs.on === 'home' && tabs.bg === green && tabs.color === 'rgb(255, 255, 255)' && tabs.others.indexOf(green) === -1 && tabs.boxes.every(b => b.w >= 44 && b.h >= 44) && tabs.radius >= 20 && tabs.shadow && tabs.shadow !== 'none' && tabs.side >= 8 && tabs.bottom >= 46 && tabs.pad >= 170 && tabs.hz === false);
   const entryBox = await ev(`(()=>{
     const a = document.querySelector('.tabs a[data-tab="entry"]');
     const r = a.getBoundingClientRect();
@@ -840,7 +887,7 @@ let chrome;
   })()`);
   check('a long recorder name can be stored', planted === 'stored');
   await send('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true });
-  await go(`${BASE}index.html?role=owner&fresh=long#project/p-school`);
+  await go(`${BASE}index.html?role=owner&fresh=long#project/p-school`, { offline: true });
   await ev(`dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(300);
   const longRow = await ev(`(async ()=>{
@@ -911,7 +958,7 @@ let chrome;
     return { bad: bad.id, good: good.id, goodAmount: good.amount };
   })()`);
   check('a rejected entry id was chosen for the export', !!(rejectedId && rejectedId.bad && rejectedId.good));
-  await go(`${BASE}index.html?role=owner&fresh=csv#home`);
+  await go(`${BASE}index.html?role=owner&fresh=csv#home`, { offline: true });
   await sleep(300);
   const csvExport = await ev(`(async () => {
     const orig = URL.createObjectURL;
@@ -982,7 +1029,7 @@ let chrome;
     });
   })()`);
   check('view-all fixtures are stored', plantedView === 'ok');
-  await go(`${BASE}index.html?role=owner&fresh=viewall#entries/p-school`);
+  await go(`${BASE}index.html?role=owner&fresh=viewall#entries/p-school`, { offline: true });
   await ev(`dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(300);
   const viewAll = await ev(`(()=>{
@@ -1012,7 +1059,7 @@ let chrome;
   })()`);
   console.log('view-all rejected ' + JSON.stringify(viewAll));
   check('view-all count and list drop a server rejection and keep a pending entry', viewAll && viewAll.pendingOk === true && viewAll.rejectedStored === true && viewAll.rejectedIds.length >= 1 && viewAll.listHasRejected === false && viewAll.listHasPending === true && viewAll.textHasRejectedParty === false && viewAll.textHasPendingParty === true && viewAll.shown === viewAll.rows && viewAll.rows > 0 && viewAll.total === viewAll.stored - viewAll.rejectedIds.length && viewAll.total < viewAll.stored && viewAll.shown <= viewAll.total);
-  await go(`${BASE}index.html?role=owner#project/p-market`);
+  await go(`${BASE}index.html?role=owner#project/p-market`, { offline: true });
   await ev(`document.querySelector('#project-manage').scrollIntoView({block:'center'})`);
   await sleep(250);
   const shotView = async file => { const s = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, file), Buffer.from(s.result.data, 'base64')); };
@@ -1060,7 +1107,7 @@ let chrome;
   await ev(`document.querySelector('[data-list="open"]').click(); 1`);
   await sleep(150);
   check('the restored project is back on the main list', await ev(`(()=>{const text=document.querySelector('#main').innerText||'';return text.includes('بناية السوق')&&text.includes('مشروع المدرسة')&&!!document.querySelector('#newproj')})()`));
-  await go(`${BASE}index.html?role=owner#entry/p-school`);
+  await go(`${BASE}index.html?role=owner#entry/p-school`, { offline: true });
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   const overPaid = await ev(`(()=>{
@@ -1087,7 +1134,7 @@ let chrome;
     return { before, after: rows.length, amount: row && row.amount, date: row && row.date, controls: document.querySelectorAll('#main button').length };
   })()`);
   check('subcontracts: an amendment is appended and the form does not offer edit or delete', added && added.after === added.before + 1 && added.amount === 200000 && added.date === '2026-10-28');
-  await go(`${BASE}index.html?role=owner#project/p-school`);
+  await go(`${BASE}index.html?role=owner#project/p-school`, { offline: true });
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   await ev(`document.querySelector('#project-manage').scrollIntoView({block:'center'}); 1`);
@@ -1144,7 +1191,7 @@ let chrome;
     market:(AJ.get('entries')||[]).filter(e=>e.projectId==='p-market').length,
     road:(AJ.get('projects')||[]).some(p=>p.id==='p-road'),
   })`);
-  await go(`${BASE}index.html?role=owner#project/p-market`);
+  await go(`${BASE}index.html?role=owner#project/p-market`, { offline: true });
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(200);
   await ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-delete').click(); document.querySelector('#confirm-yes').click(); 1`);
@@ -1194,6 +1241,70 @@ let chrome;
     return { text, dir, tab:document.querySelector('[data-tab="foremen"]')&&document.querySelector('[data-tab="foremen"]').textContent };
   })()`);
   check('owner العُهد list shows the owed foreman and LTR amounts', list && list.tab.includes('العُهد') && list.text.includes('حسن') && list.text.includes('مستحق له') && list.text.includes('300,000') && list.text.includes('335,000') && list.text.includes('35,000') && list.dir==='ltr');
+  check('owner sees تصدير العهدة on العُهد', await ev(`(document.querySelector('[data-fm="export"]')||{}).textContent==='تصدير العهدة (CSV)'`));
+  const summaryCard = await ev(`(() => {
+    const text = document.querySelector('#main').innerText;
+    const csv = Ledger.foremanSummaryToCSV(AJ.get('foremen'), AJ.get('foremanMoves'), AJ.get('entries'), AJ.get('syncErrors') || {});
+    const line = csv.slice(1).replace(/\\r$/, '').split('\\r\\n').find(row => row.indexOf('fm-hassan') === 0);
+    const cells = line ? line.split(',') : [];
+    return { text, advances: cells[2], spent: cells[4], remaining: cells[6], owed: cells[7], arabic: /[\\u0660-\\u0669\\u06F0-\\u06F9]/.test(csv) };
+  })()`);
+  check('the summary row matches السلف and مجموع المصروف and مستحق للخلفة', summaryCard && summaryCard.text.includes('السلف') && summaryCard.text.includes('300,000') && summaryCard.text.includes('مجموع المصروف') && summaryCard.text.includes('335,000') && summaryCard.text.includes('مستحق للخلفة') && summaryCard.text.includes('35,000') && summaryCard.advances === '300000' && summaryCard.spent === '335000' && summaryCard.remaining === '0' && summaryCard.owed === '35000' && summaryCard.arabic === false);
+  const sharedFiles = await ev(`(async () => {
+    let calls = 0;
+    let names = [];
+    navigator.canShare = () => true;
+    navigator.share = payload => {
+      calls += 1;
+      names = (payload.files || []).map(file => file.name);
+      return Promise.resolve();
+    };
+    document.querySelector('[data-fm="export"]').click();
+    await new Promise(r => setTimeout(r, 40));
+    const note = document.querySelector('#fm-export-note');
+    const text = document.querySelector('#main').innerText || '';
+    return { calls, names, note: note ? note.textContent : '', shown: text.includes('ما انفتحت المشاركة') };
+  })()`);
+  check('one tap shares both custody files and shows no fallback note', sharedFiles && sharedFiles.calls === 1 && sharedFiles.names.length === 2 && sharedFiles.names[0].indexOf('aj-foreman-custody-') === 0 && sharedFiles.names[1].indexOf('aj-foreman-summary-') === 0 && sharedFiles.note === '' && sharedFiles.shown === false);
+  const abortedExport = await ev(`(async () => {
+    let downloads = 0;
+    const orig = URL.createObjectURL;
+    URL.createObjectURL = function () { downloads += 1; return orig.apply(this, arguments); };
+    navigator.canShare = () => true;
+    navigator.share = () => Promise.reject(Object.assign(new Error('cancel'), { name: 'AbortError' }));
+    try { document.querySelector('[data-fm="export"]').click(); }
+    finally { await new Promise(r => setTimeout(r, 40)); }
+    URL.createObjectURL = orig;
+    const note = document.querySelector('#fm-export-note');
+    return { downloads, note: note ? note.textContent : '' };
+  })()`);
+  check('cancelling the custody share shows no fallback note', abortedExport && abortedExport.downloads === 0 && abortedExport.note === '');
+  const downloadedExport = await ev(`(async () => {
+    const origUrl = URL.createObjectURL;
+    const origClick = HTMLAnchorElement.prototype.click;
+    const blobs = [];
+    const names = [];
+    URL.createObjectURL = function (blob) { blobs.push(blob); return origUrl.apply(this, arguments); };
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download) names.push(String(this.download));
+      return origClick.apply(this, arguments);
+    };
+    navigator.canShare = () => false;
+    let bytes = [];
+    try {
+      document.querySelector('[data-fm="export"]').click();
+      await new Promise(r => setTimeout(r, 40));
+      for (const blob of blobs) bytes.push([...(new Uint8Array(await blob.arrayBuffer()))].slice(0, 3));
+    } finally {
+      URL.createObjectURL = origUrl;
+      HTMLAnchorElement.prototype.click = origClick;
+    }
+    const note = document.querySelector('#fm-export-note');
+    const text = document.querySelector('#main').innerText || '';
+    const sentence = 'ما انفتحت المشاركة، فانحفظ ملفين بالتنزيلات: ملف العهدة وملف الملخص.';
+    return { names, bytes, note: note ? note.textContent : '', shown: text.includes(sentence) };
+  })()`);
+  check('a failed share downloads both custody files and shows the fallback note', downloadedExport && downloadedExport.names.length === 2 && downloadedExport.names[0].indexOf('aj-foreman-custody-') === 0 && downloadedExport.names[1].indexOf('aj-foreman-summary-') === 0 && downloadedExport.bytes.length === 2 && downloadedExport.bytes.every(b => b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) && downloadedExport.note === 'ما انفتحت المشاركة، فانحفظ ملفين بالتنزيلات: ملف العهدة وملف الملخص.' && downloadedExport.shown === true);
   await ev(`location.hash='#foreman/fm-hassan'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
   check('a deleted default project shows the warning', await ev(`document.querySelector('#main').innerText.includes('المشروع الافتراضي محذوف') && document.querySelector('#main').innerText.includes('تسديد المستحق (35,000)') && document.querySelector('#main').innerText.includes('صرف حسن من جيبه')`));
@@ -1267,7 +1378,8 @@ let chrome;
   })()`);
   check('a saved foreman tag does not carry onto the next expense', cleared && cleared.emptyBefore===true && cleared.first==='fm-hassan' && cleared.empty===true && (cleared.second===undefined || cleared.second===''));
   await send('Network.enable');
-  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  networkEnabled = true;
+  await setNetwork(true);
   const cachedOffline = await ev(`(()=>{
     history.replaceState(null, '', location.pathname + '#people');
     const owner = (get(K.users)||[]).find(u => u.uid==='u-ameer');
@@ -1288,7 +1400,7 @@ let chrome;
     return { name: name ? name.value : '', uid: uid ? uid.value : '', err: !!document.querySelector('#people-error'), note: !!document.querySelector('#people-sync') };
   })()`);
   check('owner with cached people offline still opens the person', cachedPerson && cachedPerson.uid==='u-ahmed' && cachedPerson.name.indexOf('أحمد')===0 && cachedPerson.err===false && cachedPerson.note===true);
-  await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await setNetwork(false);
   await go(BASE + 'index.html?role=owner#home');
   const hanging = await ev(`(async()=>{
     history.replaceState(null, '', location.pathname + '#people');
@@ -1411,7 +1523,7 @@ let chrome;
   check('a saved person whose refresh fails shows the update note, not the save error', savedRefresh && !savedRefresh.thrown && savedRefresh.hash==='#people' && savedRefresh.msg!=='تعذر حفظ الشخص' && savedRefresh.note.includes('تعذّر التحديث') && savedRefresh.note.includes('آخر تحديث') && savedRefresh.note.includes('غير متصل')===false && savedRefresh.name==='أحمد المحفوظ');
   check('the local save stays one row and the next refresh replaces it', savedRefresh && savedRefresh.count===1 && savedRefresh.refreshed===true && savedRefresh.nextCount===1 && savedRefresh.nextName==='أحمد الخادم');
   check('a failed people refresh does not advance the last update', savedRefresh && savedRefresh.synced===savedRefresh.stamp && savedRefresh.stamp>0);
-  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await setNetwork(true);
   const savedOffline = await ev(`(async()=>{
     const owner = { uid:'u-ameer', displayName:'أمير', email:'owner@example.invalid', role:'owner', active:true, assignedProjectIds:[] };
     const ahmed = { uid:'u-ahmed', displayName:'أحمد', email:'ahmed@example.invalid', role:'site', active:true, assignedProjectIds:['p-school','p-road'] };
@@ -1518,6 +1630,14 @@ let chrome;
     return { hash: location.hash, msg: msg ? msg.textContent : '' };
   })()`);
   check('a rejected save still says the person was not saved', saveFailed && saveFailed.hash.indexOf('#person/')===0 && saveFailed.msg==='تعذر حفظ الشخص');
+  // The app files are shared-global scripts, so the rejected-save mock is what performFlush calls
+  // (firebase-client.js:624). The mock has no writeLocal, so the write fails, the id leaves the outbox,
+  // queuePendingFinance puts p-school back, and the tail at firebase-client.js:747-755 calls flushRemote again.
+  // That loop runs as microtasks and starves the page. These stubs stop it on this document only. The next go
+  // discards the page. How the old offline navigation entered the same loop is still unproven.
+  await ev('window.flushRemote = () => Promise.resolve(); window.refreshDirectory = () => {}; 1');
+  await setNetwork(false);
+  await ev('AJ.flush().then(()=>1)');
   await go(`${BASE}index.html?role=owner&fresh=rejected#home`);
   await sleep(300);
   const rejectedHome = await ev(`(async () => {
@@ -1698,6 +1818,21 @@ let chrome;
     return { text, file, alerts, login: document.querySelector('#login').hidden === false };
   })()`);
   check('a site user exports only his row and is not blocked by another user', siteScreen && siteScreen.text.includes('مشروع المدرسة') && siteScreen.text.includes('مشروع الطريق') === false && siteScreen.file.includes('rej-mine') && siteScreen.file.includes('rej-foreign') === false && siteScreen.alerts.length === 0 && siteScreen.login === true);
+  await ev(`location.hash='#foremen'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  check('a site user has no custody export button', await ev(`!document.querySelector('[data-fm="export"]') && ((document.querySelector('#main') && document.querySelector('#main').innerText) || '').includes('تصدير العهدة') === false`));
+  await go(`${BASE}index.html?role=owner#accounts`);
+  await sleep(250);
+  check('demo owner accounts list is empty and has no create button', await ev(`(() => {
+    const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    return text.includes('لا توجد حسابات أشخاص.') && text.includes('+ شخص جديد') === false && !!document.querySelector('a[data-tab="accounts"]');
+  })()`));
+  await go(`${BASE}index.html?role=site#accounts`);
+  await sleep(250);
+  check('a site user has no accounts tab and sees the owner sentence', await ev(`(() => {
+    const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    return !document.querySelector('a[data-tab="accounts"]') && text.includes('هذه الشاشة للمالك.');
+  })()`));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
