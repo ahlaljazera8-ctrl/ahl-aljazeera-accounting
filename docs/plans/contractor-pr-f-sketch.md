@@ -4,13 +4,15 @@ No code in this pull request. No edit to `public/`, `firestore.rules`, or `publi
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Spec: `contractor-module-spec.md`. Questions: `QUESTIONS-AMEER-ar-r2.28.md`. Format reference: `contractor-pr-b-sketch-r3.md` (sha256 `bc8c9a1e93da0503e92933d5849d251599e2d0d04d0622581be70853c45dfdc2`). PR B's types and functions are what B adds. This sketch does not re-specify them.
 
-Base for the later code PR: `baf4f21fc54c156989334e826d19990b8e5e8a74` (v58, service worker `aj-p0-v58`). `public/accounts.js` from PR A is already on that commit. Every file:line below was read there. The plan's older line numbers are corrected in Citations.
+Citations of the app are from `origin/main` `24fb839556bae41d9f721ad8f09ce61a0e0f55b5` unless a line says otherwise. That commit is the date fix (#82, v59), the foreman custody export (#84, v60), and PR B (#81, v61). C's names are from `docs/plans/contractor-pr-c-sketch.md` at `604d73466d8564e055908fcb1dcf56df0c0b0957`.
 
 Arena was not run. Ameer's gate bans it (cost). Three shapes are compared below by hand. The chosen shape is the foremen screen module, applied to the approved v1 cut.
 
 Revision r2, against Architect NOTES on `5ab3cb3e` (review sha256 `1110e9c617fa318d8f355b33b05ce23ddbb19eebab2fa521e31b9c17068d59d1`). This revision also keeps the milestoneMode follow-up: PR D requires the field, so every milestone this screen writes sets `milestoneMode: 'amount'`.
 
 EA, on Ameer's delegation, approved the defaults in `QUESTIONS-FOR-EA-r1.md` (sha256 prefix `13723e6e`) at 00:52 Baghdad on 2026-11-16. Where `answers-EA-delegated-0034.md` (sha256 prefix `c14b9c84`) differs, the earlier answer wins. This lane folds in Q5, Q16–Q22, and Q47. Q18 stays «مستحق عليه».
+
+Revision r3, against Architect NOTES on `f553b504`. H1: F owns the project-delete guard. M1 through M4, and L1 through L8, are in the sections named in the closing table. No new Arabic is treated as final. Strings that are not in the 88, and not the already approved «الخصم أكبر من العمل المعتمد», sit under strings for Ameer and are not painted.
 
 ## Scope
 
@@ -30,7 +32,7 @@ F is the owner screen `#accounts` and the read-only person page `#account/<id>`.
 Out of F. Phase 2 and the later action PRs stay out:
 
 - Materials, invoices, USD, attachments, the role list, percent milestones, `fxRate` other than 1.
-- The twelve saves belong to G–J. F does not implement them. F paints a button only for an action that is already in `AccountActions`. With none registered, no write button is drawn.
+- The 15 save ids in the F to G-J contract belong to G, H, I, and J. F does not implement them. F paints a button only for an action that is already in `AccountActions`. With none registered, no write button is drawn.
 - `projectCost`, home totals, the owner project spent figure, site `spent`. Those are K, and K stays gated while `CONTRACTOR_COST_START` is null.
 - Rules, the adopt path, and `accounts.js`.
 
@@ -38,35 +40,38 @@ Out of F. Phase 2 and the later action PRs stay out:
 
 ## Files the code PR may edit
 
-| File                                                                  | Change                                                                                                                                                                                                                                       |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/accounts-view.js`                                             | New module. The list, the four tabs, the filters, the live statement, and the create-person form. Same wrapper as `public/foremen.js`.                                                                                                       |
-| `public/render.js`                                                    | Call `AccountsView.install`, `syncTab`, and `onClick`. Add the four guarded `install` calls in the F to G–J contract. Point `#accounts` and `#account` at the accounts tab. Set the heading from the party name. No tab markup in this file. |
-| `public/index.html`                                                   | One script tag for `accounts-view.js` after `accounts.js` and before `render.js`.                                                                                                                                                            |
-| `public/sw.js`                                                        | Add the file to `ASSETS` and `SHELL`. `VERSION` is the next free value at merge time (Q5). The date fix is v59. This file does not claim a number.                                                                                           |
-| `public/session.js`                                                   | Add `accounts-view.js` to `SHELL_FILES` only. Add `K.parties`, `K.agreements`, or `K.accountTxns` only if E has not already added them.                                                                                                      |
-| `public/style.css`                                                    | No new class is expected. Reuse `.card`, `.kv`, `.pill`, `.pills`, `.note`, `.field`, `.msg`, `.btn`. Edit this file only if a row needs a class that is not already there. A comment-only edit still bumps `VERSION`. Prefer no edit.       |
-| `tests/accounts-view.test.js`                                         | New behaviour tests below.                                                                                                                                                                                                                   |
-| `tests/browser-check.js`                                              | The demo empty state and the site gate.                                                                                                                                                                                                      |
-| `tests/shell-cache.test.js`                                           | Script order, the new precache name, and the three `VERSION` pins.                                                                                                                                                                           |
-| `tests/webkit-upgrade.test.js`                                        | `MARK` matches the same `VERSION`.                                                                                                                                                                                                           |
-| `package.json`                                                        | Append the new test file to `"test"`. Append `tsc --noEmit -p tsconfig.strict-accounts-view.json` to `"typecheck"`. CI runs that script in the `lint, format, types` job (`.github/workflows/ci.yml` line 44).                               |
-| `.github/workflows/ci.yml`                                            | The same test-file string, in the same place, so the ledger job list and `package.json` `"test"` stay identical.                                                                                                                             |
-| `tsconfig.strict-accounts-view.json`                                  | New. Same shape as `tsconfig.strict-foremen.json`: extends `tsconfig.json`, `"strict": true`, include `public/accounts-view.js` and `types/checkjs.d.ts`.                                                                                    |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`             | Drive steps for the two new ids. An unknown id still exits 3.                                                                                                                                                                                |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`   | Two new lines.                                                                                                                                                                                                                               |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts.md` | New feature file.                                                                                                                                                                                                                            |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/account.md`  | New feature file.                                                                                                                                                                                                                            |
-| `scripts/verify-aj.js`                                                | `drive` accepts `accounts` and `account`. Every other id still throws exit 3 (`scripts/verify-aj.js` lines 1308-1310).                                                                                                                       |
-| `docs/PSTACK_INVENTORY.md`                                            | Evidence on the F rows named in section 16 of the plan: `principle-experience-first`, `maintain-verification-skill`. Do not flip a status word.                                                                                              |
+| File                                                                  | Change                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/accounts-view.js`                                             | New module. The list, the four tabs, the filters, the live statement, and the create-person form. Same wrapper as `public/foremen.js`.                                                                                                                                                                                                                                                        |
+| `public/render.js`                                                    | Call `AccountsView.install`, `syncTab`, and `onClick` outside `if (window.ForemenUI)` (`public/render.js` line 1435 at `24fb8395`). Add the four guarded `install` calls there too. `deleteConfirm` (`public/render.js` line 944) also shows the person-balance block. Point `#accounts` and `#account` at the accounts tab. Set the heading from the party name. No tab markup in this file. |
+| `public/ledger.js`                                                    | Add `personProjectDeleteBlock` next to `foremanDeleteBlock` (`public/ledger.js` line 755). Export it beside that function (line 1076). No other edit.                                                                                                                                                                                                                                         |
+| `types/checkjs.d.ts`                                                  | Declare `AccountActions`, `AccountAction`, `AccountScopeFlag`, and `AccountWork`, `AccountPayment`, `AccountCorrect`, `AccountStatement` on `Window`. `RenderApi` stays the interface at line 727.                                                                                                                                                                                            |
+| `public/index.html`                                                   | One script tag for `accounts-view.js` after `accounts.js` and before `render.js`.                                                                                                                                                                                                                                                                                                             |
+| `public/sw.js`                                                        | Add the file to `ASSETS` and `SHELL`. `VERSION` is the next free value at merge time (Q5). The date fix is v59. This file does not claim a number.                                                                                                                                                                                                                                            |
+| `public/session.js`                                                   | Add `accounts-view.js` to `SHELL_FILES` only. Add `K.parties`, `K.agreements`, or `K.accountTxns` only if E has not already added them.                                                                                                                                                                                                                                                       |
+| `public/style.css`                                                    | No new class is expected. Reuse `.card`, `.kv`, `.pill`, `.pills`, `.note`, `.field`, `.msg`, `.btn`. Edit this file only if a row needs a class that is not already there. A comment-only edit still bumps `VERSION`. Prefer no edit.                                                                                                                                                        |
+| `tests/accounts-view.test.js`                                         | Screen tests and the contract tests below.                                                                                                                                                                                                                                                                                                                                                    |
+| `tests/person-delete.test.js`                                         | Strings 86 and 87. A rejected approval does not block.                                                                                                                                                                                                                                                                                                                                        |
+| `tests/browser-check.js`                                              | The demo empty state and the site gate.                                                                                                                                                                                                                                                                                                                                                       |
+| `tests/shell-cache.test.js`                                           | Script order, the new precache name, and the three `VERSION` pins.                                                                                                                                                                                                                                                                                                                            |
+| `tests/webkit-upgrade.test.js`                                        | `MARK` matches the same `VERSION`.                                                                                                                                                                                                                                                                                                                                                            |
+| `package.json`                                                        | Append the new test file to `"test"`. Append `tsc --noEmit -p tsconfig.strict-accounts-view.json` to `"typecheck"`. CI runs that script in the `lint, format, types` job (`.github/workflows/ci.yml` line 44).                                                                                                                                                                                |
+| `.github/workflows/ci.yml`                                            | The same test-file string, in the same place, so the ledger job list and `package.json` `"test"` stay identical.                                                                                                                                                                                                                                                                              |
+| `tsconfig.strict-accounts-view.json`                                  | New. Same shape as `tsconfig.strict-foremen.json`: extends `tsconfig.json`, `"strict": true`, include `public/accounts-view.js` and `types/checkjs.d.ts`.                                                                                                                                                                                                                                     |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`             | Drive steps for the two new ids. An unknown id still exits 3.                                                                                                                                                                                                                                                                                                                                 |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`   | Two new lines.                                                                                                                                                                                                                                                                                                                                                                                |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/accounts.md` | New feature file.                                                                                                                                                                                                                                                                                                                                                                             |
+| `.cursor/skills/verify-ahl-aljazeera-accounting/features/account.md`  | New feature file.                                                                                                                                                                                                                                                                                                                                                                             |
+| `scripts/verify-aj.js`                                                | `drive` accepts `accounts` and `account`. Every other id still throws exit 3 (`scripts/verify-aj.js` lines 1308-1310).                                                                                                                                                                                                                                                                        |
+| `docs/PSTACK_INVENTORY.md`                                            | Evidence on the F rows named in section 16 of the plan: `principle-experience-first`, `maintain-verification-skill`. Do not flip a status word.                                                                                                                                                                                                                                               |
 
 `style.css` is listed because the screen has to land in the existing shell. The expected diff is empty.
 
-At `baf4f21f` both unit-test lists are 34 files and they match: `package.json` `"test"` and the `node --test` list in `.github/workflows/ci.yml` (ledger job). F adds `tests/accounts-view.test.js` to both, in the same place. The count at merge is 35, or 36 if the approved CDP plan's test file lands first. The two lists stay identical. The new `tsc --noEmit -p tsconfig.strict-accounts-view.json` runs inside `npm run typecheck`, which the `lint, format, types` job calls. It is not a fifth job.
+At `24fb8395` both unit-test lists are 35 files and they match: `package.json` `"test"` and the `node --test` list in `.github/workflows/ci.yml` (ledger job). F adds `tests/accounts-view.test.js` and `tests/person-delete.test.js` to both, in the same order. The count at merge is 37, unless another file lands first, in which case both lists grow by the same files. The new `tsc --noEmit -p tsconfig.strict-accounts-view.json` runs inside `npm run typecheck`, which the `lint, format, types` job calls (`.github/workflows/ci.yml` line 44). It is not a fifth job.
 
 ## Files the code PR must not touch
 
-`public/accounts.js`, `public/ledger.js`, `public/sync.js`, `public/foremen.js`, `public/people-dir.js`, `firestore.rules`, `firebase.json`, `README.md`, `tests/accounts.test.js`.
+`public/accounts.js`, `public/sync.js`, `public/foremen.js`, `public/people-dir.js`, `firestore.rules`, `firebase.json`, `README.md`, `tests/accounts.test.js`. `public/ledger.js` is in the edit list for `personProjectDeleteBlock` only (H1). No other function in that file changes.
 
 `firebase.json` already sends `no-cache` for `/*.js` (`firebase.json` line 17). A new script does not need a new header.
 
@@ -76,7 +81,7 @@ Do not fix the stale `aj-p0-v41` sentence in `README.md` line 22. Do not add `fo
 
 ## Usage
 
-An owner opens the new tab. The list reads `K.parties`. Each name is a link to `#account/<id>`. The person page reads that party's agreements and `accountTxns` and asks C for the figures. The three filters hide rows. They do not recompute money.
+An owner opens the new tab. The list reads `K.parties`. Each name is a link to `#account/<id>`. The person page passes the full `K.accountTxns` list and `get(K.syncErrors, {})` into C's `balances` and `statementLines`. C builds one `RowIndex` (`contractor-pr-c-sketch.md` lines 144-147 and 286 at `604d734`). F does not drop rows that lack `partyId` before that call. A `rej_` has no `partyId`. Dropping it first would leave an approval counted here and at 0 on a phone that kept the rejection. The party filter is C's `BalanceFilter`, applied after the index exists. The three filters hide rows. They do not recompute money.
 
 ```javascript
 AccountsView.install(renderApi);
@@ -94,7 +99,7 @@ G–J copy this section as it stands. Names here do not change. F owns the regis
 
 Script order: `accounts.js`, `accounts-view.js`, then `accounts-work.js`, `accounts-payment.js`, `accounts-correct.js`, `accounts-statement.js`, then `render.js`. `accounts-view.js` creates the registry at load. An action script pushes only inside its `install`.
 
-`render.js`, in the same block as `ForemenUI.install` (`public/render.js` lines 1423-1430), after `AccountsView.install(api)`:
+`render.js` builds `api` once. `AccountsView.install(api)` and the four calls below sit outside `if (window.ForemenUI)` (`public/render.js` line 1435 at `24fb8395`). `ForemenUI.install(api)` stays inside that `if`. The accounts tab does not depend on `foremen.js`.
 
 ```javascript
 if (window.AccountWork) AccountWork.install(api);
@@ -138,6 +143,7 @@ Stable action ids and tabs. The label is that PR's approved string. `buttonId` i
 | id                   | tab          | module             |
 | -------------------- | ------------ | ------------------ |
 | `new-agreement`      | `agreements` | `AccountWork`      |
+| `cancel-agreement`   | `agreements` | `AccountWork`      |
 | `labor-qty`          | `movements`  | `AccountWork`      |
 | `approve-labor`      | `movements`  | `AccountWork`      |
 | `pay-labor`          | `movements`  | `AccountPayment`   |
@@ -157,6 +163,8 @@ Stable action ids and tabs. The label is that PR's approved string. `buttonId` i
 
 `AccountsView.onClick` walks `AccountActions` in order and returns on the first `onClick` that returns true. Party-create handling runs only when none of them returns true.
 
+A cash save disables its button from the tap until `save` returns. A second tap in that window does not call `save`. The id is minted when the form opens and kept until success. `save` appends the document only when that id is absent, then calls `queueDoc` once. On success the form clears and the next open mints a new id. On errors the same id stays. Two taps do not create two payments. G, H, I, and J copy this rule. They do not write a second one.
+
 Scope is not view state and not a field of `AccountScreen`. One module flag, written by the project pills and the week/month pills, read by J:
 
 ```javascript
@@ -164,9 +172,11 @@ Scope is not view state and not a field of `AccountScreen`. One module flag, wri
  * @typedef {{
  *   scope: 'project' | 'all',
  *   projectId: string,
- *   periodKind: 'week' | 'month'
+ *   periodKind: 'week' | 'month',
+ *   anchorDate: string
  * }} AccountScopeFlag
- * projectId is '' when scope is 'all'. Default: { scope: 'all', projectId: '', periodKind: 'week' }.
+ * projectId is '' when scope is 'all'. anchorDate is YYYY-MM-DD.
+ * Default: { scope: 'all', projectId: '', periodKind: 'week', anchorDate: today() }.
  */
 
 /**
@@ -181,9 +191,10 @@ function writeAccountScope(next)
 
 /**
  * @returns {{ periodStart: string, periodEnd: string } | null}
- * Accounts.periodBounds(readAccountScope().periodKind, today()).
- * C's function. accounts-view.js does not define periodBounds.
- * There is no statementPeriod.
+ * Accounts.periodBounds(readAccountScope().periodKind, readAccountScope().anchorDate).
+ * C's function (`contractor-pr-c-sketch.md` line 239 at `604d734`).
+ * accounts-view.js does not define periodBounds. There is no statementPeriod.
+ * The statement من input writes anchorDate, so last week is the same flag J reads.
  */
 function accountPeriod()
 ```
@@ -258,10 +269,10 @@ All of these live in `public/accounts-view.js`. `Accounts.balances`, `Accounts.s
  *   milestoneMode?: 'amount'
  * }} AgreementRow
  * Read-only on screen. Percent is not rendered.
- * Every milestone this screen writes goes through `writtenMilestone`.
- * That sets `milestoneMode: 'amount'` and does not omit the field.
- * PR D's rules require `milestoneMode` (EA, after Architect #80 review M2).
- * A missing mode would be a denied create. The default is `'amount'`.
+ * F does not write agreements. G's `new-agreement` sets `milestoneMode: 'amount'`
+ * on every milestone it writes. PR D requires the field. F does not export
+ * `writtenMilestone`. A `rev_` of an agreement (D Q2, EA Q9) is not a second card.
+ * The named agreement shows once, with `معكوس` when that `rev_` is live.
  */
 ```
 
@@ -294,18 +305,9 @@ The statement tab prints `statementLines(...).lines` in the order C returns, eac
  * @param {string} name
  * @returns {string[]}
  * Empty when the trimmed name is 1 to 80 characters. Otherwise `['name']`.
- * The screen maps that token to «أدخل اسم الشخص» (Q17). That string is outside the 88 and is listed separately.
+ * The screen does not paint «أدخل اسم الشخص». That sentence is under strings for Ameer.
  */
 function partyErrors(name)
-
-/**
- * @param {{ milestoneAmount: number, milestoneMode?: 'amount' }} input
- * @returns {{ method: 'milestone', milestoneAmount: number, milestoneMode: 'amount' } | null}
- * Always sets `milestoneMode` to `'amount'`. A missing mode becomes `'amount'`.
- * `'percent'` returns null and writes nothing. The new-agreement button stays G.
- * Any milestone F itself writes uses this function, so the field is never absent.
- */
-function writtenMilestone(input)
 
 /**
  * @param {{ role?: string }|null|undefined} user
@@ -337,9 +339,12 @@ function listHtml(model)
 function accountHtml(model, partyId)
 
 /**
- * Reads the stores and calls `Accounts.balances`, `Accounts.statementLines`,
- * and `Accounts.periodBounds`. This is the only place those three are called.
- * The model keeps C's objects. It does not copy them into new field names.
+ * Passes the full txn list and syncErrors into `Accounts.balances` and
+ * `Accounts.statementLines`, and calls `Accounts.periodBounds` only through
+ * `accountPeriod`. Status text comes from `rowCounts` on that same index.
+ * This file does not call `personBalance`. B's loop at `public/accounts.js`
+ * lines 484-507 on `24fb8395` does not skip a reversed or rejected `approveLabor`.
+ * C's replacement is `balances(...).net` (`contractor-pr-c-sketch.md` lines 181-185 at `604d734`).
  * @param {{ role?: string, uid?: string }|null} user
  * @returns {AccountModel}
  */
@@ -380,7 +385,7 @@ A deduct has no fourth pill. Reversed rows stay in the list with `معكوس` an
 
 `approveDeduct` stores no amount (PR B). The list shows the purpose label and no money for that row.
 
-Slot-loser rows, when E has stored them, render in their own block, read-only, with `SyncStatus.CONFLICT` (`public/sync-status.js` line 13) and no buttons. Winner rows do not read that map. If the key is absent, the block is empty. F does not create the key.
+Slot-loser rows, when E has stored them, render in their own block, read-only, with `SyncStatus.CONFLICT` (`public/sync-status.js` line 13) and no buttons. Winner rows do not read that map. If the key is absent, the block is empty. F does not create the key. `K.linkRefusals` is the same kind of block: one existing conflict sentence, no button, and no card when the key is absent. F does not create that key either.
 
 ## Data and rules
 
@@ -404,37 +409,52 @@ Hashes use `DomSafe` (`public/dom-safe.js` lines 8 and 27). An id that fails `is
 
 Unknown hashes still fall through to home (`public/render.js` lines 1113-1114). `#accounts` and `#account` become known because `install` adds them to `views`.
 
+## Project delete
+
+H1. EA at 01:33: F owns the guard from plan Q8. A project is not deleted while any person's balance on it is not zero. E's sketch points at F. G-J's Q27 does not drop strings 86 and 87.
+
+`personProjectDeleteBlock` lives in `public/ledger.js` next to `foremanDeleteBlock` (line 755 at `24fb8395`) and is exported with it (line 1076). It calls `Accounts.balances` on the full txn list with `syncErrors`, once per person who has a row on that `projectId`. It does not call `personBalance`. A non-zero `payable` returns string 87, with the person's name and the amount in Western digits. A non-zero `recoverable` returns string 86 the same way. Zero returns `''`.
+
+`deleteConfirm` (`public/render.js` line 944) already blocks on `foremanExpenseBlock` (line 941). It also blocks when `personProjectDeleteBlock` is non-empty. The yes button stays disabled. The sentence is the returned string.
+
+`tests/person-delete.test.js`:
+
+- Net 0 returns `''`.
+- `recoverable` 100,000 returns string 86 and the name.
+- `payable` 100,000 returns string 87 and the name.
+- `approveLabor` 600,000 plus a `rej_` of its measurement: `rowCounts` is false, so the block is `''`. Filtering that `rej_` off before the fold would block a zero balance. This test keeps the `rej_`.
+
 ## Strings
 
 Grouped by screen. `new` means the string is one of the 88 Ameer approved on 2026-11-10 at 11:16 Baghdad (Q47; the earlier answer in `c14b9c84` is the same approval) and is not yet in `public/` at baf4f21f. The list is `strings-contractor-module-r2.22.md` (sha256 prefix `9d25840a`). The tab `حسابات` is closed by that approval and by Q16. `reused` means the words are already on a screen at baf4f21f. `outside` means the words are not in the 88. EA approved them on this lane. They stay listed here and are not folded into the 88.
 
 ### Tab and list
 
-| String                  | Mark           | Where it already is, or why it is here                              |
-| ----------------------- | -------------- | ------------------------------------------------------------------- |
-| `حسابات`                | approved       | The tab and the `#title` on the list. Q16 and Q47.                  |
-| `حسابات الأشخاص`        | new            | List heading inside the card.                                       |
-| `+ شخص جديد`            | new            | The button. Absent in the demo and absent until E routes `parties`. |
-| `اسم الشخص`             | new            | The create field label.                                             |
-| `أدخل اسم الشخص`        | outside the 88 | Q17. Empty or too-long name. Listed separately.                     |
-| `لا توجد حسابات أشخاص.` | new            | Empty list.                                                         |
-| `الشخص غير متاح`        | new            | Safe id, no row.                                                    |
-| `هذه الشاشة للمالك.`    | reused         | `public/render.js` lines 660 and 667. Site user.                    |
-| `معرّف غير صالح`        | reused         | `public/render.js` line 668.                                        |
-| `رجوع`                  | reused         | Already a kept string. Back to the list.                            |
-| `حفظ`                   | reused         | The create button, only when the form is open.                      |
+| String                  | Mark              | Where it already is, or why it is here                              |
+| ----------------------- | ----------------- | ------------------------------------------------------------------- |
+| `حسابات`                | approved          | The tab and the `#title` on the list. Q16 and Q47.                  |
+| `حسابات الأشخاص`        | new               | List heading inside the card.                                       |
+| `+ شخص جديد`            | new               | The button. Absent in the demo and absent until E routes `parties`. |
+| `اسم الشخص`             | new               | The create field label.                                             |
+| `أدخل اسم الشخص`        | strings for Ameer | Not painted. Q17 asked for it. It is outside the 88.                |
+| `لا توجد حسابات أشخاص.` | new               | Empty list.                                                         |
+| `الشخص غير متاح`        | new               | Safe id, no row.                                                    |
+| `هذه الشاشة للمالك.`    | reused            | `public/render.js` lines 660 and 667. Site user.                    |
+| `معرّف غير صالح`        | reused            | `public/render.js` line 668.                                        |
+| `رجوع`                  | reused            | Already a kept string. Back to the list.                            |
+| `حفظ`                   | reused            | The create button, only when the form is open.                      |
 
 ### Tabs and filters
 
-| String         | Mark                                                          |
-| -------------- | ------------------------------------------------------------- |
-| `نظرة عامة`    | new                                                           |
-| `العقود`       | new. The shorter v1 name. The page does not say `عقود العمل`. |
-| `الحركات`      | new                                                           |
-| `كشف الحساب`   | new                                                           |
-| `الدفعات`      | reused. `public/render.js` line 754. Filter, not a tab.       |
-| `السلف`        | reused. `public/foremen.js` line 157. Filter, not a tab.      |
-| `قياسات العمل` | outside the 88. Q17 approved it as a filter label, not a tab. |
+| String         | Mark                                                                           |
+| -------------- | ------------------------------------------------------------------------------ |
+| `نظرة عامة`    | new                                                                            |
+| `العقود`       | new. The shorter v1 name. The page does not say `عقود العمل`.                  |
+| `الحركات`      | new                                                                            |
+| `كشف الحساب`   | new                                                                            |
+| `الدفعات`      | reused. `public/render.js` line 754. Filter, not a tab.                        |
+| `السلف`        | reused. `public/foremen.js` line 157. Filter, not a tab.                       |
+| `قياسات العمل` | strings for Ameer. The filter id is `measurements`. The Arabic is not painted. |
 
 The page does not say `حركات المواد`, `المرفقات`, `الأدوار`, or any role name.
 
@@ -471,15 +491,15 @@ Method labels, new, read from the agreement: `مبلغ مقطوع`, `بسعر ا
 | String                                | Mark                                                                         |
 | ------------------------------------- | ---------------------------------------------------------------------------- |
 | `بانتظار الاعتماد`                    | new. Unapproved `laborQty` or `deduct`.                                      |
-| `معتمد`                               | new. Live `approveLabor`.                                                    |
-| `مرفوض`                               | new. A `rej_` with no live approval.                                         |
-| `معكوس`                               | reused. `public/render.js` line 512.                                         |
+| `معتمد`                               | new. Only when `rowCounts` is true. A rejected approval is not this word.    |
+| `مرفوض`                               | new. `rowCounts` is false and a live `rej_` names the row.                   |
+| `معكوس`                               | reused. `public/render.js` line 524 at `24fb8395`.                           |
 | `غير مدقّق`                           | new. Q10 closed. Cash row with no live `revw_`.                              |
 | `لم يُرسل`                            | reused. The row id is in the outbox.                                         |
 | `لا يوجد`                             | reused. `public/render.js` line 559. Empty filter.                           |
 | `المُرجَع أكبر من الدفعة`             | new. Approved. `overLimit` on `payLabor` or `refundLabor`.                   |
 | `الخصم أكبر من العمل المعتمد`         | outside the 88. Approved 2026-11-15 23:22 via EA. Q17 keeps the page string. |
-| `المُرجَع والتسوية أكبر من السلفة`    | outside the 88. Q19. `overLimit` on `returnAdvance` or `settle`.             |
+| `المُرجَع والتسوية أكبر من السلفة`    | strings for Ameer. Not painted. Outside the 88.                              |
 | `القيد موجود على الخادم بمحتوى مختلف` | reused. `SyncStatus.CONFLICT`. Slot-loser block.                             |
 
 No `اعتماد`, `رفض السطر`, `عكس`, or `نسخة جديدة` button. Q20: the create button is absent in the demo.
@@ -488,7 +508,9 @@ No `اعتماد`, `رفض السطر`, `عكس`, or `نسخة جديدة` butto
 
 These labels are in the 88 (Q47). The page prints whichever of them C's `statementLines().lines` returns, in C's order. F does not reorder them.
 
-`أسبوعي`, `شهري`, `من`, `إلى`, `رصيد أول المدة`, `السلف المصروفة له`, `المُرجَع من السلف نقداً`, `صافي السلف`, `سلف قائمة عليه`, `الخصومات ومرتجعات المواد`, `المُرجَع من الدفعة نقداً`, `رصيد آخر المدة`, `الصافي`, `الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.`, `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`.
+`أسبوعي`, `شهري`, `من`, `إلى`, `رصيد أول المدة`, `عمل معتمد`, `مدفوع للعمل`, `السلف المصروفة له`, `المُرجَع من السلف نقداً`, `صافي السلف`, `سلف قائمة عليه`, `الخصومات ومرتجعات المواد`, `تسوية سلفة`, `المُرجَع من الدفعة نقداً`, `رصيد آخر المدة`, `الصافي`, `الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.`, `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`.
+
+C's L5 is still open with Ameer: the same words, `عمل معتمد` and `مدفوع للعمل`, are two numbers, the overview field and the statement line (`contractor-pr-c-sketch.md` lines 356-357 and 267-268 at `604d734`). F prints C's `label`. It does not pick a second wording.
 
 Not on this page: `فرق سعر الصرف`, `لا مرفقات في هذه النسخة.`, `إصدار كشف حساب`, `اعتماد` as a button, `حفظ التسوية`. Those waits are G–J or phase 2.
 
@@ -501,7 +523,7 @@ Fixtures from the plan:
 - Spec 12 / the brick screen. `approveLabor` 600,000 and `payLabor` 600,000. Overview shows `عمل معتمد` 600,000, `مدفوع للعمل` 600,000, `مستحق له` 0, `مستحق عليه` 0.
 - Partial, spec 11. The same approval and `payLabor` 200,000. `مستحق له` 400,000. `مستحق عليه` 0.
 - Overpayment. `payLabor` 700,000 after `approveLabor` 600,000. `مستحق عليه` 100,000. The HTML has one `payLabor` row and no `advanceLabor` row. The 100,000 line does not contain U+2212.
-- Statement. Approval 600,000, deduct 50,000, `approveDeduct` of that deduct, advance 100,000, return 30,000. The rendered lines equal `statementLines().lines` in that order, and the closing text equals `statementLines().closing`.
+- Statement. Approval 600,000, deduct 50,000, `approveDeduct` of that deduct, advance 100,000, return 30,000. The rendered lines equal `statementLines().lines` in that order. The closing text is the digits 480,000, and that is `statementLines().closing` on this fixture (C line 321 at `604d734`).
 - Same rows plus `settle` 40,000. The closing text still equals C's closing. The HTML does not contain 520,000.
 - Same rows without `approveDeduct`. The deduct id is in `pendingIds` and shows `بانتظار الاعتماد`. The closing text equals C's closing.
 - The statement's `من` and `إلى` equal `Accounts.periodBounds(kind, today)` for that same call. `accounts-view.js` does not define `periodBounds`.
@@ -513,12 +535,17 @@ Behaviour:
 - `canCreateParty` is false when `collectionFor` returns null, and false when `demoRole()` is `owner` even if `collectionFor` returns `parties`.
 - Logged-in owner and `collectionFor` returns `parties`: the button is present. Saving `حسن` queues one id, the stored row has no `roles`, and a second click does not add a second id.
 - Empty name and an 81-character name do not call `queueDoc`.
-- `writtenMilestone({ milestoneAmount: 250000 })` stores `milestoneMode: 'amount'`. Omitting the mode still stores `'amount'`. `'percent'` returns null and does not write.
+- `accounts-view.js` does not export `writtenMilestone`. A milestone agreement is G's `new-agreement`.
 - Bad id: `معرّف غير صالح`. Unknown safe id: `الشخص غير متاح`.
 - Filters. A `laborQty` is under `قياسات العمل` and not under `الدفعات`. A `payLabor` is under `الدفعات`. An `advanceLabor` is under `السلف`. A `deduct` is on `all` and on neither of those three.
 - The four tab strings are present. `حركات المواد`, `المرفقات`, and `العملة` are absent. There is no `<select`.
 - With `AccountActions` empty, the statement HTML has no `act-statement-approval` button. After that action is registered, the button id is `act-statement-approval`.
-- An `overLimit` payment shows `المُرجَع أكبر من الدفعة`. An `overLimit` deduct shows `الخصم أكبر من العمل المعتمد`. An `overLimit` advance shows `المُرجَع والتسوية أكبر من السلفة` (Q19).
+- An `overLimit` payment shows `المُرجَع أكبر من الدفعة`. An `overLimit` deduct shows `الخصم أكبر من العمل المعتمد`. An `overLimit` advance shows the amounts and does not show the unapproved advance sentence.
+- `approveLabor` 600,000 with a live `rej_` of its measurement: the row is not `معتمد`. `rowCounts` is false (C lines 171 and 339 at `604d734`). The full list, including that `rej_`, is what the screen passed in.
+- An agreement and `rev_` of that agreement id render as one card with `معكوس`, not two cards.
+- `K.linkRefusals` with one id renders `القيد موجود على الخادم بمحتوى مختلف` and no button. An absent key renders no card.
+- Setting `anchorDate` to `2026-11-07` makes `من` and `إلى` equal `Accounts.periodBounds(periodKind, '2026-11-07')`. `statement-approval` reads that same `accountPeriod()`.
+- Contract: `AccountActions` empty paints no `act-` button. Registering `pay-labor` paints `act-pay-labor` on `movements` only. `onClick` calls that action and does not also create a party. A second tap while the button is disabled does not call `save`. `readAccountScope` is unchanged by a tab change. `accountPeriod()` equals `Accounts.periodBounds` and is null when that call is null. `AccountsView.install` runs when `ForemenUI` is missing.
 - A reversed payment shows `معكوس`. `مستحق له` still matches `balances` for those docs.
 - The overview HTML does not contain `إجمالي المصروف`.
 
@@ -574,13 +601,13 @@ Parallel work that touches the same files, and what F does about it:
 | Other work           | Files                                               | What F does                                                                                                                                                                                                                                                                                                        |
 | -------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Baghdad-date fix     | `public/session.js`, `public/render.js`             | Merges first. F rebases. F's `render.js` edit is `install`, `syncTab`, `onClick`, the tab highlight (`public/render.js` lines 1139-1141), and the heading (`public/render.js` lines 1148-1152). F's `session.js` edit is `SHELL_FILES` (`public/session.js` line 271). F calls `today()`. It does not add a clock. |
-| Foreman export       | `public/ledger.js`, `public/render.js`              | Merges first. F does not edit `ledger.js`. The `render.js` overlap is the same four call sites.                                                                                                                                                                                                                    |
+| Foreman export       | `public/ledger.js`, `public/render.js`              | Merges first, and it has. F's only `ledger.js` edit is `personProjectDeleteBlock`, rebased after that export.                                                                                                                                                                                                      |
 | PR B                 | `public/accounts.js`                                | F does not edit it. Q18 and Q19 close the label and the advance sentence that B deferred.                                                                                                                                                                                                                          |
 | PR C                 | `public/accounts.js`                                | F calls `balances` and `statementLines`. The code PR waits until those exist.                                                                                                                                                                                                                                      |
 | PR E                 | `public/sync.js`, and the local keys if E adds them | F does not edit `sync.js`. The create button stays absent while `collectionFor` returns null for `docType: 'party'`.                                                                                                                                                                                               |
 | Other phase sketches | their own docs files                                | This PR is the one file below. It does not edit them.                                                                                                                                                                                                                                                              |
 
-Service worker (Q5). This sketch does not touch `public/sw.js`. At baf4f21f, `VERSION` is `aj-p0-v58` (`public/sw.js` line 1). The date fix is v59. F does not claim a number. The code PR takes the next free version at merge time, and renumbers if another PR takes that integer first. The same string goes in `tests/shell-cache.test.js` (the pins are lines 43, 65, and 93 at this SHA) and in `tests/webkit-upgrade.test.js` line 18 (`MARK`). `tests/sw-version-guard.test.js` lines 31-44 already fail a `public/` edit that does not bump `VERSION`.
+Service worker (Q5). This sketch does not touch `public/sw.js`. At `24fb8395`, `VERSION` is `aj-p0-v61` (`public/sw.js` line 2). The date fix is v59 and the custody export is v60. F does not claim a number. The code PR takes the next free version at merge time, and renumbers if another PR takes that integer first. The same string goes in `tests/shell-cache.test.js` lines 44, 67, and 96 and in `tests/webkit-upgrade.test.js` line 19 (`MARK`). `tests/sw-version-guard.test.js` lines 31-44 already fail a `public/` edit that does not bump `VERSION`.
 
 `index.html` at this SHA already loads `accounts.js` before `render.js` (lines 71-72). `SHELL` and `ASSETS` already name `accounts.js` (`public/sw.js` lines 2-4). `SHELL_FILES` already names it (`public/session.js` line 271). F adds `accounts-view.js` beside that script. It does not add `accounts.js` again.
 
@@ -599,7 +626,7 @@ A revert that touches `public/` bumps `VERSION` again, to whatever is free at th
 ## Dependencies
 
 - A is on baf4f21f. `render.js` does not call `Accounts`. `accounts.js` exports `CONTRACTOR_COST_START`, `PURPOSES`, `unitPrice`, `workPosition`, `post`, `cashPointerErrors`, and `projectCost` (`public/accounts.js` line 187). It does not export `balances` or `statementLines`.
-- B adds the labor posts, `personBalance`, and the `cumulative` code. F does not call `post` or `personBalance`. The overview uses C's `payableGross`, because a negative net and «مستحق عليه» are not the same number as the open-advance split.
+- B is on `24fb8395`. `personBalance` is `public/accounts.js` lines 484-507. Its approval loop does not skip a reversed or rejected `approveLabor`. C replaces that body with `balances(...).net`. F does not display `personBalance`. The overview prints `Balance.payable` and `Balance.recoverable` (C lines 112-113 and 128 at `604d734`).
 - C adds `balances`, `statementLines`, and `periodBounds`. F prints those return values and does not re-specify them.
 - D is deployed before E. F does not edit rules. D's party `hasOnly` list is what decides the `docType` strip. Create-person on a logged-in phone needs D's party create and E's route.
 - E routes `docType: 'party'` to `parties`. E's `toRemote` follows D's allowed-field list for whether `docType` is sent. The local keys `K.parties`, `K.agreements`, and `K.accountTxns` are E's if E stores rows. At baf4f21f `K` (`public/session.js` line 5) does not have them. If they are still missing when F's code PR rebases onto E, F adds the missing keys and nothing else in that object.
@@ -663,18 +690,22 @@ Q16–Q22 and Q47 are closed. EA approved those defaults at 00:52 Baghdad on 202
 | Q16      | The tab is `حسابات`.                                                                          |
 | Q17      | The page strings stand, including `أدخل اسم الشخص`.                                           |
 | Q18      | `مستحق عليه` and `المتبقي سلفة`. No new advisor sentence. No confirm step on this page.       |
-| Q19      | Add `المُرجَع والتسوية أكبر من السلفة`.                                                       |
+| Q19      | The sentence is under strings for Ameer. The screen does not paint it.                        |
 | Q20      | The create button is absent in the demo.                                                      |
 | Q21      | The create form is the name only. `note` is not sent.                                         |
 | Q22      | «هذا المشروع» lists only this person's projects.                                              |
 | Q47      | The 88 stand, including `المحاولة <n> من 9`. Same approval Ameer gave on 2026-11-10 at 11:16. |
 
-Outside the 88, listed separately:
+## strings for Ameer
 
-- `أدخل اسم الشخص` (Q17)
-- `قياسات العمل` (Q17, filter label)
-- `المُرجَع والتسوية أكبر من السلفة` (Q19)
-- `الخصم أكبر من العمل المعتمد` (Ameer, 2026-11-15 23:22 via EA; Q17 keeps it on this page)
+Not painted. Not folded into the 88.
+
+- `أدخل اسم الشخص` (Q17). Empty name refuses the save and shows no new sentence.
+- `قياسات العمل` (Q17). The filter id is `measurements`. No Arabic label until this is accepted.
+- `المُرجَع والتسوية أكبر من السلفة` (Q19). An advance overrun shows the amounts only.
+- C's L5, still open: `عمل معتمد` and `مدفوع للعمل` are each one word and two numbers. F does not pick a second wording.
+
+`الخصم أكبر من العمل المعتمد` is the approved extra from 2026-11-15 23:22 via EA. It is painted. It is not one of the three above.
 
 ## pstack for the code PR
 
@@ -682,7 +713,7 @@ The app is not claimed to be pstack-compliant. This sketch does not mark an inve
 
 Plan section 16 names the code PR's inventory rows: `principle-experience-first` and `maintain-verification-skill`.
 
-- `principle-experience-first` is already «مطبّقة». The code PR adds an evidence link. It does not add a next step that reads as if the skill were missing. The decision the row records: the page ships the empty list, the four tabs, and the live statement, and it does not ship the twelve write buttons.
+- `principle-experience-first` is already «مطبّقة». The code PR adds an evidence link. It does not add a next step that reads as if the skill were missing. The decision the row records: the page ships the empty list, the four tabs, and the live statement, and it does not implement the 15 action ids.
 - `maintain-verification-skill` is «ناقصة». The code PR can add a next-step sentence. It does not flip the status word. The sentence names the two ids and the evidence directory. The status stays until a maintain pass actually drives them.
 
 `principle-subtract-before-you-add` is the smaller v1, which Ameer already picked (section 14). F does not reopen that cut. The code PR does not flip that row either.
