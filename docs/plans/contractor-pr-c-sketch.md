@@ -18,6 +18,8 @@ Revision r4, on local `771835d8`, re-cited at `24fb8395`. B's L1 through L4 move
 
 Revision r5, against Architect NOTES on r4 (sha256 `b37dad03760a27bd384418a9d0b6d7400635064e90467243e8e940bee677f611`, blob `a865343675d7910be0b26ac4f254d05be465bf65`, review sha256 `66b0fbc7803534fd44e8d16833e001f3558c68dc0af6ed05d3217c2c546ac01d`). The delete guard reads `net`. `rowLive` is exported. Supersede wins for an approval. `FoldDoc` does not require `effect`.
 
+Revision r6, against Architect NOTES on r5 (sha256 `4bac08c48e488ddebb3634f0f19449724d90edb83f530339f784091da30225d3`, blob `daa15a02cf0a96415ecdfefa5fa9a7a348ea9b34`, review sha256 `d37d151dbc9a336569f90680fa996897fc0ed7ea78593f0c687ce3601ec1ee3e`). A `rev_` names its target by `rev_` plus the id or by `reversesId`. Its `targetId` names nothing. No name or type F calls changes in this revision.
+
 ## Scope
 
 Plan r2.28 lines 941 and 948. Order is A, then B, then C, then D merged and deployed by Ameer, then E, F, K, G-J. PR A is merged. PR C does not start D, E, F, K, or G-J, and it does not redo B.
@@ -177,10 +179,12 @@ function rowIndex(docs, syncErrors)
  * @returns {boolean}
  * True when the doc is in byId, its id is not a syncErrors key, no live
  * rev_ names it, no live rej_ names it, and no live sup_ supersedes it.
+ * A rev_ names a row when its id is rev_ plus that id, or its reversesId
+ * is that id. A rev_'s targetId is a copied field and names nothing.
  * Approval state does not matter. A pending laborQty and a pending deduct
  * are live. G-J M3 uses this for targets. F uses it for the row badges.
- * rowCounts is this plus the approval rules. Depth and cycle rules match
- * markerLive, which this function is.
+ * rowCounts is this plus the approval rules. Depth stops at 8. A cycle
+ * is not live. There is no second liveness name.
  */
 function rowLive(row, index)
 
@@ -198,7 +202,9 @@ function rowLive(row, index)
  * A refused marker is not live, so it does not drop the 600,000 approval
  * and it does not restore one.
  * A rej_ names a target when its id is rej_ plus that id, or its targetId
- * equals that id. A rev_ names a target the same way.
+ * equals that id. A rev_ names a target when its id is rev_ plus that id,
+ * or its reversesId is that id. A rev_'s targetId is a copied field and
+ * names nothing.
  * Rejection wins (plan Q7, plan line 1054) for deduct and for approveLabor.
  * Supersede wins the same way. An approveLabor is out when a live rej_
  * names its target, and when that body is reversed, refused, or superseded
@@ -328,7 +334,7 @@ Unapproved rows are `pendingIds`. They are listed by the later screen under «ب
 
 - `syncErrors` is a record keyed by id, the same input `countedEntries` already takes (`public/ledger.js` lines 305-309 at `24fb8395`). A present key means the id is refused, including a marker. The stored value is ignored. Callers pass `get(K.syncErrors, {})`. They do not pass a Set.
 - A doc is superseded when a live `sup_` has that id as `supersedesId`, or its id is `sup_` plus this id. The `sup_` doc is the replacement body. It counts by the normal rules, including its own approval when the purpose needs one, and it drops out if it is itself superseded, reversed, or refused. It is not a marker.
-- It is not reversed by a live `rev_`. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. Live is the one recursive rule above, so a refused `rev_` does not reverse anything, and a refused rev-of-rev does not restore the original. D denies rev-of-rev. The restore branch is defensive. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. EA Q7 is approved: the balance returns to zero (EA, 00:52 Baghdad). That is the same reading as plan Q1.
+- It is not reversed by a live `rev_`. A doc whose id is `rev_` plus this id, or whose `reversesId` is this id, reverses it. A `rev_`'s `targetId` is a copied field and names nothing. Live is `rowLive`, so a refused `rev_` does not reverse anything, and a refused rev-of-rev does not restore the original. D denies rev-of-rev. The restore branch is defensive. The `rev_` row is not a second subtraction. A reversed approval of 600,000 leaves net 0, not -600,000. EA Q7 is approved: the balance returns to zero (EA, 00:52 Baghdad). That is the same reading as plan Q1. A `rev_` of a deduct, by `rev_` plus the deduct id or by `reversesId`, drops that deduct the same way a `rev_` of a refund drops the refund. The `targetId` copied onto that `rev_` does not reverse the labor approval.
 - Markers are `rev`, `rej`, and `revw` only. `approveLabor` and `approveDeduct` are money rows through the purpose table, and `approveDeduct` has zeros.
 - `needsApproval` is false, or `rowCounts` is true for the approval that points at this id. An approval is out when a live `rej_` names its target. A `rej_` names that target when its id is `rej_` plus the target id, or its `targetId` is that id.
 - Rejection wins for approvals, not only for deducts (plan Q7, plan line 1054). Supersede wins the same way. An `approveLabor` whose target body also has a live `rej_` is out of every bucket, even though `needsApproval` on `approveLabor` is false (`public/accounts.js` line 71 at `24fb8395`). The same approval is out when that body is reversed, refused, or superseded by a live `sup_`. Two offline phones can each land one create before the other commits. Rules close the sequential orders. The fold is the side that sees both. A `deduct` aimed at that approval is out too, because `rowCounts` of the approval is false. `appr_m` 600,000 plus `appr_sup_m` 500,000 is 500,000, not 1,100,000.
@@ -353,7 +359,7 @@ Plan line 419 says a row is rejected when `rej_` exists and no approval exists. 
 - `deduct` rows that are not reversed and not rejected, including a pending deduct, whose `targetId` is one `approveLabor`, summed above that approval. This matches B's cap: a pending deduct counts toward the flag and does not count in `net` until `approveDeduct`.
 - Live `returnAdvance` plus live `settle` on one `advanceLabor`, summed above that advance.
 
-`unreviewedCashIds` names a counted cash row (`payLabor`, `advanceLabor`, `returnAdvance`, `refundLabor`) that has no live `revw_`. The first mark is `revw_` plus the body id. A later mark, after `rev_` of the earlier one, is `revw_` plus the body id plus `_` and a generation `1` through `9` (plan lines 240-242). Live is the same `markerLive` rule: in the list, not a `syncErrors` key, and no live `rev_` names it. The flag does not change `net`. Cash counts when it is written (Q10 أ). C returns the ids so the later screen can hide the finalise button. C does not create `statementApprovals` and does not draw the button.
+`unreviewedCashIds` names a counted cash row (`payLabor`, `advanceLabor`, `returnAdvance`, `refundLabor`) that has no live `revw_`. The first mark is `revw_` plus the body id. A later mark, after `rev_` of the earlier one, is `revw_` plus the body id plus `_` and a generation `1` through `9` (plan lines 240-242). Live is `rowLive`: the mark is in `byId`, its id is not a `syncErrors` key, no live `rev_` names it, no live `rej_` names it, and no live `sup_` supersedes it. The flag does not change `net`. Cash counts when it is written (Q10 أ). C returns the ids so the later screen can hide the finalise button. C does not create `statementApprovals` and does not draw the button.
 
 A reversed `settle`, a settle of a rejected measurement, and a settle whose approval was reversed all drop out the same way. `openAdvances` goes back up by that amount. `net` does not move because of the settle. If the approval itself leaves, `net` moves by that approval only.
 
@@ -394,7 +400,7 @@ All in `tests/accounts.test.js`. Each asserts a number, a line key, a label, or 
 - `spec 15: one project and the consolidated person`. Same party. Project A is `approveLabor` 600,000. Project B is `advanceLabor` 100,000. Project A net is 600,000. Project B net is -100,000. The filter with no `projectId` is 500,000. A row for another `partyId` is out of all three.
 - `one statement line per purpose`. The nine `statementLine` strings are distinct and non-empty. `statementSign` equals `effect.person` on each. The emitted keys on the 480,000 fixture are, in order, `opening`, `approvedLabor`, `payments`, `paymentRefund`, `advancesPaid`, `cashReturned`, `netAdvances`, `deduct`, `settle`, `closing`, `openAdvances`. `outside` and `notInSum` are absent. No key appears twice. The sum of entering contributions is 480,000. There is no `approvedMaterials` line and no «مواد معتمدة».
 - `a reversed approval of 600000 nets to 0`. The `rev_` row is in the list. `net` is 0. The approved-labor amount is 0. It is not -600,000.
-- `syncErrors drops the approval and not a second copy`. `syncErrors` is `{ [approvalId]: 'رُفض الإرسال' }`. `net` is 0. `personBalance(docs, { syncErrors })` is the same 0. The argument is that record. It is not a Set and not an array.
+- `syncErrors drops the approval and not a second copy`. `syncErrors` is `{ [approvalId]: 'رُفض الإرسال' }`. `net` is 0. `personBalance(docs, syncErrors)` is the same 0. The second argument is that record itself. It is not a Set, not an array, and not `{ syncErrors: ... }`.
 - `M2: a sup_ replaces an unapproved deduct`. On the 480,000 rows, the approved 50,000 deduct is replaced by an unapproved `deduct` 50,000, a `sup_` of it for 40,000, and `approveDeduct` of that `sup_`. `net` is 490,000. The old deduct adds nothing. The `sup_` row is not a marker. `rowCounts` is true for it once approved.
 - `rejection wins over approveDeduct`. The 480,000 rows, the deduct's `approveDeduct`, and a `rej_` of that deduct. `net` is 530,000, the same as the absent-`appr_` case.
 - `M1: rejection wins over approveLabor`. `laborQty` id `m`, `approveLabor` 600,000 with `targetId` `m`, and `rej_` of `m`. `rowCounts` is false for the approval. `net` is 0. The approved-labor line is 0. The same list plus a `deduct` 50,000 aimed at that approval, with its `approveDeduct`, stays at net 0. The deduct's target does not count.
@@ -421,8 +427,9 @@ All in `tests/accounts.test.js`. Each asserts a number, a line key, a label, or 
 - `B-L1 A16: a rejected deduct stays out of net` when an `approveDeduct` names it.
 - `B-L1 A19: an empty id is id`. `post` with `id: ''` returns `errors: ['id']` and no doc.
 - `B-L1 A24: a target with no numeric amount is targetId`, or `settlesId` when the field is `settlesId`.
-- `B-L1 A25: a rev_ that copies a refund's purpose and targetId does not count on that payment line`.
-- `B-L2: a rev_ or rej_ approveDeduct does not approve the deduct`. `id` `rev_ad` or `rej_ad`, `purpose` `approveDeduct`, `targetId` the deduct. `net` stays at the unapproved-deduct figure. This test is in C's code PR, with the `personBalance` body change. No labor `rev_` pull request merges before that PR.
+- `B-L1 A25: a rev_ of a refund copies purpose and targetId, and neither field reverses the payment`. `payLabor` P is 600,000. `refundLabor` R is 100,000 with `targetId` P. The reversal is id `rev_` plus R, or `reversesId` R, and it also carries `targetId` P. The refund drops. The payment stays. `net` is -600,000. The `rev_` does not count on P's cap line.
+- `B-L2: a rev_ or rej_ with purpose approveDeduct does not approve the deduct`. The marker id is `rev_ad`. The deduct id is `d`, which is not `ad`. `reversesId` is not `d`. `purpose` is `approveDeduct` and `targetId` is `d`. That `targetId` does not reverse `d` and does not approve it. `net` stays at the unapproved-deduct figure. The same holds for id `rej_ad`. This test is in C's code PR, with the `personBalance` body change. No labor `rev_` pull request merges before that PR.
+- `N5: a rev_ targetId does not reverse the payment, and the delete blocks`. The A25 rows: P 600,000, R 100,000 against P, `rev_` of R carrying `targetId` P. `rowLive` is true for P and false for R. `net` is -600,000. The delete guard blocks with string 86 and the amount 600,000. A `rev_` of an approved deduct, named by `rev_` plus the deduct id or by `reversesId`, drops that deduct the same way, so the deduct no longer lowers `net`. A `targetId` on that `rev_` that points at the labor approval does not drop the approval. With labor 600,000, that `net` stays 600,000.
 - `B-L3: a missing milestoneMode is milestone`. `{ method: 'milestone', milestoneAmount: 250000 }` with `approved: true` earns 0 and the error is `milestone`. It does not earn 250000.
 - `B-L4: a fractional, negative, huge, NaN, Infinity, or string amount adds 0`. `payLabor` amounts `1.5`, `-100`, `1e20`, `NaN`, `Infinity`, and `'100'` each leave `net` at 0 and do not move a cap. An integer `100` still counts as `-100`.
 - `N2: a pending row is live and does not count`. A pending `laborQty` and a pending `deduct` are `rowLive` true and `rowCounts` false. The same rows with a live `rej_`, or with their ids in `syncErrors`, are false for both.
@@ -451,7 +458,7 @@ This docs PR adds none. The code PR adds none that are new. Each label below is 
 | «سلف قائمة عليه»                      | reused, v1 string 68 | the approved 88                                                                                                                                                                                                              |
 | «الصافي»                              | reused, v1 string 69 | label of `net`, not a second figure line                                                                                                                                                                                     |
 | «مستحق له»                            | reused, sentence 87  | EA decided C reuses sentence 87. On the person screen it labels `net` («الصافي»), not payable. See «أسئلة لأمير». The foreman badge at `public/foremen.js` lines 148 and 181 at `24fb8395` is a different account and stays. |
-| «مستحق عليه»                          | reused, v1 string 16 | recoverable, `max(-payableGross, 0)`. The screen draws it.                                                                                                                                                                   |
+| «مستحق عليه»                          | reused, sentence 86  | On the person screen it labels `-net` when `net` is below 0, the same number as «الصافي» with the sign dropped. The delete guard uses this sentence with that amount. It is not `recoverable`. See «أسئلة لأمير».            |
 | «بانتظار الاعتماد»                    | reused, v1 string 45 | the screen's heading for `pendingIds`                                                                                                                                                                                        |
 | «غير مدقّق»                           | reused, v1 string 71 | the screen's badge for `unreviewedCashIds`                                                                                                                                                                                   |
 | «لا يُعتمد الكشف وفيه مبلغ غير مدقّق» | reused, v1 string 72 | the screen, while `unreviewedCashIds` or `overLimitIds` is non-empty. C does not show it.                                                                                                                                    |
