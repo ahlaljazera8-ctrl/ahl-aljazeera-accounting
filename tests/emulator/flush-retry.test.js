@@ -115,17 +115,23 @@ test.before(async () => {
   });
 });
 
+function cancelledClear(err) {
+  const blob = String((err && (err.code || err.status)) || '') + ' ' + String((err && err.message) || '');
+  return blob.includes('499') || /cancelled/i.test(blob);
+}
+
 test.after(async () => {
-  // getDocFromServer leaves a listen target. The next file's clearFirestore
-  // is cancelled while that target is still closing, so close this client
-  // and absorb that one clear here.
-  try { if (auth) await signOut(auth); } catch (e) { /* already signed out */ }
-  try { if (db) await terminate(db); } catch (e) { /* client already closed */ }
-  try { if (app) await deleteApp(app); } catch (e) { /* app already deleted */ }
-  if (testEnv) {
-    try { await testEnv.clearFirestore(); } catch (e) { /* one cancelled clear while the listen closes */ }
-    await testEnv.cleanup();
+  if (auth && auth.currentUser) await signOut(auth);
+  if (db) await terminate(db);
+  if (app) await deleteApp(app);
+  if (!testEnv) return;
+  try {
+    await testEnv.clearFirestore();
+  } catch (err) {
+    if (!cancelledClear(err)) throw err;
+    console.warn('flush-retry clearFirestore was cancelled while a listen closed');
   }
+  await testEnv.cleanup();
 });
 
 function attach(context, who) {
@@ -149,12 +155,14 @@ function attach(context, who) {
       if (!saved.finance) return;
       counts.finance += 1;
       await setDoc(doc(db, 'projectFinance', String(clean.id)), JSON.parse(JSON.stringify(saved.finance)));
+      if (context.clearLegacyPending(String(clean.id))) return saved.finance.contractAmount;
       const fin = context.get(context.K.finance, {});
       const current = fin[clean.id];
       if (!current || current.contractAmount === saved.finance.contractAmount) {
         fin[clean.id] = { contractAmount: saved.finance.contractAmount };
         context.set(context.K.finance, fin);
       }
+      return saved.finance.contractAmount;
     },
     exists() { return Promise.resolve(false); },
     readServer() { return Promise.resolve(null); },
@@ -272,6 +280,48 @@ test('the restore keeps both amounts, the ledger row, and the other owner', asyn
     }
     await once();
     await once();
+  } finally {
+    await signOut(auth);
+  }
+});
+
+test('a legacy project amount is sent once and only the pending flag is cleared', async () => {
+  await signInWithEmailAndPassword(auth, 'owner.flush@example.invalid', PASS);
+  try {
+    const context = loadClient();
+    const counts = attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
+    const row = project('p-legacy', ownerUid, { contractAmount: 5000 });
+    const entry = {
+      id: 'e-legacy', projectId: 'p-keep', direction: 'expense', entryType: 'materials', amount: 15,
+      currency: 'IQD', entryDate: '2026-01-01', description: 'قيد', createdBy: ownerUid, deviceId: 'phone-1',
+    };
+    context.set(context.K.projects, [row]);
+    context.set(context.K.entries, [entry]);
+    context.set(context.K.finance, { 'p-legacy': { pending: true } });
+    context.set(context.K.outbox, ['p-legacy']);
+    const before = {
+      project: context.get(context.K.projects, [])[0],
+      entry: context.get(context.K.entries, [])[0],
+      financeAmount: context.get(context.K.finance, {})['p-legacy'].contractAmount,
+    };
+    await context.flushRemote({ fromOutside: true });
+    await drain();
+    assert.equal(counts.rounds, 1);
+    assert.equal(counts.finance, 1);
+    assert.equal(counts.project, 1);
+    assert.deepEqual(context.get(context.K.outbox, []), []);
+    assert.equal(context.get(context.K.syncErrors, {})['p-legacy'], undefined);
+    const fin = context.get(context.K.finance, {})['p-legacy'];
+    assert.equal(fin.pending, undefined);
+    assert.equal(fin.contractAmount, before.financeAmount);
+    assert.deepEqual(context.get(context.K.projects, [])[0], before.project);
+    assert.deepEqual(context.get(context.K.entries, [])[0], before.entry);
+    const sent = await getDocFromServer(doc(db, 'projectFinance', 'p-legacy'));
+    assert.deepEqual(sent.data(), { contractAmount: 5000 });
+    const kept = await getDocFromServer(doc(db, 'projectFinance', 'p-keep'));
+    assert.equal(kept.data().contractAmount, 42);
+    const projectDoc = await getDocFromServer(doc(db, 'projects', 'p-legacy'));
+    assert.equal(projectDoc.data().contractAmount, undefined);
   } finally {
     await signOut(auth);
   }

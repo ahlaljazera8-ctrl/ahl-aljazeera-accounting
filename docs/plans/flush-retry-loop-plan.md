@@ -1,4 +1,4 @@
-# Plan: the hot flush loop (r3)
+# Plan: the hot flush loop
 
 The code for the plan at `7c7fb287` is in this pull request, together with this text. Not an approval. EA 21:52, delegated, is the go for that code. `main` is still `aj-p0-v63`, so this pull request sets `aj-p0-v64`. Ameer approves the merge and any behaviour change.
 
@@ -24,7 +24,7 @@ Not in the code pull request: a longer CDP deadline, a poll, a backoff, a retry 
 
 `performFlush` returns before `ensureFirebase` when `navigator.onLine === false` (`:623`). Online, it calls `ensureFirebase` (`:624`), then `Sync.flushOutbox` with `write: local => fb.writeLocal(local)` (`:664-667`). `applyFlush` (`public/sync-status.js:169`) drops synced ids and failed ids from the outbox. A failed id gets `syncErrors[id]`. A synced id has its error deleted.
 
-`writeLocal` (`public/firebase-client.js:246`) writes the project, then `projectFinance`, and clears `pending` only after that finance write when the amount still matches (`:274-283`). `if (!saved.finance) return` (`:274`) leaves `pending` as it was. `splitProjectSave` (`public/sync.js:112-116`) returns `finance: null` when the chosen amount is not an integer, is below 0, or is above `MAX_AMOUNT_IQD`. The chosen amount is the finance row's integer when there is one, and otherwise `contractAmountOf` on the project, which is how a legacy amount on the project row is still sent. A subcontract write throws `مبلغ العقد غير صالح` when `termsPayload` returns null (`firebase-client.js:252`), after the name `putIfMissing`.
+`writeLocal` (`public/firebase-client.js:246`) writes the project, then `projectFinance`, and clears `pending` only after that finance write when the amount still matches (`:274-283`). `if (!saved.finance) return` (`:274`) leaves `pending` as it was. `splitProjectSave` (`public/sync.js:112-116`) returns `finance: null` when the chosen amount is not an integer, is below 0, or is above `MAX_AMOUNT_IQD`. The chosen amount is the finance row's integer when there is one, and otherwise `contractAmountOf` on the project, which is how a legacy amount on the project row is still sent. EA 22:40, delegated. After that finance write is acknowledged, a finance row that is `pending` and has no integer loses only the `pending` flag. The amount stays on the project row. A subcontract write throws `مبلغ العقد غير صالح` when `termsPayload` returns null (`firebase-client.js:252`), after the name `putIfMissing`.
 
 `flushOutbox` (`public/sync.js:594`) marks `isSeed` synced and does not call `write` (`:610`). `isSeed` is `isExample === true`, `deviceId === 'seed'`, or an id starting with `seed-` (`:10-12`). A thrown write is `kept` when `SyncStatus` is missing or `isTransient` (`:620`). Transient codes are `unavailable`, `deadline-exceeded`, `resource-exhausted`, `aborted`, `cancelled`, plus a timeout or a message matching offline / network-request-failed (`public/sync-status.js:96-107`). `permission-denied` is not in that list, so it is `failed`.
 
@@ -121,16 +121,16 @@ The counter never resets on the flush's own writes or acks, on the 0ms timer, or
 
 Only those outside callers pass an argument, `flushRemote({ fromOutside: true })`. The timer's module-local starter, `writeLocal`, `applyFlush`, and any ack or snapshot callback do not pass it. The argument is not stored. There is no new exported function and no new stored field. When the timer fires it checks `sessionEpoch` and does nothing if the session changed. `disposeFirebase` (`:505`) and a session change clear both the count and the timer.
 
-**One refusal, no stored-flag edit.** Only an id in this round's `ids` snapshot. If that id is a seed, or its write returned without sending `projectFinance` or `subcontractTerms`, it is `failed` with `SyncStatus.REJECTED` (`رُفض الإرسال`). A row whose `pending` was set after the snapshot was not attempted, so it is not refused: a contract typed during the flush must not gain a sticky error. The integer stays. `pending` is not cleared and not deleted. This is decided after `writeLocal` returns and before `queuePendingFinance` runs, so the error is already set when the tail looks. It covers:
+**One refusal, no stored-flag edit.** Only an id in this round's `ids` snapshot whose pending amount is still the amount recorded at the snapshot. If that id is a seed, or its write returned without sending `projectFinance` or `subcontractTerms`, it is `failed` with `SyncStatus.REJECTED` (`رُفض الإرسال`). A row whose `pending` was set after the snapshot was not attempted, so it is not refused. A valid amount saved during the pull for an id that was unsendable at the snapshot is a different amount, so it is not refused, and the tail sends it. A contract typed during the flush must not gain a sticky error. The integer stays. `pending` is not cleared and not deleted by the refusal. This is decided after `writeLocal` returns and before `queuePendingFinance` runs, so the error is already set when the tail looks. It covers:
 
 - (a) a seed in this round's `ids`, because `write` never runs and the pending amount was not sent;
 - (b) a `pending` row with no integer, because `splitProjectSave` returns no finance;
 - (c) an integer below 0 or above `MAX_AMOUNT_IQD`, because `splitProjectSave` returns no finance after the project `setDoc`;
 - (d) a non-owner, because `writeLocal` returns at `:270` (`!Ledger.can(user, 'owner')`) before any finance write.
 
-A legacy amount on the project row is not this case. `splitProjectSave` uses `contractAmountOf` when the finance row has no integer, sends that amount, and the existing success path clears `pending` only after that send. The code pull request must not refuse that row and must not clear it before the send.
+A legacy amount on the project row is not a refusal. `splitProjectSave` uses `contractAmountOf` when the finance row has no integer, and that amount is sent. EA 22:40, delegated. `pending` is cleared only after the `projectFinance` write is acknowledged, and the only local change is that flag. The amount is not moved onto the finance row and it is not removed from the project row. The outbox entry leaves because the row is no longer pending. The flag stays if the write is not acknowledged.
 
-The amount this round sent comes from a local map for that round only, filled by the `write` wrapper inside `performFlush`. It is not a stored field.
+The amount this round sent comes from a local map for that round only. `writeLocal` returns the amount the acknowledged write stored, and the `write` wrapper records that return value. It is not a stored field.
 
 The in-flight contract is not a refusal. `writeLocal` sends the amount it had and leaves `pending` when a newer amount arrived during the write (`:278-283`). The pending amount differs from the amount in that map, so the one allowed re-arm sends the newer amount. A stable amount then clears `pending` and stops, as the valid-contract row already does in one round.
 
@@ -138,7 +138,7 @@ The NOTES on `172f6f55` include a model, not the app and not the emulator. Under
 
 The 0ms timer is only so a mistaken re-arm yields a task, and the page can paint. It is not the rate cap. The cap is. The refusal is what stops (a), (b), and (c) from being re-queued at all.
 
-`flushRemote` remains the only start for a caller. The 0ms timer uses the module-local internal starter, and that starter does not pass `{ fromOutside: true }`. The clock stays in `firebase-client.js`. `sync.js` does not gain a timer. The refusal can live next to `applyFlush` in `firebase-client.js`, using the flush result and the finance and terms maps. It is not a new module. No new exported function.
+`flushRemote` remains the only start for a caller. The 0ms timer uses the module-local internal starter, and that starter does not pass `{ fromOutside: true }`. The clock stays in `firebase-client.js`. `sync.js` does not gain a timer. The refusal can live next to `applyFlush` in `firebase-client.js`, using the flush result and the finance and terms maps. It is not a new module. No new exported function. `clearFlushSchedule`, `syncFlushEpoch`, `armFlushTail`, and `clearLegacyPending` are top-level functions in this classic script, so they are window globals like the other helpers in the file. They are not in the export list.
 
 Shapes that were not chosen: r1's clear of a bare flag, because it rewrites stored data and leaves path (c) writing every round (445 writes in 1,023ms in the model). A timer with no cap, because the same model still writes every round. A backoff, because that is a poll.
 
@@ -193,7 +193,7 @@ These stay green on the fix, and the mutations below must turn the matching ones
 8. `unavailable`: the id is still in the outbox after the flush returns, and draining timers does not start a second flush.
 9. Offline: no `setDoc`.
 10. A valid owner contract: one round, one project write, one finance write, the integer remains, `pending` is gone.
-11. A legacy `contractAmount` on the project row, with a finance row that is `pending` and has no integer: that legacy amount is sent. It is not refused, and it is not cleared before the send.
+11. A legacy `contractAmount` on the project row, with a finance row that is `pending` and has no integer: one acknowledged finance send, then `pending` is cleared and the outbox is empty. The project amount is unchanged, and the finance row does not gain an integer. It is not refused, and the flag is not cleared before the acknowledgement. EA 22:40, delegated.
 12. An amount that changes during the one write, with no further save: the single re-arm sends the new integer, then stops. At most 2 rounds, at most 2 project writes, and at most 2 finance writes. The first integer is not deleted before the second write. A third round fails the test only in that case, where the amount changes without a save. A save during the re-flush is a user save: it resets the count, and the new amount is sent.
 13. Two owners: after one denial, the other owner's outbox, finance, and rows are deep-equal.
 14. Two tabs, one user: shared store, separate memory, path (c) on both. Each tab stays inside the cap. The shared integer remains. The whole-map overwrite of `syncErrors` is the one that already exists today.

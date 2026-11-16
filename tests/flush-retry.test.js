@@ -108,7 +108,7 @@ function harness(src, opts) {
           next[id] = { originalAmount: payload.originalAmount };
           context.set(context.K.terms, next);
         }
-        return;
+        return payload.originalAmount;
       }
       const fin = context.get(context.K.finance, {})[id];
       const explicit = fin && Number.isInteger(fin.contractAmount) ? fin.contractAmount : undefined;
@@ -116,12 +116,14 @@ function harness(src, opts) {
       if (opts.duringWrite) opts.duringWrite(context, local, saved);
       if (!saved.finance || !context.Ledger.can(user, 'owner')) return;
       counts.finance += 1;
+      if (context.clearLegacyPending(id)) return saved.finance.contractAmount;
       const current = context.get(context.K.finance, {})[id];
       if (!current || current.contractAmount === saved.finance.contractAmount) {
         const next = context.get(context.K.finance, {});
         next[id] = { contractAmount: saved.finance.contractAmount };
         context.set(context.K.finance, next);
       }
+      return saved.finance.contractAmount;
     },
     exists() { return Promise.resolve(false); },
     readServer() { return Promise.resolve(null); },
@@ -237,6 +239,7 @@ test('a valid contract is one round and clears pending', async () => {
 });
 
 test('a legacy project amount with a bare pending row is sent', async () => {
+  // EA 22:40, delegated. After the acknowledged send, only pending is cleared. The project amount stays.
   const got = await run(LIVE(), {
     projects: [project('p-old', { contractAmount: 5000 })],
     finance: { 'p-old': { pending: true } },
@@ -245,7 +248,10 @@ test('a legacy project amount with a bare pending row is sent', async () => {
   assert.equal(got.counts.rounds, 1);
   assert.equal(got.counts.finance, 1);
   assert.equal(got.errors['p-old'], undefined);
-  assert.equal(got.finance['p-old'].pending, true);
+  assert.equal(got.finance['p-old'].pending, undefined);
+  assert.equal(got.finance['p-old'].contractAmount, undefined);
+  assert.equal(got.projects.find(row => row.id === 'p-old').contractAmount, 5000);
+  assert.deepEqual(got.outbox, []);
 });
 
 test('an amount that changes once during the write is sent on the extra round', async () => {
@@ -289,8 +295,34 @@ test('a contract typed during the pull on the same project is sent', async () =>
   assert.equal(got.errors['p-mid'], undefined);
   assert.equal(got.finance['p-mid'].contractAmount, 4500);
   assert.equal(got.finance['p-mid'].pending, undefined);
-  assert.ok(got.counts.finance >= 1);
-  assert.ok(got.counts.rounds <= 2);
+  assert.equal(got.counts.finance, 1);
+  assert.equal(got.counts.rounds, 2);
+});
+
+test('a valid amount saved during the pull replaces an unsendable start and is sent', async () => {
+  const max = require(path.join(ROOT, 'public/ledger.js')).MAX_AMOUNT_IQD;
+  const got = await run(LIVE(), {
+    projects: [project('p2')],
+    finance: { p2: { contractAmount: max + 1, pending: true } },
+    outbox: ['p2'],
+    duringPull(context) {
+      if (context.replaced) return;
+      context.replaced = true;
+      const fin = context.get(context.K.finance, {});
+      fin.p2 = { contractAmount: 5000, pending: true };
+      context.set(context.K.finance, fin);
+      const out = context.get(context.K.outbox, []);
+      if (!out.includes('p2')) out.push('p2');
+      context.set(context.K.outbox, out);
+      context.flushRemote({ fromOutside: true });
+    },
+  });
+  assert.equal(got.errors.p2, undefined);
+  assert.equal(got.finance.p2.contractAmount, 5000);
+  assert.equal(got.finance.p2.pending, undefined);
+  assert.deepEqual(got.outbox, []);
+  assert.equal(got.counts.finance, 1);
+  assert.equal(got.counts.rounds, 2);
 });
 
 test('an entry saved during the pull is sent', async () => {
@@ -453,8 +485,7 @@ test('a save during the re-flush resets the count and sends the new amount', asy
   });
   assert.equal(got.finance.p3.contractAmount, 300);
   assert.equal(got.finance.p3.pending, undefined);
-  assert.ok(got.counts.rounds >= 3);
-  assert.ok(got.counts.rounds <= 4);
+  assert.equal(got.counts.rounds, 3);
 });
 
 test('two tabs share the integer and each stays inside the cap', async () => {

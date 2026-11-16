@@ -242,7 +242,10 @@ async function createFirebaseClient(mods, generation) {
       if (snap.exists()) return;
       await fsMod.setDoc(ref, data);
     },
-    /** @param {SyncDoc | null | undefined} local */
+    /**
+     * @param {SyncDoc | null | undefined} local
+     * @returns {Promise<number | undefined>} the finance or terms amount this call wrote
+     */
     async writeLocal(local) {
       const clean = /** @type {SyncDoc & { id: string }} */ (S.withoutContractAmount(local));
       const col = S.collectionFor(clean);
@@ -258,7 +261,7 @@ async function createFirebaseClient(mods, generation) {
           terms[clean.id] = { originalAmount: payload.originalAmount };
           set(K.terms, terms);
         }
-        return;
+        return payload.originalAmount;
       }
       if (S.usesPutIfMissing(col)) {
         await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
@@ -273,6 +276,8 @@ async function createFirebaseClient(mods, generation) {
       const saved = S.splitProjectSave(local, explicit);
       if (!saved.finance) return;
       await fsMod.setDoc(fsMod.doc(fdb, 'projectFinance', clean.id), saved.finance);
+      // The legacy flag is cleared only after this acknowledgement. The amount stays on the project row.
+      if (clearLegacyPending(clean.id)) return saved.finance.contractAmount;
       const fin = get(K.finance, {});
       const current = fin[clean.id];
       // A contract typed while this write was in flight keeps pending when
@@ -282,6 +287,7 @@ async function createFirebaseClient(mods, generation) {
         set(K.finance, fin);
       }
       set(K.projects, get(K.projects, []).map(/** @param {SyncDoc} p */ p => p.id === clean.id ? S.withoutContractAmount(p) : p));
+      return saved.finance.contractAmount;
     },
     /** @param {string} id @param {string} status */
     async updateProjectStatus(id, status) {
@@ -437,6 +443,22 @@ function syncFlushEpoch() {
   if (flushSeenEpoch === sessionEpoch) return;
   flushSeenEpoch = sessionEpoch;
   clearFlushSchedule();
+}
+/**
+ * After projectFinance has been acknowledged. A legacy row is pending and has no integer.
+ * Drop only that flag. Do not write, move, or remove an amount.
+ * @param {string} id
+ * @returns {boolean}
+ */
+function clearLegacyPending(id) {
+  const fin = get(K.finance, {});
+  const current = fin[id];
+  if (!current || current.pending !== true || Number.isInteger(current.contractAmount)) return false;
+  const next = Object.assign({}, current);
+  delete next.pending;
+  fin[id] = next;
+  set(K.finance, fin);
+  return true;
 }
 /**
  * @param {number} epoch
@@ -662,8 +684,9 @@ async function performFlush(token, run) {
   let statusAtStart = null;
   /** @type {string[]} */
   let roundIds = [];
-  /** Ids whose pending flag was already set when this round took its snapshot. */
-  const pendingAtStart = new Set();
+  /** Pending amount at the snapshot. A missing key was not pending. */
+  /** @type {Map<string, number | undefined>} */
+  const pendingAtStart = new Map();
   /** @type {{ failed?: { id?: string }[], kept?: string[] } | null} */
   let flushResult = null;
   /** @type {Map<string, number>} */
@@ -714,7 +737,8 @@ async function performFlush(token, run) {
     ids.forEach(/** @param {string} id */ id => {
       const fin = financeThen[id];
       const terms = termsThen[id];
-      if ((fin && fin.pending) || (terms && terms.pending)) pendingAtStart.add(id);
+      if (fin && fin.pending) pendingAtStart.set(id, fin.contractAmount);
+      else if (terms && terms.pending) pendingAtStart.set(id, terms.originalAmount);
     });
     keptIds = [];
     if (ids.length) {
@@ -723,17 +747,8 @@ async function performFlush(token, run) {
         load: id => get(K.entries, []).find(/** @param {{ id?: string }} e */ e => e.id === id) || get(K.projects, []).find(/** @param {{ id?: string }} p */ p => p.id === id) || get(K.subcontracts, []).find(/** @param {{ id?: string }} s */ s => s.id === id) || get(K.amendments, []).find(/** @param {{ id?: string }} a */ a => a.id === id) || get(K.foremen, []).find(/** @param {{ id?: string }} f */ f => f.id === id) || get(K.foremanMoves, []).find(/** @param {{ id?: string }} m */ m => m.id === id) || null,
         write: async local => {
           const id = String((local && local.id) || '');
-          const fin = get(K.finance, {})[id];
-          const explicit = fin && Number.isInteger(fin.contractAmount) ? fin.contractAmount : undefined;
-          const saved = window.Sync.splitProjectSave(local, explicit);
-          const user = get(K.sessionUser, null);
-          const sendFinance = !!(saved && saved.finance) && Ledger.can(user, 'owner');
-          const terms = get(K.terms, {})[id];
-          const payload = window.Sync.termsPayload(terms && terms.originalAmount);
-          const sendTerms = window.Sync.collectionFor(local) === 'subcontracts' && !!payload;
-          await fb.writeLocal(local);
-          if (sendFinance && saved && saved.finance) sentAmounts.set(id, saved.finance.contractAmount);
-          else if (sendTerms && payload) sentAmounts.set(id, payload.originalAmount);
+          const sent = await fb.writeLocal(local);
+          if (typeof sent === 'number') sentAmounts.set(id, sent);
         },
         exists: local => fb.exists(local),
         projectProbe: local => readProjectProbe(String((local && local.projectId) || ''), fb),
@@ -828,12 +843,14 @@ async function performFlush(token, run) {
     /** @type {string[]} */
     const refused = [];
     for (const id of roundIds) {
-      // A contract typed during this flush was not in the snapshot, so this round did not try to send it.
+      // A contract typed during this flush was not pending at the snapshot, so this round did not try to send it.
       if (!pendingAtStart.has(id)) continue;
       if (failedIds.has(id) || keptNow.has(id) || sentAmounts.has(id)) continue;
       const fin = get(K.finance, {})[id];
       const terms = get(K.terms, {})[id];
       if (!(fin && fin.pending) && !(terms && terms.pending)) continue;
+      const nowAmt = fin && fin.pending ? fin.contractAmount : terms.originalAmount;
+      if (nowAmt !== pendingAtStart.get(id)) continue;
       refused.push(id);
     }
     if (refused.length && window.SyncStatus) {
