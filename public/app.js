@@ -173,7 +173,7 @@ function seed() {
         }
         return;
       }
-      showApp(); render(); markReady(); flushRemote();
+      showApp(); render(); markReady(); flushRemote({ fromOutside: true });
     } catch (e) {
       if (token !== sessionEpoch) return;
       if (stayed) return;

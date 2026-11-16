@@ -421,6 +421,38 @@ var flushing = null;
 var deleteLock = false;
 var lastSyncAt = 0;
 var FLUSH_MS = 20000;
+var flushRearm = 0;
+/** @type {number | null} */
+var flushSeenEpoch = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+var flushTimer = null;
+function clearFlushSchedule() {
+  flushRearm = 0;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+}
+function syncFlushEpoch() {
+  if (flushSeenEpoch === sessionEpoch) return;
+  flushSeenEpoch = sessionEpoch;
+  clearFlushSchedule();
+}
+/**
+ * @param {number} epoch
+ */
+function armFlushTail(epoch) {
+  if (flushRearm >= 1 || flushTimer) return;
+  flushRearm += 1;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    if (epoch !== sessionEpoch) {
+      flushRearm = 0;
+      return;
+    }
+    flushRemote();
+  }, 0);
+}
 var SEND_RETRY = 'تعذر الإرسال. أعد المحاولة';
 var PULL_RETRY = 'تعذر التحديث. أعد المحاولة';
 function cacheSnapshot() {
@@ -506,6 +538,8 @@ async function disposeFirebase(signOutUser) {
   const pending = fbPromise;
   fbPromise = null;
   flushing = null;
+  clearFlushSchedule();
+  flushSeenEpoch = sessionEpoch;
   const marked = signOutPending();
   if (!pending) return false;
   const fb = await pending.catch(() => null);
@@ -519,7 +553,12 @@ async function rebuildFirebase(signOutUser) {
   await disposeFirebase(signOutUser);
   return ensureFirebase();
 }
-function flushRemote() {
+/**
+ * @param {{ fromOutside?: boolean } | undefined} [opts]
+ */
+function flushRemote(opts) {
+  syncFlushEpoch();
+  if (opts && opts.fromOutside) flushRearm = 0;
   if (deleteLock) return flushing || Promise.resolve();
   if (demoRole() || !get(K.sessionUser)) return Promise.resolve();
   if (flushing) return flushing;
@@ -619,6 +658,12 @@ async function performFlush(token, run) {
   /** @type {string[] | null | undefined} */
   let keptIds;
   let statusAtStart = null;
+  /** @type {string[]} */
+  let roundIds = [];
+  /** @type {{ failed?: { id?: string }[], kept?: string[] } | null} */
+  let flushResult = null;
+  /** @type {Map<string, number>} */
+  const sentAmounts = new Map();
   try {
     if (token !== sessionEpoch || navigator.onLine === false) return;
     const fb = await ensureFirebase();
@@ -659,12 +704,26 @@ async function performFlush(token, run) {
       throw err;
     }
     const ids = get(K.outbox, []).slice();
+    roundIds = ids.slice();
     keptIds = [];
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
         ids,
         load: id => get(K.entries, []).find(/** @param {{ id?: string }} e */ e => e.id === id) || get(K.projects, []).find(/** @param {{ id?: string }} p */ p => p.id === id) || get(K.subcontracts, []).find(/** @param {{ id?: string }} s */ s => s.id === id) || get(K.amendments, []).find(/** @param {{ id?: string }} a */ a => a.id === id) || get(K.foremen, []).find(/** @param {{ id?: string }} f */ f => f.id === id) || get(K.foremanMoves, []).find(/** @param {{ id?: string }} m */ m => m.id === id) || null,
-        write: local => fb.writeLocal(local),
+        write: async local => {
+          const id = String((local && local.id) || '');
+          const fin = get(K.finance, {})[id];
+          const explicit = fin && Number.isInteger(fin.contractAmount) ? fin.contractAmount : undefined;
+          const saved = window.Sync.splitProjectSave(local, explicit);
+          const user = get(K.sessionUser, null);
+          const sendFinance = !!(saved && saved.finance) && Ledger.can(user, 'owner');
+          const terms = get(K.terms, {})[id];
+          const payload = window.Sync.termsPayload(terms && terms.originalAmount);
+          const sendTerms = window.Sync.collectionFor(local) === 'subcontracts' && !!payload;
+          await fb.writeLocal(local);
+          if (sendFinance && saved && saved.finance) sentAmounts.set(id, saved.finance.contractAmount);
+          else if (sendTerms && payload) sentAmounts.set(id, payload.originalAmount);
+        },
         exists: local => fb.exists(local),
         projectProbe: local => readProjectProbe(String((local && local.projectId) || ''), fb),
         readServer: async local => {
@@ -677,6 +736,7 @@ async function performFlush(token, run) {
           return null;
         },
       });
+      flushResult = result;
       if (token !== sessionEpoch) return;
       if (result.authDead) { await holdSession(SESSION_DEAD_MSG); return; }
       if ((result.failed || []).length && typeof fb.refreshProfile === 'function') {
@@ -750,14 +810,45 @@ async function performFlush(token, run) {
     if (token === sessionEpoch) paintShell();
   }
   // An id queued again during this flush (a contract saved after its project
-  // write, or an entry saved during the pull) is not in kept. Send it now.
+  // write, or an entry saved during the pull) is not in kept. One extra round.
   if (Array.isArray(keptIds) && token === sessionEpoch && navigator.onLine !== false && get(K.sessionUser)) {
+    const failedIds = new Set((flushResult && flushResult.failed || []).map(row => row && row.id).filter(Boolean));
+    const keptNow = new Set((flushResult && flushResult.kept) || keptIds);
+    /** @type {string[]} */
+    const refused = [];
+    for (const id of roundIds) {
+      if (failedIds.has(id) || keptNow.has(id) || sentAmounts.has(id)) continue;
+      const fin = get(K.finance, {})[id];
+      const terms = get(K.terms, {})[id];
+      if (!(fin && fin.pending) && !(terms && terms.pending)) continue;
+      refused.push(id);
+    }
+    if (refused.length && window.SyncStatus) {
+      const errors = Object.assign({}, get(K.syncErrors, {}));
+      const drop = new Set(refused);
+      refused.forEach(id => { errors[id] = SyncStatus.REJECTED; });
+      set(K.syncErrors, errors);
+      set(K.outbox, get(K.outbox, []).filter(/** @param {string} id */ id => !drop.has(id)));
+    }
     queuePendingFinance();
     queuePendingSubcontracts();
     const kept = new Set(keptIds);
+    refused.forEach(id => failedIds.add(id));
     const started = new Set(Array.isArray(statusAtStart) ? statusAtStart : get(K.statusPending, []));
     const freshStatus = get(K.statusPending, []).some(/** @param {string} id */ id => !started.has(id));
-    if (get(K.outbox, []).some(/** @param {string} id */ id => !kept.has(id)) || freshStatus) return flushRemote();
+    const round = new Set(roundIds);
+    let arm = !!freshStatus;
+    if (!arm) {
+      for (const id of get(K.outbox, [])) {
+        if (kept.has(id) || failedIds.has(id)) continue;
+        if (!round.has(id)) { arm = true; break; }
+        const fin = get(K.finance, {})[id];
+        const terms = get(K.terms, {})[id];
+        const pendingAmt = fin && fin.pending ? fin.contractAmount : (terms && terms.pending ? terms.originalAmount : undefined);
+        if (pendingAmt !== undefined && sentAmounts.get(id) !== pendingAmt) { arm = true; break; }
+      }
+    }
+    if (arm) armFlushTail(token);
   }
 }
 

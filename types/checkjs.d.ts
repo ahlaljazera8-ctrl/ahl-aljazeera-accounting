@@ -1121,7 +1121,7 @@ declare function clearSignOutPending(expected: string): void;
 declare function logoutUid(): string;
 declare function isDeadAuth(err: any): boolean;
 declare function render(): void;
-declare function flushRemote(): Promise<unknown>;
+declare function flushRemote(opts?: { fromOutside?: boolean }): Promise<unknown>;
 declare function sendNow(): void;
 declare function rebuildFirebase(signOutUser?: boolean): Promise<any>;
 declare function isImportFailure(err: any): boolean;
