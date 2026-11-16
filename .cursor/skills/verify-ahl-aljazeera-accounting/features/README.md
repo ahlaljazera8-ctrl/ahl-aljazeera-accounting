@@ -47,5 +47,7 @@ Each feature file starts with an H1 and one paragraph of user-visible behaviour,
 - [Projects](./projects.md) includes project delete, which this helper does not drive yet.
 - [Offline reopen](./offline-reopen.md) needs a network switch this helper does not have yet.
 - [Foreman balances](./foremen.md) is the owner «العُهد» tab. This helper does not drive it yet.
+- [Accounts](./accounts.md) is the owner «حسابات» list. The demo proof is `tests/browser-check.js`.
+- [Account](./account.md) is the read-only person page. It is not a passing drive yet.
 
 The owner tab «الأشخاص» (`syncPeopleTab` in `public/render.js`) is a real screen and is not in this seed. Add it in a `/maintain-verification-skill` run. Do not claim it was verified. «الرئيسية» is the landing state inside login and the balance check inside the new-entry journey, not a sixth file.

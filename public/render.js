@@ -89,7 +89,7 @@ function subcontractSection(project, entries) {
 function queueDoc(id) {
   const out = get(K.outbox, []);
   if (!out.includes(id)) set(K.outbox, out.concat([id]));
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
 }
 /** @param {any} u @param {any} | null | undefined} button */
 function saveSubcontract(u, button) {
@@ -200,7 +200,7 @@ function saveContract(u) {
   set(K.finance, fin);
   const out = get(K.outbox, []);
   if (!out.includes(id)) set(K.outbox, out.concat([id]));
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
   render();
 }
 function readPersonForm() {
@@ -333,7 +333,7 @@ function commit(entry) {
   const lg = ledger();
   lg.append(entry, { user: me(), projects: get(K.projects, []), policy: POLICY, subcontracts: get(K.subcontracts, []), foremen: get(K.foremen, []) });
   set(K.entries, lg.all()); set(K.outbox, [...get(K.outbox, []), entry.id]);
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
 }
 function sendNow() { // fake sync: stamp server time, drain outbox. Re-sending the same id is a no-op.
   const out = new Set(get(K.outbox, [])); if (!out.size) return;
@@ -448,33 +448,45 @@ function saveEntryFile(csv, filename) {
 }
 /**
  * No title. The click calls this with no earlier await, and share runs before this function's first await.
- * @param {string} csv
- * @param {string} filename
+ * One share carries every file. A failed share downloads them in order.
+ * @param {readonly { csv: string, filename: string }[]} list
  * @returns {Promise<'shared' | 'downloaded' | 'aborted'>}
  */
-function saveCsvFile(csv, filename) {
-  const file = new File([csv], filename, { type: 'text/csv' });
-  const payload = { files: [file] };
+function saveCsvFiles(list) {
+  /** @type {File[]} */
+  const files = [];
+  for (let i = 0; i < list.length; i++) files.push(new File([list[i].csv], list[i].filename, { type: 'text/csv' }));
+  const payload = { files };
   let can;
   try {
     can = !!(/** @type {Navigator['share'] | undefined} */ (navigator.share) && typeof navigator.canShare === 'function' && navigator.canShare(payload));
   } catch (err) { can = false; }
+  /** @returns {'downloaded'} */
+  const downloadAll = () => {
+    for (let i = 0; i < list.length; i++) downloadCsv(list[i].csv, list[i].filename);
+    return /** @type {'downloaded'} */ ('downloaded');
+  };
   if (can) {
     try {
       const pending = navigator.share(payload);
       return Promise.resolve(pending).then(() => /** @type {'shared'} */ ('shared'), err => {
         if (err && err.name === 'AbortError') return /** @type {'aborted'} */ ('aborted');
-        downloadCsv(csv, filename);
-        return /** @type {'downloaded'} */ ('downloaded');
+        return downloadAll();
       });
     } catch (err) {
       if (err && /** @type {{ name?: string }} */ (err).name === 'AbortError') return Promise.resolve(/** @type {'aborted'} */ ('aborted'));
-      downloadCsv(csv, filename);
-      return Promise.resolve(/** @type {'downloaded'} */ ('downloaded'));
+      return Promise.resolve(downloadAll());
     }
   }
-  downloadCsv(csv, filename);
-  return Promise.resolve(/** @type {'downloaded'} */ ('downloaded'));
+  return Promise.resolve(downloadAll());
+}
+/**
+ * @param {string} csv
+ * @param {string} filename
+ * @returns {Promise<'shared' | 'downloaded' | 'aborted'>}
+ */
+function saveCsvFile(csv, filename) {
+  return saveCsvFiles([{ csv, filename }]);
 }
 function printCurrentEntry() {
   const built = currentEntryExport();
@@ -928,11 +940,24 @@ function confirmShell(inner, labelId) {
 function foremanExpenseBlock(projectId) {
   return L.guardedForemanDelete(L.foremanDeleteBlock, projectId, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {});
 }
+/** @param {string} id */
+function projectDeleteBlock(id) {
+  return (
+    foremanExpenseBlock(id) ||
+    L.personProjectDeleteBlock(
+      id,
+      get(K.accountTxns, []),
+      get(K.parties, []),
+      get(K.syncErrors, {}) || {},
+      window.Accounts && Accounts.balances,
+    )
+  );
+}
 /** @param {any}} c */
 function deleteConfirm(c) {
   const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === c.id);
   const name = project ? project.name : '';
-  const block = foremanExpenseBlock(c.id);
+  const block = projectDeleteBlock(c.id);
   if (block) {
     return confirmShell('<p>لا يمكن حذف هذا المشروع</p><p class="copy">' + esc(block) + '</p><button type="button" class="btn danger" id="confirm-yes" disabled>نعم</button><button type="button" class="btn ghost" id="confirm-no">إلغاء</button>');
   }
@@ -992,7 +1017,7 @@ async function deleteProjectNow(id) {
   const u = me();
   const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === id);
   if (!L.can(u, 'manageProject') || !project) return;
-  const block = foremanExpenseBlock(id);
+  const block = projectDeleteBlock(id);
   if (block) { state.deleteMsg = block; render(); return; }
   if (demoRole()) {
     writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
@@ -1031,7 +1056,7 @@ function finishConfirm(c) {
     if (location.hash !== '#projects') { location.hash = '#projects'; }
     else render();
   } else render();
-  if (!demoRole()) flushRemote();
+  if (!demoRole()) flushRemote({ fromOutside: true });
 }
 function lastSyncMillis() {
   if (lastSyncAt) return lastSyncAt;
@@ -1136,8 +1161,10 @@ function renderScreen() {
   paintBell();
   syncPeopleTab(u);
   syncForemenTab(u);
+  if (window.AccountsView) AccountsView.syncTab(u);
   const foremanTab = v === 'foremen' || v === 'foreman' || v === 'foremannew' || v === 'foremanmove';
-  const tab = foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
+  const accountsTab = v === 'accounts' || v === 'account';
+  const tab = accountsTab ? 'accounts' : foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
   document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   const projectTitle = (data().projects.find(p => p.id === arg) || {}).name || (v === 'entries' ? 'القيود' : 'مشروع');
   let heading = (v === 'project' || v === 'entries') ? projectTitle : (v === 'projects' && u.role === 'site' ? 'مشاريعي' : /** @type {Record<string, string>} */ (titles)[v]);
@@ -1150,6 +1177,12 @@ function renderScreen() {
     heading = person && person.name ? person.name : 'خلفة';
   } else if (v === 'foremen') heading = 'العُهد';
   else if (v === 'foremannew') heading = 'خلفة جديد';
+  if (v === 'accounts') heading = 'حسابات';
+  if (v === 'account') {
+    const people = get(K.parties, []);
+    const person = Array.isArray(people) ? people.find(/** @param {any} p */ p => p && p.id === arg) : null;
+    heading = person && person.name ? person.name : 'حسابات';
+  }
   if (v === 'rejected' && !rejectedRows(u).length) heading = 'لا قيود مرفوضة بسبب حذف مشروع';
   $('#title').textContent = heading;
   $('#main').innerHTML = /** @type {Record<string, (arg?: string) => string>} */ (views)[v](arg) + confirmDialog();
@@ -1187,6 +1220,7 @@ document.addEventListener('click', ev => {
   const b = /** @type {Element} */ (ev.target).closest('button'); if (!b) return;
   if (!$('#login').hidden) return;
   const u = me();
+  if (window.AccountsView && AccountsView.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (window.ForemenUI && ForemenUI.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
   else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
@@ -1206,7 +1240,7 @@ document.addEventListener('click', ev => {
     render();
   }
   else if (b.id === 'outbox') { bellOpen = !bellOpen; paintBell(); }
-  else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote(); }
+  else if (b.id === 'bell-send') { if (demoRole()) sendNow(); else flushRemote({ fromOutside: true }); }
   else if (b.id === 'logout') {
     peopleLoader.reset();
     peopleUid = '';
@@ -1345,7 +1379,7 @@ document.addEventListener('click', ev => {
     const name = prompt('اسم المشروع:'); if (!name) return; const clientName = prompt('اسم الزبون:') || '';
     const p = { id: uuid(), name, clientName, location: '', currency: 'IQD', status: 'active', createdAtDevice: Date.now(), createdAtServer: null, createdBy: u.uid, deviceId };
     set(K.projects, [...get(K.projects, []), p]); set(K.outbox, [...get(K.outbox, []), p.id]); render();
-    if (!demoRole()) flushRemote();
+    if (!demoRole()) flushRemote({ fromOutside: true });
   } else if (b.id === 'save-contract') saveContract(u);
   else if (b.id === 'save-person') savePerson(u);
   else if (b.id === 'people-retry') ensureDirectory('retry').then(() => render()).catch(() => render());
@@ -1354,6 +1388,7 @@ document.addEventListener('click', ev => {
 });
 document.addEventListener('input', ev => {
   const el = /** @type {HTMLInputElement | null} */ (ev.target);
+  if (el && window.AccountsView && AccountsView.onInput(el)) return;
   if (el && window.ForemenUI && ForemenUI.onInput(el)) return;
   if (!el || el.id !== 'delete-name' || !state.confirm || state.confirm.action !== 'delete') return;
   state.confirm.typed = el.value;
@@ -1420,18 +1455,35 @@ $('#login-form').addEventListener('submit', /** @param {any} ev */ async ev => {
 addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && bellOpen) { bellOpen = false; paintBell(); }
 });
+if (window.AccountsView) {
+  /** @type {RenderApi} */
+  const accountsApi = {
+    views, titles, state, render, esc, money, queueDoc, confirmShell,
+    lastSyncAt: () => lastSyncAt,
+    formatSyncTime,
+    saveCsvFiles,
+  };
+  AccountsView.install(accountsApi);
+  /** @type {Array<'AccountWork' | 'AccountPayment' | 'AccountCorrect' | 'AccountStatement' | 'AccountShare'>} */
+  const accountInstalls = ['AccountWork', 'AccountPayment', 'AccountCorrect', 'AccountStatement', 'AccountShare'];
+  for (const name of accountInstalls) {
+    const mod = window[name];
+    if (mod && mod.install) mod.install(accountsApi);
+  }
+}
 if (window.ForemenUI) {
   /** @type {RenderApi} */
   const renderApi = {
     views, titles, state, render, esc, money, queueDoc, confirmShell,
     lastSyncAt: () => lastSyncAt,
     formatSyncTime,
+    saveCsvFiles,
   };
   ForemenUI.install(renderApi);
 }
 addEventListener('hashchange', render);
 addEventListener('online', () => {
-  if (!demoRole() && get(K.sessionUser)) { flushRemote(); refreshDirectory('online'); }
+  if (!demoRole() && get(K.sessionUser)) { flushRemote({ fromOutside: true }); refreshDirectory('online'); }
   else if (!$('#shell').hidden) render();
 });
 addEventListener('offline', () => { if (!$('#shell').hidden) render(); });

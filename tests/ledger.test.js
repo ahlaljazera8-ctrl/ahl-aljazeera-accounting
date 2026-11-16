@@ -791,3 +791,218 @@ test('a foreman expense CSV row matches the same row without a foreman', () => {
   assert.equal(headed, L.toCSV([row], projects));
   assert.equal(headed.includes('fm1'), false);
 });
+
+/**
+ * @param {string} text
+ * @returns {string[][]}
+ */
+function parseForemanCsv(text) {
+  assert.equal(text.charCodeAt(0), 0xFEFF);
+  assert.equal(text.endsWith('\r\n'), true);
+  const lines = text.slice(1, -2).split('\r\n');
+  return lines.map(line => {
+    /** @type {string[]} */
+    const cells = [];
+    let i = 0;
+    while (i <= line.length) {
+      if (line[i] === '"') {
+        let value = '';
+        i += 1;
+        while (i < line.length) {
+          if (line[i] === '"') {
+            if (line[i + 1] === '"') { value += '"'; i += 2; continue; }
+            i += 1;
+            break;
+          }
+          value += line[i];
+          i += 1;
+        }
+        cells.push(value);
+        if (line[i] === ',') i += 1;
+        else break;
+      } else {
+        const next = line.indexOf(',', i);
+        if (next < 0) { cells.push(line.slice(i)); break; }
+        cells.push(line.slice(i, next));
+        i = next + 1;
+        if (i === line.length) { cells.push(''); break; }
+      }
+    }
+    return cells;
+  });
+}
+
+/**
+ * @param {string[][]} table
+ * @param {string} name
+ */
+function foremanCol(table, name) {
+  const index = table[0].indexOf(name);
+  assert.ok(index >= 0, name);
+  return index;
+}
+
+test('foreman custody export keeps the balance equation and drops refused rows', () => {
+  const people = [{ id: 'fA', name: 'أحمد' }, { id: 'fB', name: 'بلا حركة' }];
+  const errors = { 'bad-adv': 'رُفض', 'bad-set': 'رُفض', 'bad-ret': 'رُفض', 'bad-exp': 'رُفض' };
+  const moves = [
+    MV({ id: 'pend', foremanId: 'fA', kind: 'advance', amount: 7000, date: '2026-11-06', createdAtDevice: 60, createdBy: 'o', deviceId: 'phone' }),
+    MV({ id: 'rev_ret', foremanId: 'fA', kind: 'return', amount: 5000, date: '2026-11-05', isReversal: true, createdAtDevice: 52, note: 'عكس استلام' }),
+    MV({ id: 'set', foremanId: 'fA', kind: 'settle', amount: 20000, date: '2026-11-02', createdAtDevice: 20 }),
+    MV({ id: 'bad-adv', foremanId: 'fA', kind: 'advance', amount: 999, date: '2026-11-01', createdAtDevice: 1 }),
+    MV({ id: 'adv', foremanId: 'fA', kind: 'advance', amount: 100000, date: '2026-11-01', createdAtDevice: 10, createdBy: 'o', deviceId: 'phone', note: 'سلفة أولى' }),
+    MV({ id: 'ret', foremanId: 'fA', kind: 'return', amount: 5000, date: '2026-11-03', createdAtDevice: 30 }),
+    MV({ id: 'rev_adv', foremanId: 'fA', kind: 'advance', amount: 100000, date: '2026-11-05', isReversal: true, createdAtDevice: 50 }),
+    MV({ id: 'rev_set', foremanId: 'fA', kind: 'settle', amount: 20000, date: '2026-11-05', isReversal: true, createdAtDevice: 51 }),
+    MV({ id: 'bad-set', foremanId: 'fA', kind: 'settle', amount: 999, date: '2026-11-02' }),
+    MV({ id: 'bad-ret', foremanId: 'fA', kind: 'return', amount: 999, date: '2026-11-03' }),
+    MV({ id: 'fx', foremanId: 'fX', kind: 'advance', amount: 9000, date: '2026-11-01', createdAtDevice: 1, note: 'سلفة بلا بطاقة' }),
+    MV({ id: 'nan-adv', foremanId: 'fA', kind: 'advance', amount: NaN, date: '2026-11-07', createdAtDevice: 70 }),
+  ];
+  moves[1].reversesMoveId = 'ret';
+  moves[6].reversesMoveId = 'adv';
+  moves[7].reversesMoveId = 'set';
+  const spent = E({ id: 'exp', foremanId: 'fA', projectId: 'a', entryType: 'materials', amount: 30000, entryDate: '2026-11-04', description: 'كابلات', createdAtDevice: 40, createdBy: 'o', deviceId: 'phone' });
+  const revSpent = E({ id: 'rev_exp', foremanId: 'fA', projectId: 'a', entryType: 'materials', amount: 30000, entryDate: '2026-11-05', description: 'عكس كابلات', isReversal: true, reversesEntryId: 'exp', createdAtDevice: 53, createdBy: 'o', deviceId: 'phone' });
+  const refusedSpent = E({ id: 'bad-exp', foremanId: 'fA', amount: 99999, entryDate: '2026-11-04' });
+  const income = E({ id: 'income-fm', foremanId: 'fA', direction: 'income', entryType: 'clientPayment', amount: 8000, entryDate: '2026-11-04' });
+  const entries = [revSpent, income, refusedSpent, spent];
+  const custody = parseForemanCsv(L.foremanCustodyToCSV(people, moves, entries, projects, errors));
+  const summary = parseForemanCsv(L.foremanSummaryToCSV(people, moves, entries, errors));
+  assert.deepEqual(custody[0], L.FOREMAN_CUSTODY_COLS);
+  assert.deepEqual(summary[0], L.FOREMAN_SUMMARY_COLS);
+  assert.equal(custody[0].includes('currency'), false);
+  assert.equal(custody[0].some(cell => cell.includes('عملة')), false);
+  custody.slice(1).forEach(row => assert.equal(row.length, custody[0].length));
+  summary.slice(1).forEach(row => assert.equal(row.length, summary[0].length));
+  const at = name => foremanCol(custody, name);
+  const ids = custody.slice(1).map(row => row[at('الرقم')]);
+  assert.deepEqual(ids, ['adv', 'set', 'ret', 'exp', 'rev_adv', 'rev_set', 'rev_ret', 'rev_exp', 'pend', 'nan-adv', 'fx']);
+  for (const refused of ['bad-adv', 'bad-set', 'bad-ret', 'bad-exp', 'income-fm']) {
+    assert.equal(custody.some(row => row.includes(refused)), false, refused);
+    assert.equal(summary.some(row => row.includes(refused)), false, refused);
+  }
+  const effectAt = at('أثر العهدة');
+  const foremanAt = at('رقم الخلفة');
+  /** @type {Record<string, number>} */
+  const effects = {};
+  for (const row of custody.slice(1)) {
+    const id = row[foremanAt];
+    if (!row[effectAt]) continue;
+    effects[id] = (effects[id] || 0) + Number(row[effectAt]);
+  }
+  for (const id of ['fA', 'fB', 'fX']) {
+    const held = L.foremanBalance(id, moves, entries, errors).held;
+    assert.equal(effects[id] || 0, held, id);
+  }
+  const sumAt = name => foremanCol(summary, name);
+  const byId = Object.fromEntries(summary.slice(1).map(row => [row[sumAt('رقم الخلفة')], row]));
+  assert.deepEqual(Object.keys(byId), ['fA', 'fB', 'fX']);
+  assert.equal(byId.fA[sumAt('اسم الخلفة')], 'أحمد');
+  assert.equal(byId.fB[sumAt('اسم الخلفة')], 'بلا حركة');
+  assert.equal(byId.fX[sumAt('اسم الخلفة')], '');
+  assert.equal(custody.find(row => row[at('الرقم')] === 'fx')[at('اسم الخلفة')], '');
+  for (const row of summary.slice(1)) {
+    const advances = Number(row[sumAt('السلف')]);
+    const settled = Number(row[sumAt('التسديد')]);
+    const spentSum = Number(row[sumAt('مجموع المصروف')]);
+    const returned = Number(row[sumAt('الاستلام (المُرجَع)')]);
+    const remaining = Number(row[sumAt('المتبقي معه')]);
+    const owed = Number(row[sumAt('مستحق للخلفة')]);
+    const fig = L.foremanBalance(row[sumAt('رقم الخلفة')], moves, entries, errors);
+    assert.equal(advances + settled - returned - spentSum, remaining - owed);
+    assert.equal(remaining, fig.remaining);
+    assert.equal(owed, fig.owedToForeman);
+    assert.equal(String(advances).includes(','), false);
+  }
+  const adv = custody.find(row => row[at('الرقم')] === 'adv');
+  assert.equal(adv[at('نوع الصف')], 'حركة');
+  assert.equal(adv[at('قيد عكسي')], 'لا');
+  assert.equal(adv[at('النوع')], 'سلفة');
+  assert.equal(adv[at('رقم المشروع')], '');
+  assert.equal(adv[at('اسم المشروع')], '');
+  assert.equal(adv[at('المبلغ')], '100000');
+  assert.equal(adv[at('المبلغ بإشارته')], '100000');
+  assert.equal(adv[at('أثر العهدة')], '100000');
+  assert.equal(adv[at('أدخله')], 'o');
+  assert.equal(adv[at('وقت الجهاز')], '10');
+  assert.equal(adv[at('رقم الجهاز')], 'phone');
+  const rev = custody.find(row => row[at('الرقم')] === 'rev_adv');
+  assert.equal(rev[at('المبلغ بإشارته')], '-100000');
+  assert.equal(rev[at('المبلغ بإشارته')].startsWith("'"), false);
+  assert.equal(rev[at('قيد عكسي')], 'نعم');
+  assert.equal(rev[at('نوع الصف')], 'حركة');
+  assert.equal(rev[at('رقم المعكوس')], 'adv');
+  const exp = custody.find(row => row[at('الرقم')] === 'exp');
+  assert.equal(exp[at('نوع الصف')], 'مصروف من عهدة');
+  assert.equal(exp[at('قيد عكسي')], 'لا');
+  assert.equal(exp[at('النوع')], L.ENTRY_TYPES.materials.label);
+  assert.equal(exp[at('رقم المشروع')], 'a');
+  assert.equal(exp[at('اسم المشروع')], 'مشروع أ');
+  assert.equal(exp[at('أثر العهدة')], '-30000');
+  const damaged = custody.find(row => row[at('الرقم')] === 'nan-adv');
+  assert.equal(damaged[at('المبلغ')], '');
+  assert.equal(damaged[at('المبلغ بإشارته')], '');
+  assert.equal(damaged[at('أثر العهدة')], '');
+  assert.equal(damaged[at('اسم الخلفة')], 'أحمد');
+});
+
+test('foreman custody CSV escapes names and formula text', () => {
+  const people = [
+    { id: 'q', name: 'خلفة, "أ"' },
+    { id: 'eq', name: '=cmd' },
+    { id: 'dash', name: '-cmd' },
+    { id: 'rtl', name: '\u200F=cmd' },
+  ];
+  const moves = [
+    MV({ id: 'mq', foremanId: 'q', amount: 1200, note: '=HYPERLINK()' }),
+    MV({ id: 'me', foremanId: 'eq', amount: 1, note: '' }),
+    MV({ id: 'md', foremanId: 'dash', amount: 1, note: '' }),
+    MV({ id: 'mr', foremanId: 'rtl', amount: 1, note: '' }),
+  ];
+  const text = L.foremanCustodyToCSV(people, moves, [], projects, {});
+  assert.ok(text.includes('"خلفة, ""أ"""'));
+  assert.ok(text.includes("'=HYPERLINK()"));
+  const table = parseForemanCsv(text);
+  const nameAt = foremanCol(table, 'اسم الخلفة');
+  const noteAt = foremanCol(table, 'الملاحظة');
+  const idAt = foremanCol(table, 'الرقم');
+  const byId = Object.fromEntries(table.slice(1).map(row => [row[idAt], row]));
+  assert.equal(byId.mq[nameAt], 'خلفة, "أ"');
+  assert.equal(byId.mq[noteAt], "'=HYPERLINK()");
+  assert.equal(byId.me[nameAt], "'=cmd");
+  assert.equal(byId.md[nameAt], "'-cmd");
+  assert.equal(byId.mr[nameAt], "'\u200F=cmd");
+  assert.equal(byId.mq[foremanCol(table, 'المبلغ')], '1200');
+  assert.equal(String(byId.mq[foremanCol(table, 'المبلغ')]).includes(','), false);
+});
+
+test('custody export uses Western digits for amounts, dates, and a negative balance', () => {
+  const people = [{ id: 'fN', name: 'نزار' }];
+  const entries = [E({
+    id: 'exp-n',
+    foremanId: 'fN',
+    amount: 3500,
+    entryDate: '٢٠٢٦-١١-١٦',
+    entryType: 'expense',
+    description: 'ملاحظة \u06F4\u06F5\u06F6',
+  })];
+  const custody = L.foremanCustodyToCSV(people, [], entries, projects, {});
+  const summary = L.foremanSummaryToCSV(people, [], entries, {});
+  const whole = custody + summary;
+  assert.equal(/[\u0660-\u0669]/.test(whole), false);
+  assert.equal(/[\u06F0-\u06F9]/.test(whole), false);
+  assert.equal(whole.includes('456'), true);
+  assert.equal(whole.includes('3500'), true);
+  assert.equal(whole.includes('-3500'), true);
+  assert.equal(whole.includes('2026-11-16'), true);
+  const fig = L.foremanBalance('fN', [], entries, {});
+  assert.equal(fig.held, -3500);
+  assert.equal(summary.includes(String(fig.owedToForeman)), true);
+  const table = parseForemanCsv(custody);
+  const only = table[1];
+  assert.equal(only[foremanCol(table, 'نوع الصف')], 'مصروف من عهدة');
+  assert.equal(only[foremanCol(table, 'قيد عكسي')], 'لا');
+  assert.equal(whole.includes('حركة'), false);
+  assert.equal(/[\u0660-\u0669\u06F0-\u06F9]/.test(only.join(',')), false);
+});
