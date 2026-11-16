@@ -135,6 +135,18 @@ async function adminSet(col, id, data) {
   });
 }
 
+const ISO = 'p-iso';
+
+async function openIso() {
+  await adminSet('projects', ISO, projectDoc(ISO, 'active'));
+}
+
+async function dropIso() {
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    await deleteDoc(doc(ctx.firestore(), 'projects', ISO));
+  });
+}
+
 function lump(id, over) {
   return Object.assign({
     id, partyId: PARTY, projectId: P1, method: 'lump', description: 'wall', currency: 'IQD', lumpAmount: 5000,
@@ -403,74 +415,144 @@ testSeq('project: statementWithProjectCreate denies a closed project, an archive
 
 testSeq('project: slotBodyCreate denies a missing project', async () => {
   await seed();
-  const id = uuid(1);
-  await allow(send(OWNER_A, 'agreements', id, lump(id)));
-  const slot = slotBody(id, 1, { projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', slot.id, slot));
+  await openIso();
+  const kept = uuid(1);
+  const later = uuid(2);
+  await allow(send(OWNER_A, 'agreements', kept, lump(kept, { projectId: ISO })));
+  await allow(send(OWNER_A, 'agreements', later, lump(later, { projectId: ISO })));
+  const first = slotBody(kept, 1, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = slotBody(later, 1, { projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: laborQtyCreate denies a missing project', async () => {
   await seed();
-  const id = uuid(1);
-  await allow(send(OWNER_A, 'agreements', id, unitAgreement(id)));
-  const body = measurement(uuid(11), id, 8, { projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', body.id, body));
+  await openIso();
+  const agreement = uuid(1);
+  await allow(send(OWNER_A, 'agreements', agreement, unitAgreement(agreement, { projectId: ISO })));
+  const first = measurement(uuid(11), agreement, 8, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = measurement(uuid(12), agreement, 8, { projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: supCreate denies a missing project', async () => {
   await seed();
-  const body = await putUnit(uuid(1), uuid(11), 8);
-  const next = supOf(body, { projectId: 'missing-project', qty: 4 });
-  await deny(send(OWNER_A, 'accountTxns', next.id, next));
+  await openIso();
+  const agreement = uuid(1);
+  await allow(send(OWNER_A, 'agreements', agreement, unitAgreement(agreement, { projectId: ISO })));
+  const firstBody = measurement(uuid(11), agreement, 8, { projectId: ISO });
+  const secondBody = measurement(uuid(12), agreement, 8, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstBody.id, firstBody));
+  await allow(send(OWNER_A, 'accountTxns', secondBody.id, secondBody));
+  const first = supOf(firstBody, { qty: 4 });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = supOf(secondBody, { qty: 4 });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: approveLaborCreate denies a missing project', async () => {
   await seed();
-  const body = await putUnit(uuid(1), uuid(11), 8000);
-  const mark = approval(body.id, uuid(1), 600000, 8000, { projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', mark.id, mark));
+  await openIso();
+  const agreement = uuid(1);
+  await allow(send(OWNER_A, 'agreements', agreement, unitAgreement(agreement, { projectId: ISO })));
+  const firstBody = measurement(uuid(11), agreement, 8000, { projectId: ISO });
+  const secondBody = measurement(uuid(12), agreement, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstBody.id, firstBody));
+  await allow(send(OWNER_A, 'accountTxns', secondBody.id, secondBody));
+  const first = approval(firstBody.id, agreement, 600000, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = approval(secondBody.id, agreement, 600000, 8000, { projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: laborStlCreate denies a missing project', async () => {
   await seed();
-  const { body } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const advance = cash(uuid(21), 'advanceLabor', 1000);
-  await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
-  const row1 = settle(body.id, advance.id, 1, 500, { projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', row1.id, row1));
+  await openIso();
+  const agreement = uuid(1);
+  await allow(send(OWNER_A, 'agreements', agreement, unitAgreement(agreement, { projectId: ISO })));
+  const firstBody = measurement(uuid(11), agreement, 8000, { projectId: ISO });
+  const secondBody = measurement(uuid(12), agreement, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstBody.id, firstBody));
+  await allow(send(OWNER_A, 'accountTxns', secondBody.id, secondBody));
+  const firstMark = approval(firstBody.id, agreement, 600000, 8000, { projectId: ISO });
+  const secondMark = approval(secondBody.id, agreement, 600000, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstMark.id, firstMark));
+  await allow(send(OWNER_A, 'accountTxns', secondMark.id, secondMark));
+  const firstAdvance = cash(uuid(21), 'advanceLabor', 1000, { projectId: ISO });
+  const secondAdvance = cash(uuid(22), 'advanceLabor', 1000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstAdvance.id, firstAdvance));
+  await allow(send(OWNER_A, 'accountTxns', secondAdvance.id, secondAdvance));
+  const first = settle(firstBody.id, firstAdvance.id, 1, 500, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = settle(secondBody.id, secondAdvance.id, 1, 500, { projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: returnAdvanceCreate denies a missing project', async () => {
   await seed();
-  const advance = cash(uuid(1), 'advanceLabor', 1000);
+  await openIso();
+  const advance = cash(uuid(1), 'advanceLabor', 1000, { projectId: ISO });
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
-  const back = cash(uuid(2), 'returnAdvance', 100, { targetId: advance.id, projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', back.id, back));
+  const first = cash(uuid(2), 'returnAdvance', 100, { targetId: advance.id, projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = cash(uuid(3), 'returnAdvance', 100, { targetId: advance.id, projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: refundLaborCreate denies a missing project', async () => {
   await seed();
-  const pay = cash(uuid(1), 'payLabor', 1000);
+  await openIso();
+  const pay = cash(uuid(1), 'payLabor', 1000, { projectId: ISO });
   await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
-  const refund = cash(uuid(2), 'refundLabor', 100, { targetId: pay.id, projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', refund.id, refund));
+  const first = cash(uuid(2), 'refundLabor', 100, { targetId: pay.id, projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = cash(uuid(3), 'refundLabor', 100, { targetId: pay.id, projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: deductCreate denies a missing project', async () => {
   await seed();
-  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 10, { projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', deduct.id, deduct));
+  await openIso();
+  const agreement = uuid(1);
+  await allow(send(OWNER_A, 'agreements', agreement, unitAgreement(agreement, { projectId: ISO })));
+  const body = measurement(uuid(11), agreement, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', body.id, body));
+  const mark = approval(body.id, agreement, 600000, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
+  const first = deductOf(uuid(21), mark.id, 10, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = deductOf(uuid(22), mark.id, 10, { projectId: ISO });
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: approveDeductCreate denies a missing project', async () => {
   await seed();
-  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 100);
-  await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
-  const approved = approveDeductOf(deduct);
-  approved.projectId = 'missing-project';
-  await deny(send(OWNER_A, 'accountTxns', approved.id, approved));
+  await openIso();
+  const agreement = uuid(1);
+  await allow(send(OWNER_A, 'agreements', agreement, unitAgreement(agreement, { projectId: ISO })));
+  const body = measurement(uuid(11), agreement, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', body.id, body));
+  const mark = approval(body.id, agreement, 600000, 8000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
+  const firstBody = deductOf(uuid(21), mark.id, 100, { projectId: ISO });
+  const secondBody = deductOf(uuid(22), mark.id, 100, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstBody.id, firstBody));
+  await allow(send(OWNER_A, 'accountTxns', secondBody.id, secondBody));
+  const first = approveDeductOf(firstBody);
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = approveDeductOf(secondBody);
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: rejCreate denies a missing project', async () => {
@@ -485,19 +567,30 @@ testSeq('project: rejCreate denies a missing project', async () => {
 
 testSeq('project: revCreate denies a missing project', async () => {
   await seed();
-  const pay = cash(uuid(1), 'payLabor', 1000);
-  await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
-  const rev = txnRev(pay, { projectId: 'missing-project' });
-  await deny(send(OWNER_A, 'accountTxns', rev.id, rev));
+  await openIso();
+  const firstPay = cash(uuid(1), 'payLabor', 1000, { projectId: ISO });
+  const secondPay = cash(uuid(2), 'payLabor', 1000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstPay.id, firstPay));
+  await allow(send(OWNER_A, 'accountTxns', secondPay.id, secondPay));
+  const first = txnRev(firstPay);
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = txnRev(secondPay);
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('project: revwCreate denies a missing project', async () => {
   await seed();
-  const pay = cash(uuid(1), 'payLabor', 1000);
-  await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
-  const mark = revwOf(pay);
-  mark.projectId = 'missing-project';
-  await deny(send(OWNER_A, 'accountTxns', mark.id, mark));
+  await openIso();
+  const firstPay = cash(uuid(1), 'payLabor', 1000, { projectId: ISO });
+  const secondPay = cash(uuid(2), 'payLabor', 1000, { projectId: ISO });
+  await allow(send(OWNER_A, 'accountTxns', firstPay.id, firstPay));
+  await allow(send(OWNER_A, 'accountTxns', secondPay.id, secondPay));
+  const first = revwOf(firstPay);
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await dropIso();
+  const second = revwOf(secondPay);
+  await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
 testSeq('cancel: slot generation 1 denies agreements/rev_<agreementId>', async () => {
