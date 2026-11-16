@@ -39,6 +39,15 @@ function load(src) {
     holdSession() { return Promise.resolve(); },
     signOutPending() { return ''; },
     clearSignOutPending() {},
+    withTimeout(p, ms, step) {
+      let t;
+      const err = new Error('انتهت المهلة (' + step + '). تحقق من الاتصال وأعد المحاولة');
+      err.timeout = true;
+      return Promise.race([
+        Promise.resolve(p),
+        new Promise((_, no) => { t = setTimeout(() => no(err), ms); }),
+      ]).finally(() => clearTimeout(t));
+    },
     MISSING_PROFILE_MSG: 'missing',
     SUSPENDED_MSG: 'suspended',
     SESSION_DEAD_MSG: 'dead',
@@ -65,8 +74,60 @@ function load(src) {
   return context;
 }
 
-function harness(src, opts) {
+function clientMods(context, opts, counts) {
+  return {
+    initializeApp() { return { name: '[DEFAULT]' }; },
+    deleteApp() { return Promise.resolve(); },
+    getApps() { return []; },
+    authMod: {
+      getAuth() { return { authStateReady() { return Promise.resolve(); }, currentUser: null }; },
+      connectAuthEmulator() {},
+      signOut() { return Promise.resolve(); },
+      signInWithEmailAndPassword() { return Promise.resolve({}); },
+    },
+    fsMod: {
+      memoryLocalCache() { return {}; },
+      initializeFirestore() { return {}; },
+      getFirestore() { return {}; },
+      connectFirestoreEmulator() {},
+      clearIndexedDbPersistence() { return Promise.resolve(); },
+      terminate() { return Promise.resolve(); },
+      serverTimestamp() { return { serverTimestamp: true }; },
+      doc(_db, col, id) { return { col, id: String(id) }; },
+      getDoc() { return Promise.resolve({ exists() { return false; }, data() { return null; } }); },
+      getDocFromServer() { return Promise.resolve({ exists() { return false; }, data() { return null; } }); },
+      getDocsFromServer() { return Promise.resolve({ docs: [] }); },
+      collection() { return {}; },
+      updateDoc() { return Promise.resolve(); },
+      Timestamp: { fromMillis(n) { return n; } },
+      async setDoc(ref) {
+        counts.writes += 1;
+        if (opts.fail) {
+          const err = new Error('denied');
+          err.code = 'permission-denied';
+          throw err;
+        }
+        if (opts.unavailable) {
+          const err = new Error('offline');
+          err.code = 'unavailable';
+          throw err;
+        }
+        if (ref.col === 'projects') counts.project += 1;
+        if (ref.col === 'projectFinance') {
+          counts.finance += 1;
+          if (opts.duringWrite) opts.duringWrite(context, { id: ref.id });
+        }
+      },
+    },
+  };
+}
+
+async function harness(src, opts) {
   const context = load(src);
+  context.URL = URL;
+  context.URLSearchParams = URLSearchParams;
+  context.location = { href: 'http://127.0.0.1/index.html', search: '' };
+  context.FIREBASE_CONFIG = { apiKey: 'demo', projectId: 'ahl-aljazeera-accounting', authDomain: 'localhost' };
   const counts = { rounds: 0, project: 0, finance: 0, writes: 0 };
   const user = opts.user || { uid: 'u-owner', role: 'owner', active: true, displayName: 'مالك' };
   context.set(context.K.sessionUser, user);
@@ -79,52 +140,10 @@ function harness(src, opts) {
   context.set(context.K.syncErrors, opts.errors || {});
   context.set(context.K.statusPending, opts.status || []);
   context.navigator.onLine = opts.offline ? false : true;
+  const real = opts.missingWrite ? null : await context.createFirebaseClient(clientMods(context, opts, counts), context.fbGeneration);
+  if (!opts.missingWrite && !(real && real.writeLocal)) throw new Error('real writeLocal was not created');
   const fb = {
-    async writeLocal(local) {
-      counts.writes += 1;
-      if (opts.fail) {
-        const err = new Error('denied');
-        err.code = 'permission-denied';
-        throw err;
-      }
-      if (opts.unavailable) {
-        const err = new Error('offline');
-        err.code = 'unavailable';
-        throw err;
-      }
-      if (opts.missingWrite) {
-        throw new TypeError('fb.writeLocal is not a function');
-      }
-      const id = local.id;
-      const col = context.Sync.collectionFor(local);
-      if (col === 'projects') counts.project += 1;
-      if (col === 'subcontracts') {
-        const terms = context.get(context.K.terms, {})[id];
-        const payload = context.Sync.termsPayload(terms && terms.originalAmount);
-        if (!payload) throw new Error('مبلغ العقد غير صالح');
-        const current = context.get(context.K.terms, {})[id];
-        if (!current || current.originalAmount === payload.originalAmount) {
-          const next = context.get(context.K.terms, {});
-          next[id] = { originalAmount: payload.originalAmount };
-          context.set(context.K.terms, next);
-        }
-        return payload.originalAmount;
-      }
-      const fin = context.get(context.K.finance, {})[id];
-      const explicit = fin && Number.isInteger(fin.contractAmount) ? fin.contractAmount : undefined;
-      const saved = context.Sync.splitProjectSave(local, explicit);
-      if (opts.duringWrite) opts.duringWrite(context, local, saved);
-      if (!saved.finance || !context.Ledger.can(user, 'owner')) return;
-      counts.finance += 1;
-      if (context.clearLegacyPending(id)) return saved.finance.contractAmount;
-      const current = context.get(context.K.finance, {})[id];
-      if (!current || current.contractAmount === saved.finance.contractAmount) {
-        const next = context.get(context.K.finance, {});
-        next[id] = { contractAmount: saved.finance.contractAmount };
-        context.set(context.K.finance, next);
-      }
-      return saved.finance.contractAmount;
-    },
+    writeLocal: real ? local => real.writeLocal(local) : undefined,
     exists() { return Promise.resolve(false); },
     readServer() { return Promise.resolve(null); },
     pull() {
@@ -141,7 +160,7 @@ function harness(src, opts) {
 async function run(src, opts) {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    const box = harness(src, opts || {});
+    const box = await harness(src, opts || {});
     await box.context.flushRemote(opts && opts.inside ? undefined : { fromOutside: true });
     for (let i = 0; i < 8; i += 1) {
       mock.timers.tick(0);
@@ -239,7 +258,7 @@ test('a valid contract is one round and clears pending', async () => {
 });
 
 test('a legacy project amount with a bare pending row is sent', async () => {
-  // EA 22:40, delegated. After the acknowledged send, only pending is cleared. The project amount stays.
+  // EA 22:40, delegated. writeLocal drops only pending after the ack. This pull is stubbed, so the project amount stays here.
   const got = await run(LIVE(), {
     projects: [project('p-old', { contractAmount: 5000 })],
     finance: { 'p-old': { pending: true } },
@@ -252,6 +271,26 @@ test('a legacy project amount with a bare pending row is sent', async () => {
   assert.equal(got.finance['p-old'].contractAmount, undefined);
   assert.equal(got.projects.find(row => row.id === 'p-old').contractAmount, 5000);
   assert.deepEqual(got.outbox, []);
+});
+
+test('an integer typed during the legacy send stays pending and is sent next round', async () => {
+  const got = await run(LIVE(), {
+    projects: [project('p-old', { contractAmount: 5000 })],
+    finance: { 'p-old': { pending: true } },
+    outbox: ['p-old'],
+    duringWrite(context, local) {
+      if (context.raced) return;
+      context.raced = true;
+      const fin = context.get(context.K.finance, {});
+      fin[local.id] = { contractAmount: 7777, pending: true };
+      context.set(context.K.finance, fin);
+    },
+  });
+  assert.equal(got.errors['p-old'], undefined);
+  assert.deepEqual(got.finance['p-old'], { contractAmount: 7777 });
+  assert.deepEqual(got.outbox, []);
+  assert.equal(got.counts.rounds, 2);
+  assert.equal(got.counts.finance, 2);
 });
 
 test('an amount that changes once during the write is sent on the extra round', async () => {
@@ -496,8 +535,8 @@ test('two tabs share the integer and each stays inside the cap', async () => {
       finance: { 'p-c': { contractAmount: 10000000001, pending: true } },
       outbox: ['p-c'],
     };
-    const a = harness(LIVE(), opts);
-    const b = harness(LIVE(), {});
+    const a = await harness(LIVE(), opts);
+    const b = await harness(LIVE(), {});
     b.context.cache = a.context.cache;
     await a.context.flushRemote({ fromOutside: true });
     await b.context.flushRemote({ fromOutside: true });

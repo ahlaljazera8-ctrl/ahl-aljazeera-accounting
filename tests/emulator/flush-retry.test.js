@@ -43,6 +43,15 @@ function loadClient() {
     holdSession() { return Promise.resolve(); },
     signOutPending() { return ''; },
     clearSignOutPending() {},
+    withTimeout(p, ms, step) {
+      let t;
+      const err = new Error('انتهت المهلة (' + step + '). تحقق من الاتصال وأعد المحاولة');
+      err.timeout = true;
+      return Promise.race([
+        Promise.resolve(p),
+        new Promise((_, no) => { t = setTimeout(() => no(err), ms); }),
+      ]).finally(() => clearTimeout(t));
+    },
     MISSING_PROFILE_MSG: 'missing',
     SUSPENDED_MSG: 'suspended',
     SESSION_DEAD_MSG: 'dead',
@@ -116,8 +125,13 @@ test.before(async () => {
 });
 
 function cancelledClear(err) {
-  const blob = String((err && (err.code || err.status)) || '') + ' ' + String((err && err.message) || '');
-  return blob.includes('499') || /cancelled/i.test(blob);
+  if (!err || typeof err !== 'object') return false;
+  if (err.code === 'cancelled' || err.code === 499 || err.status === 499 || err.status === 'CANCELLED') return true;
+  if (typeof err.message !== 'string' || err.message.trim().charAt(0) !== '{') return false;
+  let body;
+  try { body = JSON.parse(err.message); } catch (parseErr) { return false; }
+  const inner = body && body.error && typeof body.error === 'object' ? body.error : body;
+  return !!inner && (inner.code === 499 || inner.code === 'cancelled' || inner.status === 499 || inner.status === 'CANCELLED');
 }
 
 test.after(async () => {
@@ -134,36 +148,51 @@ test.after(async () => {
   await testEnv.cleanup();
 });
 
-function attach(context, who) {
+async function attach(context, who) {
   const counts = { rounds: 0, project: 0, finance: 0, writes: 0 };
+  context.URL = URL;
+  context.URLSearchParams = URLSearchParams;
+  context.location = { href: 'http://127.0.0.1/index.html', search: '' };
+  context.FIREBASE_CONFIG = { apiKey: 'demo', projectId: PROJECT, authDomain: 'localhost' };
   context.set(context.K.sessionUser, who);
-  context.ensureFirebase = () => Promise.resolve({
-    async writeLocal(local) {
-      counts.writes += 1;
-      const clean = context.Sync.withoutContractAmount(local);
-      const col = context.Sync.collectionFor(clean);
-      if (col === 'projects') counts.project += 1;
-      const body = JSON.parse(JSON.stringify(context.Sync.withServerTime(clean, null)));
-      body.createdAtServer = serverTimestamp();
-      await setDoc(doc(db, col, String(clean.id)), body);
-      if (col !== 'projects') return;
-      const user = context.get(context.K.sessionUser, null);
-      if (!context.Ledger.can(user, 'owner')) return;
-      const stored = context.get(context.K.finance, {})[clean.id];
-      const explicit = stored && Number.isInteger(stored.contractAmount) ? stored.contractAmount : undefined;
-      const saved = context.Sync.splitProjectSave(local, explicit);
-      if (!saved.finance) return;
-      counts.finance += 1;
-      await setDoc(doc(db, 'projectFinance', String(clean.id)), JSON.parse(JSON.stringify(saved.finance)));
-      if (context.clearLegacyPending(String(clean.id))) return saved.finance.contractAmount;
-      const fin = context.get(context.K.finance, {});
-      const current = fin[clean.id];
-      if (!current || current.contractAmount === saved.finance.contractAmount) {
-        fin[clean.id] = { contractAmount: saved.finance.contractAmount };
-        context.set(context.K.finance, fin);
-      }
-      return saved.finance.contractAmount;
+  const real = await context.createFirebaseClient({
+    initializeApp() { return { name: 'flush-real' }; },
+    deleteApp() { return Promise.resolve(); },
+    getApps() { return []; },
+    authMod: {
+      getAuth() { return { authStateReady() { return Promise.resolve(); }, currentUser: null }; },
+      connectAuthEmulator() {},
+      signOut() { return Promise.resolve(); },
+      signInWithEmailAndPassword() { return Promise.resolve({}); },
     },
+    fsMod: {
+      memoryLocalCache() { return {}; },
+      initializeFirestore() { return {}; },
+      getFirestore() { return {}; },
+      connectFirestoreEmulator() {},
+      clearIndexedDbPersistence() { return Promise.resolve(); },
+      terminate() { return Promise.resolve(); },
+      serverTimestamp() { return { serverTimestamp: true }; },
+      doc(_db, col, id) { return { col, id: String(id) }; },
+      getDoc() { return Promise.resolve({ exists() { return false; }, data() { return null; } }); },
+      getDocFromServer() { return Promise.resolve({ exists() { return false; }, data() { return null; } }); },
+      getDocsFromServer() { return Promise.resolve({ docs: [] }); },
+      collection() { return {}; },
+      updateDoc() { return Promise.resolve(); },
+      Timestamp: { fromMillis(n) { return n; } },
+      async setDoc(ref, data) {
+        counts.writes += 1;
+        if (ref.col === 'projects') counts.project += 1;
+        if (ref.col === 'projectFinance') counts.finance += 1;
+        const body = JSON.parse(JSON.stringify(data));
+        if (data && data.createdAtServer) body.createdAtServer = serverTimestamp();
+        await setDoc(doc(db, ref.col, ref.id), body);
+      },
+    },
+  }, context.fbGeneration);
+  if (!(real && real.writeLocal)) throw new Error('real writeLocal was not created');
+  context.ensureFirebase = () => Promise.resolve({
+    writeLocal: local => real.writeLocal(local),
     exists() { return Promise.resolve(false); },
     readServer() { return Promise.resolve(null); },
     pull() {
@@ -183,7 +212,7 @@ test('a rules-denied project write is one attempt and leaves the seeded finance'
   await signInWithEmailAndPassword(auth, 'site.flush@example.invalid', PASS);
   try {
     const context = loadClient();
-    const counts = attach(context, { uid: siteUid, role: 'site', active: true, displayName: 'موقع' });
+    const counts = await attach(context, { uid: siteUid, role: 'site', active: true, displayName: 'موقع' });
     context.set(context.K.projects, [project('p-denied', siteUid)]);
     context.set(context.K.finance, { 'p-denied': { contractAmount: 80, pending: true } });
     context.set(context.K.outbox, ['p-denied']);
@@ -213,7 +242,7 @@ test('path (c) is one project write, then stop, and the integer stays', async ()
   await signInWithEmailAndPassword(auth, 'owner.flush@example.invalid', PASS);
   try {
     const context = loadClient();
-    const counts = attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
+    const counts = await attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
     context.set(context.K.projects, [project('p-range', ownerUid)]);
     context.set(context.K.finance, { 'p-range': { contractAmount: OVER, pending: true } });
     context.set(context.K.outbox, ['p-range']);
@@ -242,7 +271,7 @@ test('the restore keeps both amounts, the ledger row, and the other owner', asyn
   const untouched = JSON.parse(JSON.stringify(other));
   try {
     const context = loadClient();
-    const counts = attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
+    const counts = await attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
     const ledger = { id: 'e-keep', projectId: 'p-keep', direction: 'expense', entryType: 'materials', amount: 15, currency: 'IQD', entryDate: '2026-01-01', description: 'قيد', createdBy: ownerUid, deviceId: 'phone-1' };
     const seed = {
       projects: [project('p-range', ownerUid), project('p-bad', ownerUid, { status: 'nope' })],
@@ -289,7 +318,7 @@ test('a legacy project amount is sent once and only the pending flag is cleared'
   await signInWithEmailAndPassword(auth, 'owner.flush@example.invalid', PASS);
   try {
     const context = loadClient();
-    const counts = attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
+    const counts = await attach(context, { uid: ownerUid, role: 'owner', active: true, displayName: 'مالك' });
     const row = project('p-legacy', ownerUid, { contractAmount: 5000 });
     const entry = {
       id: 'e-legacy', projectId: 'p-keep', direction: 'expense', entryType: 'materials', amount: 15,
