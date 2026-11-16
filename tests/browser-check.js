@@ -1,6 +1,7 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
 const fs = require('fs'); const path = require('path');
 const { openChrome } = require('./chrome-debug.js');
+const { createCdpSession, openCdpSocket, isCdpTimeout, isCdpSocketError } = require('./cdp-session.js');
 const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function assertHashLanded(expected, actual) {
@@ -13,15 +14,13 @@ let chrome;
   const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
   chrome = opened.chrome;
   const tgt = opened.page;
-  const ws = new WebSocket(tgt.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
-  let id = 0; const pend = {}; const navLoaders = [];
-  ws.onmessage = m => {
-    const d = JSON.parse(m.data);
-    if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
-    if (d.id && pend[d.id]) { pend[d.id](d); delete pend[d.id]; }
-  };
-  const send = (method, params = {}) => new Promise(r => { pend[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
-  const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result.result.value;
+  const ws = await openCdpSocket(tgt.webSocketDebuggerUrl);
+  const navLoaders = [];
+  const { send, ev } = createCdpSession(ws, {
+    onEvent(d) {
+      if (d.method === 'Page.frameStartedNavigating' && d.params && d.params.loaderId) navLoaders.push(d.params.loaderId);
+    }
+  });
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   fs.mkdirSync('/tmp/aj-dl', { recursive: true });
@@ -43,7 +42,10 @@ let chrome;
       try {
         const now = await ev(`({o:performance.timeOrigin,r:document.body&&document.body.dataset.ready==='1'})`);
         return !!(now && now.o !== origin && now.r);
-      } catch (e) { return false; }
+      } catch (e) {
+        if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
+        return false;
+      }
     };
     if (roleDemo(url)) {
       await sleep(900);
@@ -62,6 +64,7 @@ let chrome;
       const href = await ev('location.href');
       return !!href && new URL(href).href === new URL(target).href;
     } catch (e) {
+      if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
       return false;
     }
   };
@@ -77,6 +80,7 @@ let chrome;
         try {
           actual = String((await ev('location.href')) || '');
         } catch (e) {
+          if (isCdpTimeout(e) || isCdpSocketError(e)) throw e;
           actual = '';
         }
         let expectedHref = url;
@@ -1194,6 +1198,70 @@ let chrome;
     return { text, dir, tab:document.querySelector('[data-tab="foremen"]')&&document.querySelector('[data-tab="foremen"]').textContent };
   })()`);
   check('owner العُهد list shows the owed foreman and LTR amounts', list && list.tab.includes('العُهد') && list.text.includes('حسن') && list.text.includes('مستحق له') && list.text.includes('300,000') && list.text.includes('335,000') && list.text.includes('35,000') && list.dir==='ltr');
+  check('owner sees تصدير العهدة on العُهد', await ev(`(document.querySelector('[data-fm="export"]')||{}).textContent==='تصدير العهدة (CSV)'`));
+  const summaryCard = await ev(`(() => {
+    const text = document.querySelector('#main').innerText;
+    const csv = Ledger.foremanSummaryToCSV(AJ.get('foremen'), AJ.get('foremanMoves'), AJ.get('entries'), AJ.get('syncErrors') || {});
+    const line = csv.slice(1).replace(/\\r$/, '').split('\\r\\n').find(row => row.indexOf('fm-hassan') === 0);
+    const cells = line ? line.split(',') : [];
+    return { text, advances: cells[2], spent: cells[4], remaining: cells[6], owed: cells[7], arabic: /[\\u0660-\\u0669\\u06F0-\\u06F9]/.test(csv) };
+  })()`);
+  check('the summary row matches السلف and مجموع المصروف and مستحق للخلفة', summaryCard && summaryCard.text.includes('السلف') && summaryCard.text.includes('300,000') && summaryCard.text.includes('مجموع المصروف') && summaryCard.text.includes('335,000') && summaryCard.text.includes('مستحق للخلفة') && summaryCard.text.includes('35,000') && summaryCard.advances === '300000' && summaryCard.spent === '335000' && summaryCard.remaining === '0' && summaryCard.owed === '35000' && summaryCard.arabic === false);
+  const sharedFiles = await ev(`(async () => {
+    let calls = 0;
+    let names = [];
+    navigator.canShare = () => true;
+    navigator.share = payload => {
+      calls += 1;
+      names = (payload.files || []).map(file => file.name);
+      return Promise.resolve();
+    };
+    document.querySelector('[data-fm="export"]').click();
+    await new Promise(r => setTimeout(r, 40));
+    const note = document.querySelector('#fm-export-note');
+    const text = document.querySelector('#main').innerText || '';
+    return { calls, names, note: note ? note.textContent : '', shown: text.includes('ما انفتحت المشاركة') };
+  })()`);
+  check('one tap shares both custody files and shows no fallback note', sharedFiles && sharedFiles.calls === 1 && sharedFiles.names.length === 2 && sharedFiles.names[0].indexOf('aj-foreman-custody-') === 0 && sharedFiles.names[1].indexOf('aj-foreman-summary-') === 0 && sharedFiles.note === '' && sharedFiles.shown === false);
+  const abortedExport = await ev(`(async () => {
+    let downloads = 0;
+    const orig = URL.createObjectURL;
+    URL.createObjectURL = function () { downloads += 1; return orig.apply(this, arguments); };
+    navigator.canShare = () => true;
+    navigator.share = () => Promise.reject(Object.assign(new Error('cancel'), { name: 'AbortError' }));
+    try { document.querySelector('[data-fm="export"]').click(); }
+    finally { await new Promise(r => setTimeout(r, 40)); }
+    URL.createObjectURL = orig;
+    const note = document.querySelector('#fm-export-note');
+    return { downloads, note: note ? note.textContent : '' };
+  })()`);
+  check('cancelling the custody share shows no fallback note', abortedExport && abortedExport.downloads === 0 && abortedExport.note === '');
+  const downloadedExport = await ev(`(async () => {
+    const origUrl = URL.createObjectURL;
+    const origClick = HTMLAnchorElement.prototype.click;
+    const blobs = [];
+    const names = [];
+    URL.createObjectURL = function (blob) { blobs.push(blob); return origUrl.apply(this, arguments); };
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download) names.push(String(this.download));
+      return origClick.apply(this, arguments);
+    };
+    navigator.canShare = () => false;
+    let bytes = [];
+    try {
+      document.querySelector('[data-fm="export"]').click();
+      await new Promise(r => setTimeout(r, 40));
+      for (const blob of blobs) bytes.push([...(new Uint8Array(await blob.arrayBuffer()))].slice(0, 3));
+    } finally {
+      URL.createObjectURL = origUrl;
+      HTMLAnchorElement.prototype.click = origClick;
+    }
+    const note = document.querySelector('#fm-export-note');
+    const text = document.querySelector('#main').innerText || '';
+    const sentence = 'ما انفتحت المشاركة، فانحفظ ملفين بالتنزيلات: ملف العهدة وملف الملخص.';
+    return { names, bytes, note: note ? note.textContent : '', shown: text.includes(sentence) };
+  })()`);
+  check('a failed share downloads both custody files and shows the fallback note', downloadedExport && downloadedExport.names.length === 2 && downloadedExport.names[0].indexOf('aj-foreman-custody-') === 0 && downloadedExport.names[1].indexOf('aj-foreman-summary-') === 0 && downloadedExport.bytes.length === 2 && downloadedExport.bytes.every(b => b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) && downloadedExport.note === 'ما انفتحت المشاركة، فانحفظ ملفين بالتنزيلات: ملف العهدة وملف الملخص.' && downloadedExport.shown === true);
   await ev(`location.hash='#foreman/fm-hassan'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
   check('a deleted default project shows the warning', await ev(`document.querySelector('#main').innerText.includes('المشروع الافتراضي محذوف') && document.querySelector('#main').innerText.includes('تسديد المستحق (35,000)') && document.querySelector('#main').innerText.includes('صرف حسن من جيبه')`));
@@ -1698,6 +1766,9 @@ let chrome;
     return { text, file, alerts, login: document.querySelector('#login').hidden === false };
   })()`);
   check('a site user exports only his row and is not blocked by another user', siteScreen && siteScreen.text.includes('مشروع المدرسة') && siteScreen.text.includes('مشروع الطريق') === false && siteScreen.file.includes('rej-mine') && siteScreen.file.includes('rej-foreign') === false && siteScreen.alerts.length === 0 && siteScreen.login === true);
+  await ev(`location.hash='#foremen'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
+  check('a site user has no custody export button', await ev(`!document.querySelector('[data-fm="export"]') && ((document.querySelector('#main') && document.querySelector('#main').innerText) || '').includes('تصدير العهدة') === false`));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
