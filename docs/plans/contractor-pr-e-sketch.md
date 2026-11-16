@@ -1,5 +1,7 @@
 # PLAN ONLY: contractor PR E sketch
 
+Revision r5, against Architect NOTES on r4 head `719e0754641a65c316cfe3895811c5c82b799a88` (review sha256 `806b1ee2bce2ec357962b5c8bf36e56b868a128d45082938d2ba3bf436487c03`). The r4 blob is `02f65c93f34bf24f9775b1a751a97a18e9570f44`.
+
 Revision r4, against Architect NOTES on r3 head `13d0438cac89127af3925d32db5db49cb56ea946` (review sha256 `c3ba08b307778cebd3ed784230170ae5bc477542a8d4ce035d27f2f2ec250710`). The r3 blob is `a7dc4bd3b9d3926ff93d128cac2c503b8f6a5d49`. Citations below were rechecked at main `f1c5070426906e14c2e815c288c7327387115b1a`. D's plan is merged there as #80.
 
 Revision r3, against Architect NOTES on r2 head `e68a892e` (review sha256 `287192927502f2ddb761692160961b4eb6a46c8f06986560d74fa0a1a490c9d5`). The r2 blob is `1877da22260d4acf1b78d39ed2945f1104d18f8f`. Citations below were rechecked at main `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. D is cited at r4 head `7ac193c5`.
@@ -32,7 +34,7 @@ From the table, PR E is:
 
 Not in E: material purposes, invoice locks, `linkRefusals` text other than the existing conflict sentence, screens, rules, `projectCost`, and the statement fold. PR K asserts the adopted-`appr_` project figure of 700,000. E does not.
 
-Preconditions, both still in front of the code PR (Q11). D is deployed by Ameer. EA has confirmed the rejected-entries stream is finished. #72 on this base is not that confirmation. This docs PR does not start the code.
+Preconditions, both still in front of the code PR (Q11). D is deployed by Ameer. EA has confirmed the rejected-entries stream is finished. D's deployed rules include the project check on every account leaf. #88 head `aa9c1482` has `projectActive` on all 15 leaves. That head is not merged and not deployed. #72 on this base is not that confirmation. This docs PR does not start the code.
 
 ## Files the code PR edits
 
@@ -414,10 +416,13 @@ After `write` throws, and the error is not dead auth and not transient:
 2. Slot body. Same id. The server doc replaces the local row in `K.accountTxns`. The id is `synced` and `adopted`. It is not a `syncErrors` key. The winner stays in the fold because the fold reads `K.accountTxns` and this id is not in `syncErrors`.
 3. If `payloadDiffers` is true, the walk below runs. The local body, the one from before the replace, is stored at `slotLoserKey(id)`. The other parked docs are stored the same way, whole.
 4. If `payloadDiffers` is false, there is no subtree. A queued `appr_` of that body is attempted in this pass once the body is in `synced`.
-5. `appr_`, `rej_`, `sup_`, and `revw_` with the same id and the same `targetId` adopt the server copy of that same id and clear `syncErrors` for it. `sup_` is a body with `supersedesId`, matching C r2. An account `rev_` adopts on the same document id plus the same `reversesId`, not on `sameContent`. Two owners differ in `createdBy` and `reversalReason` (D r4 at `7ac193c5`, Architect F3). The server copy replaces the local row and `syncErrors` for that id is cleared.
-6. Labor `stl_` with the same id and the same target, and a different `settlesId` or `amount`, adopts the server winner. The shared id is not a `syncErrors` key. The loser's whole doc is stored under `mintId()`. That uuid is not queued and is not the `stl_` id. The advance id and the cash id stay out of `syncErrors`. The fold does not read `linkRefusals`.
+5. `appr_`, `rej_`, `sup_`, and `revw_` with the same id and the same `targetId` adopt the server copy of that same id and clear `syncErrors` for it, only when that copy's `kind` equals the local `kind`. `sup_` is a body with `supersedesId`, matching C r2. An account `rev_` adopts on the same document id plus the same `reversesId`, not on `sameContent`, and only when the server copy's `kind` is `rev`. Two owners differ in `createdBy` and `reversalReason` (D r4 at `7ac193c5`, Architect F3). The server copy replaces the local row and `syncErrors` for that id is cleared.
+6. Labor `stl_` with the same id and the same target, and a different `settlesId` or `amount`, adopts the server winner only when its `kind` equals the local `kind`. The shared id is not a `syncErrors` key. The loser's whole doc is stored under `mintId()`. That uuid is not queued and is not the `stl_` id. The advance id and the cash id stay out of `syncErrors`. The fold does not read `linkRefusals`.
+
 7. A `stl_` that the walk already parked is not also a link refusal, and it is not written.
 8. An agreement cancellation, `docType: 'agreement'`, id `rev_` plus the agreement id, adopts on that same document id plus the same `reversesId`, not on `sameContent`. Two owners' reversals of one agreement differ in `createdBy` and `reversalReason` (D r4 at `7ac193c5`, Architect F3). The server copy replaces the local row and `syncErrors` for that id is cleared. `collectionFor` sends it to `agreements` because of `docType`. Without this rule the losing phone stores `رُفض الإرسال` on a cancellation the server already holds, and C treats a marker in `syncErrors` as not live.
+
+E adopts a server row only under its own id, and only when the server copy's `kind` matches the local one. A pointer that names a `rev_` id is never a parent: E does not adopt, park, or hold on it as a live parent. This matches #88 N1: a `rev_` copy is never a parent.
 
 The walk, once, on the docs already queued at that moment:
 
@@ -528,7 +533,8 @@ Amounts of 600,000 are the Q6 / spec 1 figure, used as data so the adopted appro
 - `E30 own-id read outcomes`. After `permission-denied` on the write, three fixtures, each at most two reads. Own id `transient`: `kept`, pointer not read. Own id `auth`: `authDead`, pointer not read. Own id `denied`: `failed` once with `رُفض الإرسال`, pointer not read, document stays, not `synced`.
 - `E31 inactive profile`. `performFlush`'s line 778 branch runs with a parked id. The loser doc is already in `K.slotLosers` before `applyFlush`. `rejectedLogoutBlock` is true. The id is not dropped from that map.
 - `E32 kept id does not arm the tail`. A Q13-kept account id is in `kept`. The tail condition at lines 869-881 is false for that id. No second round starts from it.
-- `E33 deleted project, emulator` (EA 2026-11-17 00:15, option a). An owner writes a new account row whose `projectId` is a project the server no longer has. The create is denied. The phone stores `رُفض الإرسال` on that id. The local document stays in `K.accountTxns`, with its amount and the other fields. The pull does not remove it. The refused export shows that amount and those fields, so the row can be re-entered on another project. E adds no screen.
+- `E33 deleted project, emulator` (EA 2026-11-17 00:15, recorded 02:17, option a, `answers-EA-delegated-0034.md` section «E plan N6», sha256 `e6451babfe4609a1c08187781927a7571e61f3cba8fb87de5d7fadf11067670b`). An owner writes a new account row whose `projectId` is a project the server no longer has. The create is denied. The phone stores `رُفض الإرسال لأن المشروع محذوف` on that id. The test asserts that exact string (`public/sync-status.js` line 15). The local document stays in `K.accountTxns`, with its amount and the other fields. The pull does not remove it. The refused export shows that amount and those fields, so the row can be re-entered on another project. E adds no screen.
+- `E34 kind match`. Local `appr_`. The own-id server doc has `kind` `rev`. It is not adopted and not `synced`. A pointer whose id starts with `rev_` is not a parent: the flush does not adopt, park, or hold on that pointer.
 
 D's merged sketch tests a missing project only for `agreementCreate`, `cashBodyCreate`, and `statementWithProjectCreate` (`docs/plans/contractor-pr-d-sketch.md` lines 535-539 on main `f1c50704`). The other account leaves that read a project need the same exists-and-active check: `slotBodyCreate` (line 246), `laborQtyCreate` (line 254), `supCreate` (line 267), `approveLaborCreate` (line 278), `laborStlCreate` (line 286), `returnAdvanceCreate` (line 299), `refundLaborCreate` (line 305), `deductCreate` (line 311), `approveDeductCreate` (line 318), `rejCreate` (line 326), `revCreate` (line 333), and `revwCreate` (line 343). E does not edit `firestore.rules`. E33 is the denial those leaves have to produce.
 
@@ -541,6 +547,7 @@ Ameer approved all 88 strings in `strings-contractor-module-r2.22.md` (sha256 st
 | String                                                | Mark                                              | Where it already is                                                                                                            |
 | ----------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `رُفض الإرسال`                                        | reused, already shipped, not one of the 88        | `public/sync-status.js` line 12. A missing or denied dependency.                                                               |
+| `رُفض الإرسال لأن المشروع محذوف`                      | reused, already shipped by #72, not one of the 88 | `public/sync-status.js` line 15. A new account row whose project is already deleted. Not a new string.                         |
 | `القيد موجود على الخادم بمحتوى مختلف`                 | reused, already shipped, not one of the 88        | `public/sync-status.js` line 13. The pill on a `slotLoser:` key and on a link-refusal uuid.                                    |
 | `القيد موجود مسبقاً وتعذر مطابقة محتواه`              | reused, already shipped, not one of the 88        | `public/sync-status.js` line 14. The legacy unverified read of the row being flushed. Not the dependency's fourth error (Q13). |
 | `إرسال الآن`                                          | reused, already shipped, not one of the 88        | `public/render.js` line 1114. Flushes the outbox.                                                                              |
@@ -599,7 +606,7 @@ Reverting the code PR does not delete Firestore documents. If phones have queued
 
 No new accounting rule. The counted row is the server copy. The lost subtree is not counted, because it is not in `K.accountTxns` and the fold does not read `slotLosers`. A cash row is not removed from the figures by the walk. A labor `deduct` in the subtree is not counted. Rejection wins when both a `rej_` and an `appr_` exist, which is Q7 and is the fold's rule in PR C, not a second rule here.
 
-Those sentences are Ameer's closed decisions in the parent plan (Q1, Q7, Q10). EA, 2026-11-17 00:15, chose option a for a new row on a deleted project: the server refuses it, the phone shows the existing `رُفض الإرسال`, and the row stays. This sketch does not ask محاسب أهل الجزيرة for a new opinion. E paints no balance. Q5 and Q11–Q15 are approved and are not open. C's fold drops an `approveLabor` when a live `rej_` names its body. Live means the `rej_` is in the list, is not a `syncErrors` key, and is not reversed. E does not read `rowIndex`.
+Those sentences are Ameer's closed decisions in the parent plan (Q1, Q7, Q10). EA, 2026-11-17 00:15, recorded 02:17, chose option a (`answers-EA-delegated-0034.md` section «E plan N6», sha256 `e6451babfe4609a1c08187781927a7571e61f3cba8fb87de5d7fadf11067670b`): the server refuses a new row on a deleted project, the phone shows the existing `رُفض الإرسال لأن المشروع محذوف` (`public/sync-status.js` line 15), and the row stays. This sketch does not ask محاسب أهل الجزيرة for a new opinion. E paints no balance. Q5 and Q11–Q15 are approved and are not open. C's fold drops an `approveLabor` when a live `rej_` names its body. Live means the `rej_` is in the list, is not a `syncErrors` key, and is not reversed. E does not read `rowIndex`.
 
 ## pstack
 
@@ -625,7 +632,7 @@ The chosen shape hides the walk, the key list, and the dependency read behind `f
 - Q13. خطأ الخادم الغريب على قراءة القيد المعتمد عليه يبقى بالطابور، مثل الانقطاع. الخروج يوقف بجملة التغييرات اللي ما انرسلت، لحد ما القراءة تنجح.
 - Q14. دفعة `payLabor` المصنوعة باليد، إذا تشير لموافقة خاسرة، تبقى بالطابور وتنحسب بهالمرور. ما تنفشل وما تدخل `slotLosers`.
 - Q15. E يوسّع `dropProjectLocal`. الصف المعلّق أو المرفوض يبقى إذا الحذف مو من هاتف الحاذف. `slotLosers` و`linkRefusals` ينحذفون فقط ويا `dropPending: true`. قواعد الخادم ما تتغير. زر المنع، سؤال Q8، مال PR F.
-- صف جديد على مشروع محذوف يرفضه الخادم ويعرض «رُفض الإرسال». الصف يبقى على الهاتف بمبلغه وتفاصيله، وما ينمسح بصمت. EA، 2026-11-17 الساعة 00:15، الخيار أ.
+- صف جديد على مشروع محذوف يرفضه الخادم ويعرض «رُفض الإرسال لأن المشروع محذوف». الصف يبقى على الهاتف بمبلغه وتفاصيله، وما ينمسح بصمت. EA، 2026-11-17 الساعة 00:15، سُجّل 02:17، الخيار أ. المصدر `answers-EA-delegated-0034.md` قسم «E plan N6»، sha256 `e6451babfe4609a1c08187781927a7571e61f3cba8fb87de5d7fadf11067670b`.
 
 ## Citations rechecked at main f1c50704
 
@@ -674,4 +681,4 @@ The M3 row's old pull skip is withdrawn. The pull does not hide a row because it
 | N3      | The answers file is sha256 `2b3bb1f0`, section «Ameer answers, 2026-11-16 15:35». F's guard is `Ledger.personProjectDeleteBlock` at `ledger.js` line 1109, from `render.js` lines 944 and 1016. `dropProjectLocal` runs only after it.                                                                             | 9, 59, 114                               |
 | N4      | `PURPOSES` is `accounts.js` lines 69-79, `payLabor` line 73. `foremen.js` `queueDoc` is lines 404, 441, 467. `adoptEntry` is `firebase-client.js` line 613. Line 11 says r4. D's plan is merged (#80, main `f1c50704`). The baf4f21 table is labeled r2 history.                                                   | 11, 53, 61, 67, 370, 630-650             |
 | N5      | Deploy only on Ameer's or EA's go, and only when nobody is entering data. Never edit, migrate, or delete a Firestore document.                                                                                                                                                                                     | 571, 595                                 |
-| N6      | A new row on a deleted project is refused with `رُفض الإرسال` and stays on the phone with its amount and details. The pull does not hide it. D's other account leaves need the exists-and-active check. E33.                                                                                                       | 527, 531, 533, 595, 602, 628             |
+| N6      | A new row on a deleted project is refused and stays on the phone with its amount and details. The message is the existing `رُفض الإرسال لأن المشروع محذوف`. The pull does not hide it. D's other account leaves need the exists-and-active check. E33.                                                             | 536, 550, 609, 635                       |
