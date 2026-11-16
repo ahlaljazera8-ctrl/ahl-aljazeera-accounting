@@ -2,7 +2,7 @@
 
 No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The four code pull requests come after the Architect reviews this sketch and Ameer says go.
 
-Revision r4, on main `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. The contract below is recopied from that main. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. EA's delegated go for this revision is 23:31 Baghdad. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16. Where `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) differs, that earlier answer wins.
+Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. Strings list: `strings-contractor-module-r2.22.md`, sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`. PR B's types and `post` are the ones in `contractor-pr-b-sketch-r3.md`. This sketch treats that file as what B will add. It does not re-specify B.
 
@@ -286,7 +286,7 @@ Inside the four, the order is G, then H, then I, then J. A revert of one does no
 
 They do not edit `public/render.js`, `public/accounts.js`, or `public/ledger.js`. That does not make them parallel with B. B shares `sw.js`, both pin tests, and the inventory, and G's tests call codes that are on this main (`cumulative`, amount `milestone`, `approveDeduct`, and `agreement` at `public/accounts.js` line 370).
 
-`queueDoc` (`public/render.js` lines 89-92) appends the id and skips the flush in the demo. These screens call that function. They do not add a second demo gate.
+`queueDoc` (`public/render.js` lines 89-92) appends the id and skips the flush in the demo. These screens call that function. They do not add a second demo gate. G–J never call `flushRemote`. `queueDoc` passes `{ fromOutside: true }` (`public/render.js` line 92). A direct call would need that flag.
 
 ## Usage
 
@@ -323,7 +323,9 @@ On this main, `Accounts` exports `LaborAgreement`, `AccountDoc`, `PostInput`, `p
  * createdByName is set when the display name is 1 to 80 characters.
  * No createdAtDevice. Each builder also sets docType.
  * The other keys, minus docType, are a subset of D's allowlist for that kind.
- * This sketch does not copy a second key list. The code PR reads D at its base.
+ * D is docs/plans/contractor-pr-d-sketch.md at 7ac193c5, on main as f1c50704.
+ * AccountTxn is lines 147-171. StatementApproval is lines 176-187.
+ * AgreementReversal is lines 113-137. This sketch does not copy a second key list.
  */
 ```
 
@@ -381,7 +383,9 @@ function agreementDoc(input)
  * id is 'rev_' + the agreement id. The row is written to agreements, not accountTxns.
  * docType is 'agreement'. Copies the original's values, not only its keys.
  * An original whose id already starts with rev_ is errors ['kind']. Nothing is queued.
- * No reversalReason field: D's shape does not add one (EA Q9 and Q28).
+ * reversalReason is 1 to 500 characters. The label reuses سبب التصحيح. No new sentence.
+ * D requires it (AgreementReversal, lines 129 and 135, at 7ac193c5 / main f1c50704).
+ * Ameer's recorded Q9 is the same fields plus reversesId. The reason is D's engineering note.
  * The agreement row is not edited and not deleted. The button label reuses عكس.
  */
 function agreementReversalDoc(input)
@@ -431,7 +435,7 @@ function cashDoc(purpose, input)
 function reviewDoc(input)
 ```
 
-The payment form shows `قبل هذه الدفعة` and the person balance from `balances()` before save. `عن عمل معتمد` is a label. It is not a `targetId`. `payLabor` does not point at approved work. A `payLabor` larger than earned work is a successful save. The person balance goes negative. The screen shows `مستحق عليه` and `المتبقي سلفة` (EA Q18). It does not write an `advanceLabor` to hold the excess. There is no confirm step.
+The payment form shows `قبل هذه الدفعة` and the person balance from `balances().net` before save. `عن عمل معتمد` is a label. It is not a `targetId`. `payLabor` does not point at approved work. A `payLabor` larger than earned work is a successful save. The person balance goes negative. The screen shows `مستحق عليه` and the absolute value, with no `(سلفة)` and no `المتبقي سلفة`. It does not write an `advanceLabor` to hold the excess. There is no confirm step. Ameer, 2026-11-16 15:02 and 15:35, `answers-EA-delegated-0034.md` sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`, section "Ameer answers, 2026-11-16 15:35".
 
 `returnAdvance` names an `advanceLabor`. `refundLabor` names a `payLabor`. Every target picker, every button-hide rule, and `hasUnreviewedCash` call `Accounts.rowIndex(allDocs, syncErrors)` and `Accounts.rowCounts`. `allDocs` is the whole unfiltered list. `syncErrors` is `get(K.syncErrors, {})`. A row in `syncErrors` is never offered. Q13's cap leaves a refused body in `syncErrors`. The picker does not offer it, so the next write is not a dependent the server refuses again. The screen shows the existing `رُفض الإرسال` and, when E's code defines one, E's reason string. G–J add no sentence of their own. `post` still refuses a missing or wrong-purpose target with `targetId`. The save button stays disabled while no row is chosen, so that refusal has no new sentence.
 
@@ -510,7 +514,7 @@ function settleDoc(input)
  * has no revw_ that rowCounts says is live. A row in syncErrors is not live.
  * The issue button stays hidden. The live fold still paints.
  */
-function hasUnreviewedCash(docs, period)
+function hasUnreviewedCash(docs, syncErrors, period)
 
 /**
  * @param {{
@@ -571,7 +575,7 @@ Kept, reused, not in the 88: `حفظ` (`public/render.js` line 614), `رجوع` 
 
 ### H, new
 
-`تسجيل دفعة`, `الغرض`, `عن عمل معتمد`, `سلفة عمل قادم`, `إرجاع سلفة لم تُصرف`, `استرداد نقدي من العامل`, `المُرجَع أكبر من الدفعة`, `سلفة، ليست مصروفاً.`, `السلفة ليست مصروفاً`, `قبل هذه الدفعة` (string 81), `تظهر الدفعة في الكشف` (string 82), `حتى يدقّقها المالك.` (string 83), `تدقيق` (string 84), `غير مدقّق` (string 71). `مستحق عليه` and `المتبقي سلفة` are in the 88. F shows `مستحق عليه` on the overview. H shows the pair after a `payLabor` that leaves a negative balance.
+`تسجيل دفعة`, `الغرض`, `عن عمل معتمد`, `سلفة عمل قادم`, `إرجاع سلفة لم تُصرف`, `استرداد نقدي من العامل`, `المُرجَع أكبر من الدفعة`, `سلفة، ليست مصروفاً.`, `السلفة ليست مصروفاً`, `قبل هذه الدفعة` (string 81), `تظهر الدفعة في الكشف` (string 82), `حتى يدقّقها المالك.` (string 83), `تدقيق` (string 84), `غير مدقّق` (string 71). `مستحق عليه` and `مستحق له` are in the 88. H shows one of them from `balances().net`. A negative net is `مستحق عليه` only. `المتبقي سلفة` is not painted.
 
 ### I, new
 
@@ -579,7 +583,7 @@ Kept, reused, not in the 88: `حفظ` (`public/render.js` line 614), `رجوع` 
 
 ### J, new
 
-`تسوية سلفة`, `إصدار كشف حساب`, `السلفة`, `المتبقي سلفة`, `حفظ التسوية`, `أسبوعي`, `شهري`, `من`, `إلى`, `رصيد أول المدة`, `الخصومات ومرتجعات المواد`, `رصيد آخر المدة`, `الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.`, `السلف المصروفة له`, `المُرجَع من السلف نقداً`, `صافي السلف`, `سلف قائمة عليه`, `الصافي`, `المُرجَع من الدفعة نقداً`, `لا يُعتمد الكشف وفيه مبلغ غير مدقّق` (string 72).
+`تسوية سلفة`, `إصدار كشف حساب`, `السلفة`, `حفظ التسوية`, `أسبوعي`, `شهري`, `من`, `إلى`, `رصيد أول المدة`, `الخصومات ومرتجعات المواد`, `رصيد آخر المدة`, `الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.`, `السلف المصروفة له`, `المُرجَع من السلف نقداً`, `صافي السلف`, `سلف قائمة عليه`, `الصافي`, `المُرجَع من الدفعة نقداً`, `لا يُعتمد الكشف وفيه مبلغ غير مدقّق` (string 72). The settle form uses `سلف قائمة عليه` and `صافي السلف` from C's fold. It does not add a remaining-advance sentence. Any other wording is a question for Ameer via EA, not a default.
 
 Not in these four: the two delete sentences (strings 86 and 87). F paints them. EA Q27 is that dependence, not a second copy. Not in these four: `نسبة`, `آخر معتمد`, `عملة`, and every material sentence. `المُرجَع والتسوية أكبر من السلفة` is on H and J. It is outside the 88 and the approved 89th (`الخصم أكبر من العمل المعتمد`). It stays pending Ameer (`STRINGS-PENDING-AMEER` row 3). H and J do not merge that sentence before his answer. No other new Arabic is added.
 
@@ -601,7 +605,8 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 - `post('approveLabor')` with no agreement object is `agreement`. That is `public/accounts.js` line 370, not `agreementDoc`.
 - Two taps of the agreement save append one `agreements` row and one outbox id. The button is disabled until `save` returns.
 - Two taps of `approve-labor` append one `appr_` and one outbox id.
-- `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, `docType` is `agreement`, and the body copies the original's values. An original that is itself `rev_` is `kind`. No `reversalReason` key. After a real reversal, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
+- `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, `docType` is `agreement`, and the body copies the original's values. An original that is itself `rev_` is `kind`. `reversalReason` is 1 to 500 characters and the label is the reused `سبب التصحيح`. An empty reason is refused. After a real reversal, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
+- Two taps of `cancel-agreement` append one `rev_<agreementId>` row in `agreements` and one outbox id.
 - A body whose id is in `syncErrors` is not offered to `approve-labor`.
 - `approveLaborDoc` refuses a non-slot target on a lump agreement and a slot target on a unit agreement.
 - The builder's keys, minus `docType`, are a subset of D's allowlist. `createdAtDevice` is absent.
@@ -613,14 +618,14 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 ### H, `tests/accounts-payment.test.js`
 
 - Spec 11. Two `payLabor` documents, 400,000 then 200,000, after the 600,000 approval. Two ids. Person effect of each is −1.
-- Spec 12. `payLabor` 700,000 after that approval. The document purpose is `payLabor`. No `advanceLabor` is created.
+- Spec 12. `payLabor` 700,000 after `approveLabor` 600,000. The document purpose is `payLabor`. No `advanceLabor` is created. The screen shows `مستحق عليه` 100,000. The HTML contains neither `المتبقي سلفة` nor `(سلفة)`. The 100,000 line contains no U+2212.
 - `advanceLabor` 100,000. `returnAdvance` 30,000 has person +1 and cash −1. 100,001 is `cap`.
 - `refundLabor` 50,000 against `payLabor` 600,000. 600,001 is `cap`. A second refund that crosses the payment is `cumulative`.
 - `reviewDoc` has no amount and effect zeros. A second `revw_` that `rowCounts` says is live, of the same cash id, is refused. After `rev_` of the mark, the next id carries the generation character.
 - Two taps of a `payLabor` save append one document and one outbox id. The second tap does not call `save`.
 - A `payLabor` whose id is in `syncErrors` is not offered to `refund-labor`.
 
-`pay-labor` drive: the brick payment 600,000. Firestore one `payLabor`. The person net on the page is 0. `refund-labor` checks the sentence `المُرجَع أكبر من الدفعة` and that no second document was queued.
+`pay-labor` drive: the brick payment 600,000. Firestore one `payLabor`. The person net on the page is 0. A second payment of 100,000 shows `مستحق عليه` 100,000, with no `المتبقي سلفة`, no `(سلفة)`, and no U+2212. `refund-labor` checks the sentence `المُرجَع أكبر من الدفعة` and that no second document was queued.
 
 ### I, `tests/accounts-correct.test.js`
 
@@ -706,24 +711,28 @@ Plan section 16 covers Spark. A v1 create is at most 9 rule reads. These screens
 
 ## Accounting advisor
 
-Opinion only. The advisor's earlier note stands: a payment above approved work is one `payLabor` and a negative person balance, and an amount milestone is earned in full. EA Q18 closes the label: `مستحق عليه` plus `المتبقي سلفة`, with no confirm step.
+Opinion only. The advisor's earlier note stands: a payment above approved work is one `payLabor` and a negative person balance, and an amount milestone is earned in full. The label is `مستحق عليه` from `balances().net`, with no `(سلفة)` and no `المتبقي سلفة`. There is no confirm step. Ameer, 2026-11-16 15:35, section "Ameer answers, 2026-11-16 15:35" of `answers-EA-delegated-0034.md` sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`.
 
 The advisor's advance layout stays the one in plan section 3: advances paid minus, cash returned plus, net advances that difference. J paints that from C. It does not put a cash return under `الخصومات ومرتجعات المواد`.
 
 ## EA, closed
 
-EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16, including Q24–Q29. The earlier file `answers-EA-delegated-0034.md` (sha256 `c14b9c8425287d9b787b28a9afae45bf25aaf8aa2a482319e1c9d63d9c91a7da`) wins where the two differ. One string is still pending Ameer, below.
+EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16, including Q24–Q29. The answers file to cite is `answers-EA-delegated-0034.md`, sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`. Ameer's 15:02 and 15:35 answers in that file win on the person-balance label. One string is still pending Ameer, below.
 
 - Q24. The three cash saves replace the three material buttons.
 - Q25. `خصم` ships inside I.
 - Q19, which was this sketch's sentence question. `المُرجَع والتسوية أكبر من السلفة` is the advance-line sentence. It stays outside the 88 and outside the approved 89th. It is pending Ameer. H and J do not merge it before his answer.
-- Q18. The overpayment label is `مستحق عليه` and `المتبقي سلفة`. No confirm step.
+- Q18. The overpayment label is `مستحق عليه` only, from `balances().net`, with no `(سلفة)` and no `المتبقي سلفة`. Open advances stay in `سلف قائمة عليه`. No confirm step. Ameer, 2026-11-16 15:35, section "Ameer answers, 2026-11-16 15:35".
 - Q26. `آخر معتمد` stays out of `PURPOSES` and off the payment form.
 - Q27. The guard is F's. G–J depend on it. Strings 86 and 87 stay F's. G–J do not paint them and do not write a second guard. No G–J code pull request merges before that guard is on main.
-- Q28 follows Q9 and D. `rev_<agreementId>` is a row in `agreements`, reached by `cancel-agreement`. The body copies the original's values and adds `reversesId` and `docType: 'agreement'`. The old agreement row is not edited. س٢-ب: after that reversal, new work and a new approval on that agreement are refused. This sketch drops the old question that put the same id in `accountTxns`.
+- Q28 follows Q9 and D. `rev_<agreementId>` is a row in `agreements`, reached by `cancel-agreement`. Ameer's recorded words are the same fields plus `reversesId`. D at `7ac193c5`, on main as `f1c50704`, also requires `reversalReason` of 1 to 500 characters (`docs/plans/contractor-pr-d-sketch.md` lines 129 and 135). The screen reuses `سبب التصحيح`. The old agreement row is not edited. س٢-ب: after that reversal, new work and a new approval on that agreement are refused. This sketch drops the old question that put the same id in `accountTxns`.
 - Q29. An inexact unit split shows `المبلغ ليس عدداً صحيحاً`. No new sentence.
 - Q5. The service-worker number is the next free one at merge time. This sketch reserves none.
 
 ## Decisions this sketch does not make
 
-Percent milestones stay out. The 88 strings and the tab name `حسابات` stay as approved. `المُرجَع والتسوية أكبر من السلفة` stays pending Ameer. The rules change stays D's, and Ameer deploys it. The start date stays null. Q2 stays «بعدين». Merge of each code pull request waits for his go, after the Architect's review of that SHA and CI 4/4, and only while F's project-delete guard is on that main. This sketch does not merge itself. A draft stacked on B is the furthest a code branch goes before K is merged. F is already on this main.
+Percent milestones stay out. The 88 strings and the tab name `حسابات` stay as approved. `المُرجَع والتسوية أكبر من السلفة` stays pending Ameer. The rules change stays D's, and Ameer deploys it. The start date stays null. Q2 stays «بعدين». Merge of each code pull request waits for his go, after the Architect's review of that SHA and CI 4/4, and only while F's project-delete guard is on that main. Each code pull request deploys only on Ameer's go, or on EA's delegated go, and only when nobody is entering data. No migration, no edit, and no delete of existing Firestore documents. This sketch does not merge itself. A draft stacked on B is the furthest a code branch goes before K is merged. F is already on this main.
+
+## Review checklist
+
+- Net only. A person balance is one number from `balances().net`. `مستحق له` when net is above 0. `مستحق عليه` when net is below 0, printing `-net` in Western digits, with no U+2212, no `(سلفة)`, and no `المتبقي سلفة`. Open advances stay in `سلف قائمة عليه`. This is Ameer, 2026-11-16 15:02 and 15:35, `answers-EA-delegated-0034.md` sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`, section "Ameer answers, 2026-11-16 15:35". It closes the FU-1 follow-up for G–J.
