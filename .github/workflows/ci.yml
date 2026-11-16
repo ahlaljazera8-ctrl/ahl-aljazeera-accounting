@@ -65,7 +65,7 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          node --test tests/ledger.test.js tests/dom-safe.test.js tests/sync-status.test.js tests/appcheck.test.js tests/rules-constant.test.js tests/secret-guard.test.js tests/owner-access.test.js tests/chrome-debug.test.js tests/shell-cache.test.js tests/project-delete.test.js tests/sw-version-guard.test.js tests/strict-dom-safe.test.js tests/strict-appcheck.test.js tests/strict-sw.test.js tests/strict-sync-status.test.js tests/strict-foremen.test.js tests/accounts.test.js tests/strict-accounts.test.js tests/foremen-ui.test.js tests/people-dir.test.js tests/strict-ledger.test.js tests/strict-sync.test.js tests/strict-session.test.js tests/session-get.test.js tests/firebase-load.test.js tests/signout-pending.test.js tests/rejected-entries.test.js scripts/verify-aj.test.js tests/strict-firebase-client.test.js tests/strict-app.test.js tests/strict-render.test.js tests/strict-firebase-config.test.js tests/strict-people-dir.test.js tests/public-canon-diff.test.js | tee "$RUNNER_TEMP/unit.txt"
+          node --test tests/ledger.test.js tests/dom-safe.test.js tests/sync-status.test.js tests/appcheck.test.js tests/rules-constant.test.js tests/secret-guard.test.js tests/owner-access.test.js tests/chrome-debug.test.js tests/cdp-session.test.js tests/shell-cache.test.js tests/project-delete.test.js tests/sw-version-guard.test.js tests/strict-dom-safe.test.js tests/strict-appcheck.test.js tests/strict-sw.test.js tests/strict-sync-status.test.js tests/strict-foremen.test.js tests/accounts.test.js tests/strict-accounts.test.js tests/foremen-ui.test.js tests/people-dir.test.js tests/strict-ledger.test.js tests/strict-sync.test.js tests/strict-session.test.js tests/session-get.test.js tests/firebase-load.test.js tests/signout-pending.test.js tests/rejected-entries.test.js scripts/verify-aj.test.js tests/strict-firebase-client.test.js tests/strict-app.test.js tests/strict-render.test.js tests/strict-firebase-config.test.js tests/strict-people-dir.test.js tests/public-canon-diff.test.js | tee "$RUNNER_TEMP/unit.txt"
           status=${PIPESTATUS[0]}
           set -e
           pass=$(grep -E '[[:space:]]pass [0-9]+$' "$RUNNER_TEMP/unit.txt" | tail -1 | grep -oE '[0-9]+$' || true)
@@ -138,6 +138,7 @@ jobs:
       - name: secret-guard
         run: bash scripts/secret-guard.sh
       - name: install
+        timeout-minutes: 10
         run: npm ci
       - name: install webkit
         timeout-minutes: 15
@@ -178,7 +179,7 @@ jobs:
           set +e
           set -o pipefail
           bash scripts/emulators-exec.sh --only auth,firestore,hosting --project ahl-aljazeera-accounting \
-            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/incremental-pull.test.js tests/emulator/login-relogin.test.js tests/emulator/logout-fields.test.js tests/emulator/app-entry.test.js tests/emulator/offline-reconnect.test.js tests/emulator/session-live.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js tests/emulator/security-headers.test.js" \
+            "node --test --test-concurrency=1 --test-force-exit tests/emulator/rules.test.js tests/emulator/sync.test.js tests/emulator/incremental-pull.test.js tests/emulator/login-relogin.test.js tests/emulator/logout-fields.test.js tests/emulator/app-entry.test.js tests/emulator/offline-reconnect.test.js tests/emulator/offline-cold-start.test.js tests/emulator/session-live.test.js tests/sw-cache.test.js tests/webkit-upgrade.test.js tests/emulator/security-headers.test.js" \
             | tee "$RUNNER_TEMP/emulator.txt"
           status=${PIPESTATUS[0]}
           set -e
