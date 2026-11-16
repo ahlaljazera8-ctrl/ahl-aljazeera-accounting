@@ -108,14 +108,14 @@ A single denied `setDoc` is one attempt. It is not the quota risk. Whether that 
 
 Screened against the architect red flags. The next reader sees one file and copies the nearest call. r1 had two tail sentences that do not agree. "Arm only for an id this flush did not already attempt" drops the in-flight contract, which was attempted, synced, and then re-queued because the amount changed. "Arm unless the id was `failed` or `kept`" re-arms path (c) forever, because that id was `synced`. Both sentences are withdrawn.
 
-**One tail rule.** EA 21:36, delegated. The cap is still one extra round per trigger. The counter resets only on a real event from outside the flush: a user save, or a genuinely new state change from outside the flush. A call that arrives during a flush still only joins the run already going (`:525`), and it resets the count only when it is one of these events:
+**One tail rule.** EA 21:36, delegated. The cap is still one extra round per trigger. The counter resets only on these named events, and on no others: a user save, the online event, a bell tap, and app open or session entry. A call that arrives during a flush still only joins the run already going (`:525`), and it resets the count only when it is one of these events:
 
 - A user save: `queueDoc` (`public/render.js:92`), which the subcontract save (`:114`), the amendment save (`:145`), `public/accounts-view.js:134`, and `public/foremen.js:404`, `:441`, and `:467` use; `saveContract` (`public/render.js:203`); `commit` (`public/render.js:336`); `finishConfirm` (`public/render.js:1059`); and the new-project save (`public/render.js:1382`).
 - The online event: `addEventListener('online')` (`public/render.js:1485`).
 - The bell: the `#bell-send` click (`public/render.js:1243`).
 - App open: the login path (`public/app.js:176`) and `enterSession` (`public/session.js:417`).
 
-The counter never resets on the flush's own writes, acks, or snapshot callbacks, or on the 0ms timer. The loop cannot restart itself. Within that same cap of one, the tail may arm one `setTimeout(flushRemote, 0)` when any of these is true: an outbox id was not in this round's `ids`; `statusPending` gained an id this round (`freshStatus`, the check already at `:752-760`); or an id this round did try to send, and its pending amount now differs from the amount this round sent. It does not arm for an id this flush marked `failed` or `kept`. The timer does not count as a new trigger. No backoff. A backoff would be a poll.
+The counter never resets on the flush's own writes or acks, on the 0ms timer, or on anything that arrives through the pull or a snapshot. A change from another device does not reset the count, or two devices could chain each other. The loop cannot restart itself. Within that same cap of one, the tail may arm one `setTimeout(flushRemote, 0)` when any of these is true: an outbox id was not in this round's `ids`; `statusPending` gained an id this round (`freshStatus`, the check already at `:752-760`); or an id this round did try to send, and its pending amount now differs from the amount this round sent. It does not arm for an id this flush marked `failed` or `kept`. The timer does not count as a new trigger. No backoff. A backoff would be a poll.
 
 Only those outside callers pass an argument, `flushRemote({ fromOutside: true })`. The timer's module-local starter, `writeLocal`, `applyFlush`, and any ack or snapshot callback do not pass it. The argument is not stored. There is no new exported function and no new stored field. When the timer fires it checks `sessionEpoch` and does nothing if the session changed. `disposeFirebase` (`:505`) and a session change clear both the count and the timer.
 
@@ -136,7 +136,7 @@ The NOTES on `172f6f55` include a model, not the app and not the emulator. Under
 
 The 0ms timer is only so a mistaken re-arm yields a task, and the page can paint. It is not the rate cap. The cap is. The refusal is what stops (a), (b), and (c) from being re-queued at all.
 
-`flushRemote` remains the only start. The timer calls `flushRemote`. The clock stays in `firebase-client.js`. `sync.js` does not gain a timer. The refusal can live next to `applyFlush` in `firebase-client.js`, using the flush result and the finance and terms maps. It is not a new module. No new exported function.
+`flushRemote` remains the only start for a caller. The 0ms timer uses the module-local internal starter, and that starter does not pass `{ fromOutside: true }`. The clock stays in `firebase-client.js`. `sync.js` does not gain a timer. The refusal can live next to `applyFlush` in `firebase-client.js`, using the flush result and the finance and terms maps. It is not a new module. No new exported function.
 
 Shapes that were not chosen: r1's clear of a bare flag, because it rewrites stored data and leaves path (c) writing every round (445 writes in 1,023ms in the model). A timer with no cap, because the same model still writes every round. A backoff, because that is a poll.
 
@@ -181,7 +181,7 @@ These fail on `d40535a6`, where the cap and the refusal are absent. Run them the
 1. A seed project with a pending integer, online, with a session user: after the fake timers drain, at most 2 rounds, no project `setDoc`, the project and the integer still there, `pending` still set, the error `رُفض الإرسال`.
 2. Path (c), an integer above `MAX_AMOUNT_IQD` with `pending`: one project `setDoc`, then stop. The integer and `pending` stay. The error is `رُفض الإرسال`. A second project write after the drain fails the test.
 3. `{pending:true}` with no integer: one project `setDoc`, then stop. The project row stays. `pending` is not deleted.
-4. An id whose pending amount changes on every round, with no new save: at most 2 rounds. This is the cap's own test.
+4. An id whose pending amount changes on every round, with no new save: at most 2 rounds, at most 2 project writes, and at most 2 finance writes. This is the cap's own test.
 
 These stay green on the fix, and the mutations below must turn the matching ones red:
 
@@ -192,7 +192,7 @@ These stay green on the fix, and the mutations below must turn the matching ones
 9. Offline: no `setDoc`.
 10. A valid owner contract: one round, one project write, one finance write, the integer remains, `pending` is gone.
 11. A legacy `contractAmount` on the project row, with a finance row that is `pending` and has no integer: that legacy amount is sent. It is not refused, and it is not cleared before the send.
-12. An amount that changes during the one write, with no further save: the single re-arm sends the new integer, then stops. The first integer is not deleted before the second write. A third round fails the test only in that case, where the amount changes without a save. A save during the re-flush is a real trigger: it resets the count, and the new amount is sent.
+12. An amount that changes during the one write, with no further save: the single re-arm sends the new integer, then stops. At most 2 rounds, at most 2 project writes, and at most 2 finance writes. The first integer is not deleted before the second write. A third round fails the test only in that case, where the amount changes without a save. A save during the re-flush is a user save: it resets the count, and the new amount is sent.
 13. Two owners: after one denial, the other owner's outbox, finance, and rows are deep-equal.
 14. Two tabs, one user: shared store, separate memory, path (c) on both. Each tab stays inside the cap. The shared integer remains. The whole-map overwrite of `syncErrors` is the one that already exists today.
 15. The restore in section 6, twice, on the emulator.
@@ -200,7 +200,7 @@ These stay green on the fix, and the mutations below must turn the matching ones
 17. A contract re-saved during the re-flush is sent.
 18. A contract saved on a second project during the flush is not refused and is sent.
 19. A non-owner return at `writeLocal` `:270`, with a pending finance row on that id: the row is refused, the amount stays, and `pending` is not cleared.
-20. Under fake timers, a write that keeps failing, or an amount that changes every round with no user save, stays at most two rounds. The flush's own acks and snapshot callbacks do not reset the count. This test fails on `d40535a6`.
+20. Under fake timers, a write that keeps failing with no user save stays at most 2 rounds and at most 2 writes. An amount that changes every round with no user save stays at most 2 rounds, at most 2 project writes, and at most 2 finance writes. The flush's own acks, and anything that arrives through the pull or a snapshot, do not reset the count. This test fails on `d40535a6`.
 
 Mutations, each of which must make a green test red: remove the one-re-arm cap (test 4 exceeds 2 rounds); drop only the unsent-pending refusal (tests 1, 2, and 3 no longer stop); remove only the cap, with the refusal left in place (test 4 still exceeds 2 rounds); restore `return flushRemote()` and drop the refusal together (tests 1, 2, and 3 no longer stop); refuse a legacy project-level amount (test 11 goes red). The refusal-only mutation and the cap-only mutation are run on their own, not only as a pair.
 
@@ -217,7 +217,7 @@ Answered by EA 21:02, delegated. These are plan decisions only. The strings alre
 3. Moot. EA 21:02, delegated. No new sentence. The candidate strings `تعذر إرسال قيمة العقد` and `تعذر إرسال مبلغ العقد` are rejected. Do not add them.
 4. Yes. EA 21:02, delegated. On the demo device, a pending contract amount in the sample project shows the existing rejection message and stops instead of retrying. That is acceptable.
 
-Question 4 is a behaviour change, not only a display answer. The sample project stops retrying, and the bell keeps a permanent refusal. Section 11 asks Ameer, via EA, to confirm that behaviour with the other behaviour choices.
+Question 4 is a behaviour change, not only a display answer. The sample project stops retrying, and the bell keeps a permanent refusal. Section 11 records EA's answers for that behaviour and for the re-flush cap.
 
 ## 10. Accounting
 
@@ -239,7 +239,7 @@ Yes. EA 21:20, delegated. Demo or sample projects with a pending amount become t
 
 Yes. EA 21:20, delegated. One extra re-flush per trigger, only when the pending amount differs from what was sent. At most two rounds, no backoff. In the Architect's model, not an emulator run, about 449 writes a second drops to 2 rounds, and a normal contract stays at 1 round.
 
-Yes. EA 21:36, delegated. The widened cap is confirmed, with this condition. The counter resets only on a real event from outside the flush: a user save, or a genuinely new state change from outside the flush. The reset events are a user save, the online event, the bell, and app open, at the call sites in section 4. The counter never resets on the flush's own writes, acks or snapshot callbacks, or on the 0ms timer, so the loop cannot restart itself. Still at most one extra round per trigger. The same cap also re-arms for an outbox id that was not in this round and for a new status change.
+Yes. EA 21:36, delegated. The widened cap is confirmed, with this condition. The counter resets only on these named events: a user save, the online event, a bell tap, and app open or session entry, at the call sites in section 4. The counter never resets on the flush's own writes or acks, on the 0ms timer, or on anything that arrives through the pull or a snapshot. A change from another device does not reset the count. The loop cannot restart itself. Still at most one extra round per trigger. The same cap also re-arms for an outbox id that was not in this round and for a new status change.
 
 ### Profit
 
