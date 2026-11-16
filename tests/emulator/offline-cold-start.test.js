@@ -3,6 +3,7 @@
 // Offline, the ledger already on the phone must open even when the Firebase
 // CDN cannot be fetched. A signed-out phone still gets the login form.
 // Emulators only. Never call production.
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -48,6 +49,15 @@ const watchLogin = () => {
   document.addEventListener('DOMContentLoaded', arm);
   setInterval(tick, 20);
 };
+
+function systemChrome() {
+  const found = spawnSync('google-chrome', ['--version'], { encoding: 'utf8' });
+  const version = (found.stdout || '').trim();
+  if (found.status !== 0 || !version) {
+    throw new Error('google-chrome was not found on PATH. offline-cold-start uses the runner Chrome, the same binary as the browser job, not Playwright\'s downloaded Chromium.');
+  }
+  return version;
+}
 
 function localHost(name) {
   const raw = process.env[name];
@@ -99,8 +109,10 @@ test.before(async () => {
   });
   server = await startServer();
   origin = 'http://127.0.0.1:' + server.address().port;
+  const chrome = systemChrome();
+  console.log('offline-cold-start chrome: ' + chrome);
   browsers = {
-    chromium: await chromium.launch({ headless: true }),
+    chromium: await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] }),
     webkit: await webkit.launch({ headless: true }),
   };
 });
