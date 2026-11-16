@@ -163,8 +163,6 @@ async function run(src, opts) {
 
 const LIVE = () => fs.readFileSync(CLIENT, 'utf8');
 
-function owner() { return { uid: 'u-owner', role: 'owner', active: true, displayName: 'مالك' }; }
-
 test('a seed with a pending contract is refused and not written', async () => {
   const got = await run(LIVE(), {
     projects: [project('p-school', { isExample: true, deviceId: 'seed' })],
@@ -269,6 +267,30 @@ test('an amount that changes once during the write is sent on the extra round', 
   assert.ok(got.counts.finance <= 2);
   assert.equal(got.finance.p3.contractAmount, 200);
   assert.equal(got.finance.p3.pending, undefined);
+});
+
+test('a contract typed during the pull on the same project is sent', async () => {
+  const got = await run(LIVE(), {
+    projects: [project('p-mid')],
+    finance: {},
+    outbox: ['p-mid'],
+    duringPull(context) {
+      if (context.typedContract) return;
+      context.typedContract = true;
+      const fin = context.get(context.K.finance, {});
+      fin['p-mid'] = { contractAmount: 4500, pending: true };
+      context.set(context.K.finance, fin);
+      const out = context.get(context.K.outbox, []);
+      if (!out.includes('p-mid')) out.push('p-mid');
+      context.set(context.K.outbox, out);
+      context.flushRemote({ fromOutside: true });
+    },
+  });
+  assert.equal(got.errors['p-mid'], undefined);
+  assert.equal(got.finance['p-mid'].contractAmount, 4500);
+  assert.equal(got.finance['p-mid'].pending, undefined);
+  assert.ok(got.counts.finance >= 1);
+  assert.ok(got.counts.rounds <= 2);
 });
 
 test('an entry saved during the pull is sent', async () => {

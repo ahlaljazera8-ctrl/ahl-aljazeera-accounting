@@ -539,7 +539,9 @@ async function disposeFirebase(signOutUser) {
   fbPromise = null;
   flushing = null;
   clearFlushSchedule();
-  flushSeenEpoch = sessionEpoch;
+  // session.js owns this name. A load that has not run session.js still has to dispose.
+  const epoch = /** @type {{ sessionEpoch?: number }} */ (globalThis).sessionEpoch;
+  flushSeenEpoch = typeof epoch === 'number' ? epoch : null;
   const marked = signOutPending();
   if (!pending) return false;
   const fb = await pending.catch(() => null);
@@ -660,6 +662,8 @@ async function performFlush(token, run) {
   let statusAtStart = null;
   /** @type {string[]} */
   let roundIds = [];
+  /** Ids whose pending flag was already set when this round took its snapshot. */
+  const pendingAtStart = new Set();
   /** @type {{ failed?: { id?: string }[], kept?: string[] } | null} */
   let flushResult = null;
   /** @type {Map<string, number>} */
@@ -705,6 +709,13 @@ async function performFlush(token, run) {
     }
     const ids = get(K.outbox, []).slice();
     roundIds = ids.slice();
+    const financeThen = get(K.finance, {});
+    const termsThen = get(K.terms, {});
+    ids.forEach(/** @param {string} id */ id => {
+      const fin = financeThen[id];
+      const terms = termsThen[id];
+      if ((fin && fin.pending) || (terms && terms.pending)) pendingAtStart.add(id);
+    });
     keptIds = [];
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
@@ -817,6 +828,8 @@ async function performFlush(token, run) {
     /** @type {string[]} */
     const refused = [];
     for (const id of roundIds) {
+      // A contract typed during this flush was not in the snapshot, so this round did not try to send it.
+      if (!pendingAtStart.has(id)) continue;
       if (failedIds.has(id) || keptNow.has(id) || sentAmounts.has(id)) continue;
       const fin = get(K.finance, {})[id];
       const terms = get(K.terms, {})[id];

@@ -4,9 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { initializeApp } = require('firebase/app');
+const { initializeApp, deleteApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } = require('firebase/auth');
-const { getFirestore, connectFirestoreEmulator, doc, setDoc, getDocFromServer, serverTimestamp } = require('firebase/firestore');
+const { getFirestore, connectFirestoreEmulator, terminate, doc, setDoc, getDocFromServer, serverTimestamp } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 
 const PROJECT = 'ahl-aljazeera-accounting';
@@ -24,6 +24,7 @@ function localHost(name) {
 }
 
 let testEnv;
+let app;
 let db;
 let auth;
 let ownerUid;
@@ -87,7 +88,7 @@ test.before(async () => {
     firestore: { rules: fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8'), host: fsHost.host, port: fsHost.port },
   });
   await testEnv.clearFirestore();
-  const app = initializeApp({ apiKey: 'demo', projectId: PROJECT, authDomain: 'localhost' }, 'flush-retry');
+  app = initializeApp({ apiKey: 'demo', projectId: PROJECT, authDomain: 'localhost' }, 'flush-retry');
   auth = getAuth(app);
   connectAuthEmulator(auth, 'http://' + authHost.host + ':' + authHost.port, { disableWarnings: true });
   db = getFirestore(app);
@@ -114,7 +115,18 @@ test.before(async () => {
   });
 });
 
-test.after(async () => { if (testEnv) await testEnv.cleanup(); });
+test.after(async () => {
+  // getDocFromServer leaves a listen target. The next file's clearFirestore
+  // is cancelled while that target is still closing, so close this client
+  // and absorb that one clear here.
+  try { if (auth) await signOut(auth); } catch (e) { /* already signed out */ }
+  try { if (db) await terminate(db); } catch (e) { /* client already closed */ }
+  try { if (app) await deleteApp(app); } catch (e) { /* app already deleted */ }
+  if (testEnv) {
+    try { await testEnv.clearFirestore(); } catch (e) { /* one cancelled clear while the listen closes */ }
+    await testEnv.cleanup();
+  }
+});
 
 function attach(context, who) {
   const counts = { rounds: 0, project: 0, finance: 0, writes: 0 };
