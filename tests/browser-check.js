@@ -1630,7 +1630,11 @@ let chrome;
     return { hash: location.hash, msg: msg ? msg.textContent : '' };
   })()`);
   check('a rejected save still says the person was not saved', saveFailed && saveFailed.hash.indexOf('#person/')===0 && saveFailed.msg==='تعذر حفظ الشخص');
-  // flushRemote calls the real ensureFirebase, not the test mock, and refreshDirectory would write the mock's empty listUsers into IndexedDB.
+  // The app files are shared-global scripts, so the rejected-save mock is what performFlush calls
+  // (firebase-client.js:624). The mock has no writeLocal, so the write fails, the id leaves the outbox,
+  // queuePendingFinance puts p-school back, and the tail at firebase-client.js:747-755 calls flushRemote again.
+  // That loop runs as microtasks and starves the page. These stubs stop it on this document only. The next go
+  // discards the page. How the old offline navigation entered the same loop is still unproven.
   await ev('window.flushRemote = () => Promise.resolve(); window.refreshDirectory = () => {}; 1');
   await setNetwork(false);
   await ev('AJ.flush().then(()=>1)');
