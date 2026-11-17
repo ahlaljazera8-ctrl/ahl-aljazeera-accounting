@@ -54,6 +54,7 @@ module.exports = [
         clearSignOutPending: 'readonly',
         paintBell: 'readonly',
         render: 'readonly',
+        deleteRemovedLocalIds: 'readonly',
         SESSION_DEAD_MSG: 'readonly',
         MISSING_PROFILE_MSG: 'readonly',
         SUSPENDED_MSG: 'readonly',

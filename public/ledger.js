@@ -70,6 +70,39 @@
     return visible.filter(p => isArchived(p) === wantArchived);
   }
   /**
+   * Which project the entry form is bound to.
+   * A blocked id stays. openIds[0] is used only when nothing was requested and nothing is current.
+   * @param {{
+   *   requestedId?: string,
+   *   currentId?: string,
+   *   openIds: readonly string[],
+   *   stored?: readonly { id?: string, status?: string }[] | null,
+   * }} input
+   * @returns {EntryProjectChoice}
+   */
+  function entryProjectChoice(input) {
+    const requestedId = input && typeof input.requestedId === 'string' ? input.requestedId : '';
+    const currentId = input && typeof input.currentId === 'string' ? input.currentId : '';
+    const openIds = input && Array.isArray(input.openIds) ? input.openIds : [];
+    const stored = input && Array.isArray(input.stored) ? input.stored : [];
+    const open = new Set(openIds);
+    /** @param {string} id @returns {'missing' | 'archived'} */
+    const kind = id => {
+      const row = stored.find(p => p && p.id === id);
+      return row && row.status === 'archived' ? 'archived' : 'missing';
+    };
+    if (requestedId) {
+      if (open.has(requestedId)) return { projectId: requestedId, blocked: '' };
+      return { projectId: requestedId, blocked: kind(requestedId) };
+    }
+    if (currentId) {
+      if (open.has(currentId)) return { projectId: currentId, blocked: '' };
+      return { projectId: currentId, blocked: kind(currentId) };
+    }
+    if (openIds.length && typeof openIds[0] === 'string') return { projectId: openIds[0], blocked: '' };
+    return { projectId: '', blocked: 'missing' };
+  }
+  /**
    * @param {LedgerUser | null | undefined} user
    * @param {string} action
    */
@@ -1133,7 +1166,7 @@
     }
   }
 
-  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, nextProjectStatus, visibleEntries,
+  return { ENTRY_TYPES, DEFAULT_POLICY, MAX_AMOUNT_IQD, PROJECT_ENTRY_PAGE, sign, totals, can, canSeeProject, visibleProjects, projectList, entryProjectChoice, nextProjectStatus, visibleEntries,
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
     baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete, personProjectDeleteBlock,
     rememberedProjectName, deletedProjectEntries, canExportRejected, rejectedLogoutBlocked, rejectedEntriesToCSV, REJECTED_HEADERS,

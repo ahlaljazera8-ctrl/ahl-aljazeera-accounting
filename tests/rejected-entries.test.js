@@ -496,3 +496,513 @@ test('dropProjectLocal keeps the queued entry and the project name', () => {
   assert.equal(removed.entries.some(row => row.projectId === 'p-del'), false);
   assert.equal(removed.goneProjectNames['p-del'], 'مشروع المدرسة');
 });
+
+const REFUSED = 'رُفض الإرسال لأن المشروع محذوف';
+const GONE_MSG = 'هذا المشروع لم يعد موجوداً. لم يُحفظ القيد، اختر مشروعاً ثم احفظ.';
+const LINES_MSG = 'في هذا المشروع قيود لم تُرسل أو رُفض إرسالها. أرسلها أو صدّرها قبل الحذف.';
+
+function memoryDb() {
+  const lists = { projects: [], entries: [], outbox: [] };
+  const meta = new Map();
+  const calls = [];
+  function request(result) {
+    const req = { result };
+    queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
+    return req;
+  }
+  const db = {
+    name: 'aj-u-gone',
+    close() {},
+    transaction() {
+      const tx = {
+        objectStore(name) {
+          if (name === 'meta') {
+            return {
+              getAllKeys: () => request([...meta.keys()]),
+              getAll: () => request([...meta.values()]),
+              get: key => request(meta.has(key) ? meta.get(key) : undefined),
+              put(value, key) {
+                calls.push(['put', 'meta', key]);
+                meta.set(key, JSON.parse(JSON.stringify(value)));
+              },
+              delete(key) { calls.push(['delete', 'meta', key]); meta.delete(key); },
+              clear() { calls.push(['clear', 'meta']); meta.clear(); },
+              count: () => request(meta.size),
+            };
+          }
+          const list = lists[name] || (lists[name] = []);
+          return {
+            getAll: () => request(list.map(row => Object.assign({}, row))),
+            put(row) {
+              calls.push(['put', name, row && row.id]);
+              const copy = JSON.parse(JSON.stringify(row));
+              const at = list.findIndex(item => item.id === copy.id);
+              if (at >= 0) list[at] = copy;
+              else list.push(copy);
+            },
+            delete(id) {
+              calls.push(['delete', name, id]);
+              const at = list.findIndex(item => item.id === id);
+              if (at >= 0) list.splice(at, 1);
+            },
+            clear() { calls.push(['clear', name]); list.length = 0; },
+            count: () => request(list.length),
+          };
+        },
+      };
+      queueMicrotask(() => { if (tx.oncomplete) tx.oncomplete(); });
+      return tx;
+    },
+  };
+  return { db, lists, meta, calls };
+}
+
+function openMemorySession(search) {
+  const store = memoryDb();
+  const context = {
+    console, URL, URLSearchParams, Promise, queueMicrotask, setTimeout, clearTimeout,
+    crypto: { randomUUID: () => 'uuid-gone' },
+    indexedDB: {
+      open() {
+        const req = { result: store.db };
+        queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
+        return req;
+      },
+    },
+    location: { search: search || '', href: 'http://127.0.0.1/index.html', hash: '#project/A' },
+    navigator: { onLine: true, serviceWorker: null },
+    document: {
+      body: { dataset: {} },
+      addEventListener() {},
+      /**
+       * @param {string} [sel]
+       * @returns {null | { hidden: boolean, textContent: string, innerHTML: string, value: string, reset?: () => void }}
+       */
+      querySelector(sel) {
+        void sel;
+        return { hidden: true, textContent: '', innerHTML: '', value: '', reset() {} };
+      },
+      querySelectorAll() { return []; },
+      createElement() { return { hidden: true, textContent: '', append() {}, appendChild() {} }; },
+      createElementNS() { return { setAttribute() {}, append() {} }; },
+    },
+    addEventListener() {},
+    localStorage: memoryStorage(),
+    sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    Ledger, Sync, SyncStatus: Status,
+    HTMLFormElement: function HTMLFormElement() {},
+    HTMLInputElement: function HTMLInputElement() {},
+    alert() {},
+    ensureFirebase() { return Promise.resolve(); },
+    disposeFirebase() { return Promise.resolve(false); },
+    flushRemote() { return Promise.resolve(); },
+    render() {},
+    isDeadAuth() { return false; },
+    isImportFailure() { return false; },
+    caches: { keys: () => Promise.resolve([]), delete: () => Promise.resolve(true) },
+  };
+  context.window = context;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/session.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/firebase-client.js'), 'utf8'), context);
+  context.db = store.db;
+  return { session: context, store };
+}
+
+function ids(rows) {
+  return (rows || []).map(row => row && row.id).filter(Boolean).sort();
+}
+
+test('a drop on the other phone deletes the project and the synced entry and keeps the queued and refused rows', async () => {
+  const { session } = openMemorySession();
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD', createdAtServer: 1 },
+    { id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD', createdAtServer: 1 },
+  ]);
+  await session.set(session.K.entries, [
+    { id: 'synced', projectId: 'A', entryType: 'materials', amount: 10 },
+    { id: 'queued', projectId: 'A', entryType: 'materials', amount: 20 },
+    { id: 'refused', projectId: 'A', entryType: 'materials', amount: 30 },
+  ]);
+  await session.set(session.K.outbox, ['queued']);
+  await session.set(session.K.syncErrors, { refused: REFUSED });
+  const before = session.cacheSnapshot();
+  const next = Sync.dropProjectLocal(before, 'A', { dropPending: false });
+  await session.writeCache(next, before);
+  await session.loadAll();
+  assert.deepEqual(Array.from(ids(session.get(session.K.projects))), ['B']);
+  assert.deepEqual(Array.from(ids(session.get(session.K.entries))), ['queued', 'refused']);
+  assert.equal(session.get(session.K.goneProjectNames, {}).A, 'مشروع أ');
+});
+
+test('an entry id in the pre-drop outbox is not deleted when the live outbox has dropped it', async () => {
+  const { session } = openMemorySession();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', currency: 'IQD' }]);
+  await session.set(session.K.entries, [{ id: 'queued', projectId: 'A', entryType: 'materials', amount: 20 }]);
+  await session.set(session.K.outbox, []);
+  await session.set(session.K.syncErrors, {});
+  const before = { outbox: ['queued'], syncErrors: {}, entries: [], projects: [] };
+  await session.deleteRemovedLocalIds({ projectIds: [], entryIds: ['queued'] }, before);
+  await session.loadAll();
+  assert.equal(ids(session.get(session.K.entries)).includes('queued'), true);
+});
+
+test('an entry id named by the pre-drop syncErrors is not deleted when the live map has dropped it', async () => {
+  const { session } = openMemorySession();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', currency: 'IQD' }]);
+  await session.set(session.K.entries, [{ id: 'refused', projectId: 'A', entryType: 'materials', amount: 30 }]);
+  await session.set(session.K.outbox, []);
+  await session.set(session.K.syncErrors, { refused: REFUSED });
+  session.cache[session.K.syncErrors] = {};
+  const before = { outbox: [], syncErrors: { refused: REFUSED }, entries: [], projects: [] };
+  await session.deleteRemovedLocalIds({ projectIds: [], entryIds: ['refused'] }, before);
+  await session.loadAll();
+  assert.equal(ids(session.get(session.K.entries)).includes('refused'), true);
+  assert.equal(session.get(session.K.syncErrors, {}).refused, REFUSED);
+});
+
+test('a project id still in memory is not deleted from IndexedDB', async () => {
+  const { session } = openMemorySession();
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', currency: 'IQD', createdAtServer: 1 },
+    { id: 'B', name: 'مشروع ب', currency: 'IQD', createdAtServer: 1 },
+  ]);
+  const before = session.cacheSnapshot();
+  const next = Sync.dropProjectLocal(before, 'A', { dropPending: false });
+  await session.writeCache(next);
+  const live = session.get(session.K.projects, []).map(row => row.id);
+  assert.equal(live.includes('B'), true);
+  assert.equal(live.includes('A'), false);
+  await session.deleteRemovedLocalIds({ projectIds: ['A', 'B'], entryIds: [] }, before);
+  await session.loadAll();
+  assert.deepEqual(Array.from(ids(session.get(session.K.projects))), ['B']);
+});
+
+test('deleteRemovedLocalIds deletes by id and does not clear the project or entry store', async () => {
+  const { session, store } = openMemorySession();
+  await session.set(session.K.projects, [{ id: 'A', name: 'أ' }, { id: 'B', name: 'ب' }]);
+  await session.set(session.K.entries, [{ id: 's', projectId: 'A' }, { id: 'b', projectId: 'B' }]);
+  await session.set(session.K.outbox, []);
+  await session.set(session.K.syncErrors, {});
+  session.cache[session.K.projects] = [{ id: 'B', name: 'ب' }];
+  store.calls.length = 0;
+  const before = { outbox: [], syncErrors: {}, entries: [], projects: [] };
+  await session.deleteRemovedLocalIds({ projectIds: ['A'], entryIds: ['s'] }, before);
+  const cleared = store.calls.filter(call => call[0] === 'clear' && (call[1] === 'projects' || call[1] === 'entries'));
+  assert.equal(cleared.length, 0);
+  assert.equal(store.calls.some(call => call[0] === 'delete' && call[1] === 'projects' && call[2] === 'A'), true);
+  assert.equal(store.calls.some(call => call[0] === 'delete' && call[1] === 'entries' && call[2] === 's'), true);
+});
+
+test('the deleting-phone union keeps q, r, and an entry queued on the other project', async () => {
+  const { session } = openMemorySession();
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', currency: 'IQD', createdAtServer: 1 },
+    { id: 'B', name: 'مشروع ب', currency: 'IQD', createdAtServer: 1 },
+  ]);
+  await session.set(session.K.entries, [
+    { id: 's', projectId: 'A', entryType: 'materials', amount: 1 },
+    { id: 'q', projectId: 'A', entryType: 'materials', amount: 2 },
+    { id: 'r', projectId: 'A', entryType: 'materials', amount: 3 },
+    { id: 'b', projectId: 'B', entryType: 'materials', amount: 4 },
+  ]);
+  await session.set(session.K.outbox, ['q']);
+  await session.set(session.K.syncErrors, { r: REFUSED });
+  const before = session.cacheSnapshot();
+  const liveEntries = session.get(session.K.entries, []).concat([{ id: 'n', projectId: 'B', entryType: 'materials', amount: 5 }]);
+  await session.set(session.K.entries, liveEntries);
+  await session.set(session.K.outbox, ['q', 'n']);
+  const next = Sync.dropProjectLocal(before, 'A', { dropPending: true });
+  await session.writeCache(next, before);
+  await session.loadAll();
+  assert.equal(ids(session.get(session.K.projects)).includes('A'), false);
+  assert.equal(ids(session.get(session.K.projects)).includes('B'), true);
+  const left = ids(session.get(session.K.entries));
+  assert.equal(left.includes('s'), false);
+  assert.equal(left.includes('b'), true);
+  assert.equal(left.includes('q'), true);
+  assert.equal(left.includes('r'), true);
+  assert.equal(left.includes('n'), true);
+  const outbox = session.get(session.K.outbox, []);
+  assert.equal(outbox.includes('q'), true);
+  assert.equal(outbox.includes('n'), true);
+  assert.equal(session.get(session.K.syncErrors, {}).r, REFUSED);
+});
+
+test('a thrown owner read does not drop the project', async () => {
+  const { session } = openMemorySession();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', currency: 'IQD', status: 'active', createdAtServer: 1 }]);
+  await session.set(session.K.entries, []);
+  await session.set(session.K.outbox, []);
+  const ownerUser = { uid: 'owner-1', role: 'owner', active: true };
+  await session.forgetGoneProjects(ownerUser, [], async () => { throw new Error('read failed'); }).catch(() => {});
+  assert.equal(ids(session.get(session.K.projects)).includes('A'), true);
+  await session.loadAll();
+  assert.equal(ids(session.get(session.K.projects)).includes('A'), true);
+});
+
+test('a demo delete does not remove the project row from IndexedDB', async () => {
+  const { session } = openMemorySession('?role=owner');
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  session.Accounts = { balances() { return { net: 0 }; } };
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8'), session);
+  await session.set(session.K.users, [{ uid: 'u-ameer', role: 'owner', active: true, displayName: 'أمير' }]);
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD', createdAtServer: 1 }]);
+  await session.set(session.K.entries, []);
+  await session.set(session.K.outbox, []);
+  await session.set(session.K.syncErrors, {});
+  await session.deleteProjectNow('A');
+  await session.AJ.flush();
+  await session.loadAll();
+  assert.equal(ids(session.get(session.K.projects)).includes('A'), true);
+});
+
+test('a blocked entry form disables حفظ and keeps the amount, the note, and the party', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  session.location.hash = '#entry/p-gone';
+  session.cache[session.K.sessionUser] = { uid: 'u-owner', role: 'owner', active: true, displayName: 'مالك' };
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8'), session);
+  await session.set(session.K.projects, [{ id: 'p-only', name: 'المتبقي', status: 'active', currency: 'IQD' }]);
+  await session.set(session.K.entries, []);
+  session.document.querySelector('#amt');
+  session.document.querySelector('#desc');
+  session.document.querySelector('#party');
+  found['#amt'].value = '1500';
+  found['#desc'].value = 'ملاحظة';
+  found['#party'].value = 'جهة';
+  const before = session.get(session.K.entries, []).length;
+  session.render();
+  const html = found['#main'].innerHTML;
+  assert.equal(html.includes('id="save" disabled'), true);
+  assert.equal(html.includes(GONE_MSG), true);
+  assert.equal(html.includes('1500'), true);
+  assert.equal(html.includes('ملاحظة'), true);
+  assert.equal(html.includes('جهة'), true);
+  assert.equal(html.includes('pill on" data-proj'), false);
+  assert.equal(session.get(session.K.entries, []).length, before);
+  assert.equal(session.projectLinesBlock('p-only'), '');
+  await session.set(session.K.entries, [{ id: 'q', projectId: 'p-only' }]);
+  await session.set(session.K.outbox, ['q']);
+  assert.equal(session.projectDeleteBlock('p-only'), LINES_MSG);
+});
+
+/**
+ * @param {{ id?: string, dataset?: Record<string, string> }} button
+ * @param {Array<[string, Function]>} listeners
+ */
+function clickButton(button, listeners) {
+  const target = {
+    closest(sel) {
+      if (sel === 'button') return button;
+      return null;
+    },
+  };
+  listeners.forEach(pair => { if (pair[0] === 'click') pair[1]({ target }); });
+}
+
+/**
+ * @param {Record<string, any>} session
+ * @param {string} hash
+ */
+function listenAndLoad(session, hash) {
+  /** @type {Array<[string, Function]>} */
+  const listeners = [];
+  /** @param {string} type @param {Function} fn */
+  const listen = (type, fn) => { listeners.push([type, fn]); };
+  session.location.hash = hash;
+  session.document.addEventListener = listen;
+  session.addEventListener = listen;
+  session.cache[session.K.sessionUser] = { uid: 'u-owner', role: 'owner', active: true, displayName: 'مالك' };
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8'), session);
+  return listeners;
+}
+
+test('a restored project pill clears the block', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry');
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' }]);
+  await session.set(session.K.entries, []);
+  session.render();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'archived', currency: 'IQD' }]);
+  session.render();
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), true);
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' }]);
+  session.render();
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), true);
+  clickButton({ id: '', dataset: { proj: 'A' } }, listeners);
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), false);
+  assert.equal(found['#main'].innerHTML.includes('pill on" data-proj="A"'), true);
+});
+
+test('a pill tap stays after a repaint when the hash still names the gone project', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry/A');
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' },
+    { id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD' },
+  ]);
+  await session.set(session.K.entries, []);
+  session.render();
+  await session.set(session.K.projects, [{ id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD' }]);
+  session.render();
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), true);
+  clickButton({ id: '', dataset: { proj: 'B' } }, listeners);
+  session.render();
+  const html = found['#main'].innerHTML;
+  assert.equal(html.includes('id="save" disabled'), false);
+  assert.equal(html.includes('pill on" data-proj="B"'), true);
+});
+
+test('a later hashchange to the same entry id is read again', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry/A');
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' },
+    { id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD' },
+  ]);
+  await session.set(session.K.entries, []);
+  session.render();
+  clickButton({ id: '', dataset: { proj: 'B' } }, listeners);
+  assert.equal(found['#main'].innerHTML.includes('pill on" data-proj="B"'), true);
+  session.location.hash = '#home';
+  listeners.forEach(pair => { if (pair[0] === 'hashchange') pair[1](); });
+  session.location.hash = '#entry/A';
+  listeners.forEach(pair => { if (pair[0] === 'hashchange') pair[1](); });
+  const html = found['#main'].innerHTML;
+  assert.equal(html.includes('pill on" data-proj="A"'), true);
+  assert.equal(html.includes('id="save" disabled'), false);
+});
+
+test('حفظ on a blocked archived project stores nothing', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry');
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' }]);
+  await session.set(session.K.entries, []);
+  session.render();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'archived', currency: 'IQD' }]);
+  session.render();
+  found['#amt'].value = '1500';
+  found['#desc'].value = 'ملاحظة مؤرشف';
+  const before = session.get(session.K.entries, []).length;
+  clickButton({ id: 'save', dataset: {} }, listeners);
+  assert.equal(session.get(session.K.entries, []).length, before);
+  assert.equal(found['#msg'].textContent.includes('هذا المشروع مؤرشف'), true);
+});

@@ -38,6 +38,16 @@ const L = window.Ledger, POLICY = L.DEFAULT_POLICY;
  * }} ScreenState
  */
 const state = /** @type {ScreenState} */ ({ type: 'materials', amount: 0, amountDraft: '', desc: '', party: '', subcontractId: '', foremanId: '', fmGone: '', fmCarry: false, entrySeen: false, dropForeman: false, formId: uuid(), backStack: [], listProject: '', listShown: 0, formMsg: '', formMsgKind: '', personMsg: '', projectList: 'open', confirm: null, deleteMsg: '', subName: '', subAmount: '', subWork: '', subMsg: '', subFormId: '', amDate: '', amAmount: '', amNote: '', amMsg: '', amFormId: '' });
+const ENTRY_GONE_MSG = 'هذا المشروع لم يعد موجوداً. لم يُحفظ القيد، اختر مشروعاً ثم احفظ.';
+const ENTRY_ARCHIVED_MSG = 'هذا المشروع مؤرشف. اختر مشروعاً مفتوحاً ثم احفظ.';
+const ENTRY_UNASSIGNED_MSG = 'مشروع غير مسند';
+const PROJECT_LINES_MSG = 'في هذا المشروع قيود لم تُرسل أو رُفض إرسالها. أرسلها أو صدّرها قبل الحذف.';
+/** @type {string} */
+let entryProjectBlocked = '';
+/** @type {EntryProjectBlock} */
+let entryProjectBlockKind = '';
+/** @type {string | null} */
+let pendingEntryId = null;
 let bellOpen = false;
 const ledger = () => L.createLedger(get(K.entries, []));
 /** @param {any} s */
@@ -581,8 +591,12 @@ const views = {
       return L.can(u, 'owner') || t.direction === 'expense' || POLICY.siteCanCreateClientPayment;
     });
     if (!types.some(([k]) => k === state.type)) state.type = types[0][0];
-    if (pid) state.projectId = pid;
-    if (!projects.some(p => p.id === state.projectId)) state.projectId = projects[0] && projects[0].id;
+    /** @type {string[]} */
+    const openIds = [];
+    projects.forEach(p => { if (p && typeof p.id === 'string') openIds.push(p.id); });
+    const stored = /** @type {LedgerProject[]} */ (get(K.projects, []) || []);
+    const choice = bindEntryProject(entryHashOnce(), openIds, stored);
+    void pid;
     const subsHere = subcontractsOf(state.projectId);
     if (state.type === 'subcontractor' && !subsHere.some(/** @param {any} s */ s => s.id === state.subcontractId)) state.subcontractId = (subsHere[0] && subsHere[0].id) || '';
     if (state.fmGone && state.foremanId) {
@@ -611,7 +625,7 @@ const views = {
       <textarea id="desc" rows="2" placeholder="ملاحظة (اختياري)">${esc(state.desc || '')}</textarea>
       ${partyBlock}
       ${foremanBlock}
-      <button class="btn" id="save">حفظ</button><div id="msg" class="msg">${state.formMsgKind === 'saved' ? '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>' : esc(state.formMsg || '')}</div>
+      <button class="btn" id="save"${choice.blocked ? ' disabled' : ''}>حفظ</button><div id="msg" class="msg">${state.formMsgKind === 'saved' ? '<span class="pill warn">✓ حُفظ على الهاتف · لم يُرسل بعد</span>' : esc(state.formMsg || '')}</div>
       <div class="note msg">لا يمكن تعديل القيد أو حذفه بعد الحفظ.</div>`;
   },
   projects() {
@@ -940,9 +954,87 @@ function confirmShell(inner, labelId) {
 function foremanExpenseBlock(projectId) {
   return L.guardedForemanDelete(L.foremanDeleteBlock, projectId, get(K.entries, []), get(K.foremen, []), get(K.syncErrors, {}) || {});
 }
+/**
+ * @param {string} projectId
+ * @param {EntryProjectBlock} blocked
+ * @param {readonly { id?: string }[]} stored
+ */
+function entryBlockSentence(projectId, blocked, stored) {
+  if (blocked === 'archived') return ENTRY_ARCHIVED_MSG;
+  const row = stored.find(p => p && p.id === projectId);
+  if (row) return ENTRY_UNASSIGNED_MSG;
+  return ENTRY_GONE_MSG;
+}
+/** @returns {string} */
+function entryIdFromHash() {
+  const parts = (location.hash || '').slice(1).split('/');
+  if (parts[0] !== 'entry') return '';
+  return parts[1] || '';
+}
+/**
+ * The #entry/<id> hash is read once per hashchange. A later repaint does not
+ * pass it again, so a pill tap stays. A hash change does not clear a block.
+ * @returns {string}
+ */
+function entryHashOnce() {
+  if (pendingEntryId === null) pendingEntryId = entryIdFromHash();
+  const id = pendingEntryId;
+  pendingEntryId = '';
+  return id;
+}
+/**
+ * The hash is not a choice after a block. Only a project pill changes state.projectId.
+ * @param {string | undefined} pid
+ * @param {readonly string[]} openIds
+ * @param {readonly LedgerProject[]} stored
+ * @returns {EntryProjectChoice}
+ */
+function bindEntryProject(pid, openIds, stored) {
+  const sameBlock = !!(entryProjectBlocked && (state.projectId || '') === entryProjectBlocked);
+  /** @type {EntryProjectChoice} */
+  let choice;
+  if (sameBlock) {
+    choice = L.entryProjectChoice({ currentId: entryProjectBlocked, openIds, stored });
+    if (!choice.blocked) choice = { projectId: entryProjectBlocked, blocked: entryProjectBlockKind || 'missing' };
+  } else {
+    choice = L.entryProjectChoice({
+      requestedId: entryProjectBlocked ? '' : (pid || ''),
+      currentId: state.projectId || '',
+      openIds,
+      stored,
+    });
+  }
+  state.projectId = choice.projectId;
+  if (choice.blocked) {
+    entryProjectBlocked = choice.projectId;
+    entryProjectBlockKind = choice.blocked;
+    state.formMsg = entryBlockSentence(choice.projectId, choice.blocked, stored);
+    state.formMsgKind = 'error';
+  } else {
+    entryProjectBlocked = '';
+    entryProjectBlockKind = '';
+    if (state.formMsg === ENTRY_GONE_MSG || state.formMsg === ENTRY_ARCHIVED_MSG || state.formMsg === ENTRY_UNASSIGNED_MSG) {
+      state.formMsg = '';
+      state.formMsgKind = '';
+    }
+  }
+  return choice;
+}
+/** @param {string} id */
+function projectLinesBlock(id) {
+  const outbox = /** @type {string[]} */ (get(K.outbox, []) || []);
+  const errors = /** @type {Record<string, unknown>} */ (get(K.syncErrors, {}) || {});
+  const entries = /** @type {{ id?: string, projectId?: string }[]} */ (get(K.entries, []) || []);
+  for (const row of entries) {
+    if (!row || row.projectId !== id || typeof row.id !== 'string' || !row.id) continue;
+    if (outbox.indexOf(row.id) >= 0 || errors[row.id]) return PROJECT_LINES_MSG;
+  }
+  return '';
+}
 /** @param {string} id */
 function projectDeleteBlock(id) {
   return (
+    projectLinesBlock(id) ||
     foremanExpenseBlock(id) ||
     L.personProjectDeleteBlock(
       id,
@@ -1036,7 +1128,9 @@ async function deleteProjectNow(id) {
     if (flushing) await flushing.catch(() => {});
     const fb = await ensureFirebase();
     await fb.deleteProject(id);
-    writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: true }));
+    const before = cacheSnapshot();
+    const next = window.Sync.dropProjectLocal(before, id, { dropPending: true });
+    await writeCache(next, before);
     state.deleteMsg = '';
     if (location.hash !== '#projects') location.hash = '#projects';
     else render();
@@ -1223,7 +1317,12 @@ document.addEventListener('click', ev => {
   if (window.AccountsView && AccountsView.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (window.ForemenUI && ForemenUI.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
-  else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
+  else if (b.dataset.proj) {
+    entryProjectBlocked = '';
+    entryProjectBlockKind = '';
+    state.projectId = b.dataset.proj;
+    render();
+  }
   else if (b.dataset.add != null) {
     const amtEl = $('#amt');
     const parsed = L.parseAmount(amtEl ? amtEl.value : '');
@@ -1267,6 +1366,16 @@ document.addEventListener('click', ev => {
   }
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
+    const openNow = L.projectList(u, get(K.projects, []), POLICY, 'open');
+    /** @type {string[]} */
+    const openNowIds = [];
+    openNow.forEach(p => { if (p && typeof p.id === 'string') openNowIds.push(p.id); });
+    const storedNow = /** @type {LedgerProject[]} */ (get(K.projects, []) || []);
+    const gate = L.entryProjectChoice({ currentId: state.projectId || '', openIds: openNowIds, stored: storedNow });
+    if (gate.blocked) {
+      setFormMsg(entryBlockSentence(gate.projectId, gate.blocked, storedNow), 'error');
+      return;
+    }
     const desc = $('#desc').value.trim();
     let party = ($('#party') && $('#party').value || '').trim();
     let subcontractId = '';
@@ -1481,7 +1590,10 @@ if (window.ForemenUI) {
   };
   ForemenUI.install(renderApi);
 }
-addEventListener('hashchange', render);
+addEventListener('hashchange', () => {
+  pendingEntryId = entryIdFromHash();
+  render();
+});
 addEventListener('online', () => {
   if (!demoRole() && get(K.sessionUser)) { flushRemote({ fromOutside: true }); refreshDirectory('online'); }
   else if (!$('#shell').hidden) render();

@@ -493,8 +493,73 @@ function cacheSnapshot() {
     goneProjectNames: get(K.goneProjectNames, {}) || {},
   };
 }
-/** @param {DroppedProject} next */
-function writeCache(next) {
+/**
+ * Live outbox and syncErrors, plus every kept id from before whose entry is on
+ * a dropped project. An id queued after before was taken stays. The project
+ * itself is not put back.
+ * @param {DroppedProject} next
+ * @param {LocalStore} before
+ * @param {readonly string[]} liveOutbox
+ * @param {Record<string, unknown>} liveErrors
+ * @param {readonly SyncDoc[]} liveEntries
+ */
+function restoreKeptLines(next, before, liveOutbox, liveErrors, liveEntries) {
+  const dropped = new Set((next.removed && next.removed.projectIds) || []);
+  const beforeEntries = before.entries || [];
+  /** @param {string} id */
+  const onDropped = id => {
+    const row = beforeEntries.find(entry => entry && entry.id === id);
+    return !!(row && typeof row.projectId === 'string' && dropped.has(row.projectId));
+  };
+  const beforeOut = before.outbox || [];
+  /** @type {string[]} */
+  const outbox = (next.outbox || []).slice();
+  liveOutbox.forEach(id => {
+    if (beforeOut.indexOf(id) >= 0 || outbox.indexOf(id) >= 0) return;
+    outbox.push(id);
+  });
+  beforeOut.forEach(id => {
+    if (onDropped(id) && outbox.indexOf(id) < 0) outbox.push(id);
+  });
+  const beforeErrors = /** @type {Record<string, unknown>} */ (before.syncErrors || {});
+  /** @type {Record<string, unknown>} */
+  const syncErrors = Object.assign({}, next.syncErrors || {});
+  Object.keys(beforeErrors).forEach(id => {
+    if (onDropped(id) && !Object.prototype.hasOwnProperty.call(syncErrors, id)) syncErrors[id] = beforeErrors[id];
+  });
+  Object.keys(liveErrors).forEach(id => {
+    if (Object.prototype.hasOwnProperty.call(beforeErrors, id)) return;
+    if (!Object.prototype.hasOwnProperty.call(syncErrors, id)) syncErrors[id] = liveErrors[id];
+  });
+  const unionIds = new Set(outbox);
+  Object.keys(syncErrors).forEach(id => { unionIds.add(id); });
+  /** @type {{ id?: string, projectId?: string }[]} */
+  const entries = [];
+  (next.entries || []).forEach(row => { if (row) entries.push(row); });
+  const have = new Set(entries.map(entry => entry && entry.id).filter(id => typeof id === 'string' && id));
+  /** @param {SyncDoc | null | undefined} row */
+  const add = row => {
+    if (!row || typeof row.id !== 'string' || !row.id || have.has(row.id) || !unionIds.has(row.id)) return;
+    entries.push(row);
+    have.add(row.id);
+  };
+  beforeEntries.forEach(row => {
+    if (row && typeof row.projectId === 'string' && dropped.has(row.projectId)) add(row);
+  });
+  liveEntries.forEach(add);
+  set(K.outbox, outbox);
+  set(K.syncErrors, syncErrors);
+  set(K.entries, entries);
+}
+/**
+ * @param {DroppedProject} next
+ * @param {LocalStore | null | undefined} [before]
+ * @returns {Promise<unknown>}
+ */
+function writeCache(next, before) {
+  const liveOutbox = before ? /** @type {string[]} */ (get(K.outbox, []) || []).slice() : [];
+  const liveErrors = before ? Object.assign({}, /** @type {Record<string, unknown>} */ (get(K.syncErrors, {}) || {})) : {};
+  const liveEntries = before ? /** @type {SyncDoc[]} */ (get(K.entries, []) || []).slice() : [];
   set(K.entries, next.entries);
   set(K.projects, next.projects);
   set(K.subcontracts, next.subcontracts);
@@ -506,7 +571,10 @@ function writeCache(next) {
   set(K.outbox, next.outbox);
   set(K.syncErrors, next.syncErrors);
   set(K.statusPending, next.statusPending);
-  set(K.goneProjectNames, next.goneProjectNames || {});
+  const done = set(K.goneProjectNames, next.goneProjectNames || {});
+  if (!before) return done;
+  restoreKeptLines(next, before, liveOutbox, liveErrors, liveEntries);
+  return deleteRemovedLocalIds(next.removed, before);
 }
 /**
  * @param {LedgerUser | null | undefined} user
@@ -527,7 +595,11 @@ async function forgetGoneProjects(user, missingIds, readSpec) {
       if (!rows.length) gone.add(project.id);
     }
   }
-  gone.forEach(id => writeCache(window.Sync.dropProjectLocal(cacheSnapshot(), id, { dropPending: false })));
+  for (const id of gone) {
+    const before = cacheSnapshot();
+    const next = window.Sync.dropProjectLocal(before, id, { dropPending: false });
+    await writeCache(next, before);
+  }
 }
 /** @param {any} err */
 function isDeadAuth(err) { return !!(window.SyncStatus && SyncStatus.isDeadAuth(err)); }

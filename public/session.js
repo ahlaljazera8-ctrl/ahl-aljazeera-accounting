@@ -81,6 +81,41 @@ function set(k, v) {
   }));
   return writing;
 }
+/**
+ * One transaction deletes the project ids and synced entry ids dropProjectLocal
+ * removed. A queued or refused id on the pre-drop snapshot, or still in memory
+ * when the transaction runs, stays. A project id still in memory stays.
+ * A missing removed field deletes nothing. No clear.
+ * firebase-client.js calls this after the cache union.
+ * @param {RemovedLocalIds | null | undefined} removed
+ * @param {LocalStore | null | undefined} before
+ * @returns {Promise<void>}
+ */
+// eslint-disable-next-line no-unused-vars
+function deleteRemovedLocalIds(removed, before) {
+  writing = writing.catch(() => {}).then(() => new Promise((ok, no) => {
+    if (!removed || !before || !db) return ok();
+    const priorOut = new Set(before.outbox || []);
+    const priorErr = /** @type {Record<string, unknown>} */ (before.syncErrors || {});
+    const liveOut = new Set(/** @type {string[]} */ (get(K.outbox, []) || []));
+    const liveErr = /** @type {Record<string, unknown>} */ (get(K.syncErrors, {}) || {});
+    const liveProjects = new Set((/** @type {{ id?: string }[]} */ (get(K.projects, []) || [])).map(p => p && p.id));
+    const entryIds = (removed.entryIds || []).filter(id => {
+      if (typeof id !== 'string' || !id) return false;
+      if (priorOut.has(id) || priorErr[id] || liveOut.has(id) || liveErr[id]) return false;
+      return true;
+    });
+    const projectIds = (removed.projectIds || []).filter(id => typeof id === 'string' && id && !liveProjects.has(id));
+    const tx = db.transaction(['projects', 'entries'], 'readwrite');
+    const projects = tx.objectStore('projects');
+    const entries = tx.objectStore('entries');
+    projectIds.forEach(id => { projects.delete(id); });
+    entryIds.forEach(id => { entries.delete(id); });
+    tx.oncomplete = /** @type {(this: IDBTransaction, ev: Event) => void} */ (/** @type {unknown} */ (ok));
+    tx.onerror = () => no(tx.error);
+  }));
+  return writing;
+}
 window.AJ = { get, flush: () => writing };
 function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID();

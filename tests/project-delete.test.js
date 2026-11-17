@@ -179,3 +179,24 @@ test('dropping a project keeps foremen and foreman moves, and the server delete 
   });
   assert.equal(docs.some(row => row.collection === 'foremen' || row.collection === 'foremanMoves'), false);
 });
+
+test('removed ids follow the keep-rule for a synced, queued, and refused entry', () => {
+  const src = {
+    projects: [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD', createdAtServer: 1 }],
+    entries: [
+      { id: 's', projectId: 'A', entryType: 'materials', amount: 10 },
+      { id: 'q', projectId: 'A', entryType: 'materials', amount: 20 },
+      { id: 'r', projectId: 'A', entryType: 'materials', amount: 30 },
+    ],
+    outbox: ['q'],
+    syncErrors: { r: 'رُفض الإرسال لأن المشروع محذوف' },
+  };
+  const next = Sync.dropProjectLocal(src, 'A', { dropPending: false });
+  assert.deepEqual(next.removed.projectIds, ['A']);
+  assert.equal(next.removed.entryIds.includes('s'), true);
+  assert.equal(next.removed.entryIds.includes('q'), false);
+  assert.equal(next.removed.entryIds.includes('r'), false);
+  assert.equal(next.entries.some(row => row.id === 'q'), true);
+  assert.equal(next.entries.some(row => row.id === 'r'), true);
+  assert.equal(next.entries.some(row => row.id === 's'), false);
+});
