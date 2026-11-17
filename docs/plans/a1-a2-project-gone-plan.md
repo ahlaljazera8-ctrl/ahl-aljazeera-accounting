@@ -1,6 +1,6 @@
 # Plan: a gone project must not take the entry, and must not come back on reload
 
-Plan only. No application code in this change. No file under `public/`. No test run. The code pull request waits until Architect and EA have reviewed this plan. A1 also waits for محاسب أهل الجزيرة. EA sends this plan to the company accountant. Ameer approves every merge and every behaviour change.
+Revision r2, after Architect NOTES on r1 at `2d93c6aac46670acf74055f595967492a1cdcff5`. r1's IndexedDB delete would have erased a queued line and a refused line on the deleting phone. r2 does not. Plan only. No application code in this change. No file under `public/`. No test run. The code pull request waits until Architect and EA have reviewed this revision. A1 also waits for محاسب أهل الجزيرة. EA sends this plan to the company accountant. Ameer approves every merge and every behaviour change.
 
 - **Repo.** `ahl-aljazeera-accounting`, read at `main` `818039a518a3b2f5ffbab74ee47a3a3b9298d3bf`. Every `file:line` below is that commit. The answers file named by the E sketch is not in this tree, so this plan cites the sketch that records it.
 - **Where the bugs were written down.** Architect review of PR #89, recorded in `docs/plans/flake-login-relogin-plan.md:147-150`. That plan did not change them.
@@ -11,13 +11,13 @@ Plan only. No application code in this change. No file under `public/`. No test 
 
 - **Entry form.** The screen «قيد جديد». Its paint function is `entry` (`public/render.js:576`).
 - **Pill.** A project button on that form (`public/render.js:610`). The selected pill is the one whose id equals `state.projectId`.
-- **Open list.** Projects the form offers. `projectList(..., 'open')` keeps the ones that are not archived (`public/ledger.js:67-70`). The form uses that list (`public/render.js:578`).
+- **Open list.** Projects the form offers. `projectList(..., 'open')` starts from `visibleProjects` (`public/ledger.js:60`, `:68`) and then keeps rows whose status is not archived (`public/ledger.js:69-70`). `isArchived` is `status === 'archived'` (`public/ledger.js:43`). `canSeeProject` is false for a site user who is not assigned. The default policy sets `siteSeesOnlyAssigned` (`public/ledger.js:20`), and the check is `public/ledger.js:49-53`. The form uses that list (`public/render.js:578`).
 - **Outbox.** Ids saved on the phone and not sent yet (`public/session.js:4`).
 - **syncErrors.** A map from an id to a refusal sentence. A refused row stays on the phone.
 - **Owner.** A user whose role is `owner`. The check is `Ledger.can(user, 'owner')` (`public/ledger.js:76-78`). The code does not look at a person's name. A second owner phone is any other signed-in user with that role.
 - **Memory.** The object `cache` (`public/session.js:9`). The screen reads it through `get` (`public/session.js:63`).
 - **IndexedDB.** The phone's database `aj-u-<uid>` (`public/session.js:2`). `openUserDb` opens that name and then calls `loadAll` (`public/session.js:394-398`). The stores are `projects`, `entries`, `outbox`, and `meta` (`public/session.js:36-37`). A reload reads them in `loadAll` (`public/session.js:43-56`).
-- **Kept line.** A row that is still in the outbox, or named in `syncErrors`. `dropProjectLocal` already keeps those when `dropPending` is false (`public/sync.js:549-552`).
+- **Kept line.** A row whose id was in the outbox, or named in `syncErrors`, on the snapshot taken before the drop. `dropProjectLocal` keeps those in its returned list only when `dropPending` is false (`public/sync.js:545-552`). r2 also keeps them in IndexedDB when `dropPending` is true.
 
 ## 0. What the code pull request will change
 
@@ -25,7 +25,7 @@ Two local behaviours. No Firestore write, no rules edit, no migration, and no ed
 
 **A1.** The entry form stops copying the selection onto another project. If the project the form was using is no longer in the open list, حفظ does not store a row. The user can tap a pill. That tap is the only way the selection changes.
 
-**A2.** After the server has already confirmed that a project document is gone, the phone deletes that project's local row from IndexedDB, and it deletes the local entry rows that `dropProjectLocal` already removed from memory. A reload then shows the same thing the screen showed before the reload. A kept line stays in IndexedDB and stays on the screens that already show it.
+**A2.** After the server has already confirmed that a project document is gone, the phone deletes that project's local row from IndexedDB, and it deletes the synced entry rows `dropProjectLocal` removed. It does not delete an entry id that was in the outbox or named in `syncErrors` before the drop. A reload does not bring the project back, and it does not lose that kept line.
 
 The live books include the health-center project in قضاء العلال. This plan does not read that project, does not name its document id, and does not write to the live Firebase project `ahl-aljazeera-accounting`. A local IndexedDB delete runs only for an id `dropProjectLocal` already removed after a missing-document read, or after `deleteProject` has returned.
 
@@ -102,9 +102,9 @@ This makes every caller of `set` a drop policy. A short list would delete a real
 
 ### Shape B, chosen
 
-Leave `set` as it is. `dropProjectLocal` remains the only function that decides which rows leave. It reports the ids it removed. A new function in `session.js` deletes those ids from the `projects` and `entries` object stores, in one IndexedDB transaction, and it refuses an id the keep-rule still holds. `writeCache` only copies the snapshot. The delete has two callers, and both already know the server agreed: `forgetGoneProjects`, and `deleteProjectNow` after `deleteProject` has returned. Demo calls `writeCache` and does not call the delete. Ordinary `set` cannot delete a project.
+Leave `set` as it is. `dropProjectLocal` remains the only function that decides which rows leave the memory snapshot. It reports the ids it removed. A new function in `session.js` deletes project ids and synced entry ids from the two object stores, in one IndexedDB transaction. It never deletes an entry id that was in the outbox or in `syncErrors` on the snapshot taken before the drop. `writeCache` copies the snapshot and then puts those kept ids back into the stored outbox and `syncErrors`, because `set` would otherwise clear them (`public/session.js:75`, `:78`). The delete has two callers, and both already know the server agreed: `forgetGoneProjects`, and `deleteProjectNow` after `deleteProject` has returned. Demo calls `writeCache` and does not call the delete. Ordinary `set` cannot delete a project.
 
-One owner for "which row leaves": `dropProjectLocal`. One owner for the IndexedDB delete: the new session function. The callers are the two confirmed paths, not every `set`. `entryProjectChoice` is the one owner for "which project the form is bound to". `entry` and حفظ both call it. The pill tap stays the only writer of a new choice.
+One owner for "which row leaves memory": `dropProjectLocal`. One owner for "which of those ids may leave IndexedDB": the new session function, using the pre-drop snapshot. The callers are the two confirmed paths, not every `set`. `entryProjectChoice` is the one owner for "which project the form is bound to". `entry` and حفظ both call it. The pill tap stays the only writer of a new choice.
 
 ### Shape not chosen, the hide-on-load
 
@@ -117,8 +117,8 @@ Signatures only. No bodies in this pull request.
 ```javascript
 /**
  * '' means the save may store a row.
- * 'missing' means the id is not in the stored project list.
- * 'archived' means the id is stored and is not in the open list.
+ * 'missing' means the id is not stored, or it is stored and this user cannot see it.
+ * 'archived' means the stored row has status 'archived'.
  * @typedef {'missing' | 'archived' | ''} EntryProjectBlock
  */
 
@@ -134,17 +134,17 @@ Signatures only. No bodies in this pull request.
  *   requestedId?: string,
  *   currentId?: string,
  *   openIds: readonly string[],
- *   storedIds: readonly string[],
+ *   stored?: readonly { id?: string, status?: string }[] | null,
  * }} input
  * @returns {EntryProjectChoice}
  */
 function entryProjectChoice(input)
 ```
 
-Lives in `public/ledger.js` and is exported on `Ledger`, next to `projectList`. `openIds` is the open list. `storedIds` is every project id still in memory, including archived. The rules:
+Lives in `public/ledger.js` and is exported on `Ledger`, next to `projectList`. `openIds` is the open list. `stored` is every project still in memory, including archived and including a project this user can no longer see. The rules:
 
 1. A non-empty `requestedId` that is in `openIds` wins. `blocked` is `''`. This is the hash `#entry/<id>` and it is an explicit open.
-2. A non-empty `requestedId` that is not in `openIds` is kept as `projectId`. `blocked` is `'missing'` when that id is not in `storedIds`, and `'archived'` when it is. The function does not look at `currentId` and does not look at `openIds[0]`.
+2. A non-empty `requestedId` that is not in `openIds` is kept as `projectId`. The function does not look at `currentId` and does not look at `openIds[0]`. `blocked` is `'archived'` only when the stored row's status is archived (`public/ledger.js:43`). Otherwise `blocked` is `'missing'`. That includes an id that is not stored, and a stored active project a site user is no longer assigned to (`public/ledger.js:53`).
 3. A non-empty `currentId` that is in `openIds` stays. `blocked` is `''`.
 4. A non-empty `currentId` that is not in `openIds` stays. Same `blocked` split as rule 2. `openIds[0]` is not used.
 5. When nothing was requested and nothing is current, and `openIds` has a row, `projectId` is `openIds[0]` and `blocked` is `''`. This is the first paint only.
@@ -152,9 +152,9 @@ Lives in `public/ledger.js` and is exported on `Ledger`, next to `projectList`. 
 
 ```javascript
 /**
- * Ids that left the two object stores.
- * Does not list meta keys. Does not list an id that is still in
- * after.entries, after.outbox, or after.syncErrors.
+ * Ids dropProjectLocal took out of the memory lists.
+ * With dropPending true this includes queued and refused entry ids.
+ * The IndexedDB delete does not treat that as permission to remove them.
  * @typedef {{
  *   projectIds: string[],
  *   entryIds: string[],
@@ -163,23 +163,31 @@ Lives in `public/ledger.js` and is exported on `Ledger`, next to `projectList`. 
 
 `DroppedProject` (`types/checkjs.d.ts:641-654`) gains one field, `removed: RemovedLocalIds`. `dropProjectLocal`'s return type (`types/checkjs.d.ts:727-731`) stays `DroppedProject` with that field. Existing checks read named fields (`tests/project-delete.test.js:64-83`). An extra field does not change those checks.
 
-`dropProjectLocal` fills `removed` from the ids it already filters out. With `dropPending: false`, a queued id and a refused id are absent from `removed.entryIds`. With `dropPending: true`, they are present, because that is what the function already does to the memory array (`tests/rejected-entries.test.js:495-496`). This plan does not change that split.
+`dropProjectLocal` fills `removed` from the ids it already filters out of the memory lists. With `dropPending: false`, a queued id and a refused id are absent from `removed.entryIds` (`public/sync.js:552`). With `dropPending: true`, they are present, because that flag also removes them from the returned `entries`, `outbox`, and `syncErrors` (`tests/rejected-entries.test.js:495-496`). This plan does not change that memory split.
+
+The Architect's fixture, checked again on `public/sync.js` at this commit, is project A and project B, entries `s`, `q`, and `r` on A, entry `b` on B, outbox `['q']`, and `syncErrors.r` set to «رُفض الإرسال لأن المشروع محذوف». `dropPending: false` returns entries `q,r,b`, outbox `["q"]`, and that `syncErrors` key. `dropPending: true` returns entries `b`, outbox `[]`, and `syncErrors` `{}`. r1 would have passed that second result as the guard, so `q` and `r` would have been deleted from the entries store. The server never had those two lines.
+
+`projectDeleteBlock` does not look at the outbox or at `syncErrors` (`public/render.js:944-954`). It does not stop a delete while queued or refused ledger lines are still on the project.
 
 ```javascript
 /**
- * Delete only these ids, in one transaction on the projects and entries stores.
- * No clear. No Firestore call.
- * Skip a project id that is still in guard.projects.
- * Skip an entry id that is still in guard.entries, guard.outbox, or guard.syncErrors.
- * A missing removed field deletes nothing.
+ * One transaction on the projects and entries stores.
+ * No clear. No Firestore read. No Firestore write.
+ * Never delete an entry id that before.outbox contains.
+ * Never delete an entry id that before.syncErrors names.
+ * When the transaction runs, also skip an entry id that
+ * get(K.outbox) contains or get(K.syncErrors) names.
+ * Never delete a project id that get(K.projects) still contains.
+ * before is the snapshot taken before dropProjectLocal.
+ * The get calls read memory. A missing removed field deletes nothing.
  * @param {RemovedLocalIds | null | undefined} removed
- * @param {DroppedProject | null | undefined} guard
+ * @param {LocalStore | null | undefined} before
  * @returns {Promise<void>}
  */
-function deleteRemovedLocalIds(removed, guard)
+function deleteRemovedLocalIds(removed, before)
 ```
 
-Lives in `public/session.js`. It queues on the same `writing` chain as `set` (`public/session.js:71`).
+Lives in `public/session.js`. It queues on the same `writing` chain as `set` (`public/session.js:71`). The caller passes the snapshot it already took for `dropProjectLocal`. There is no new server read.
 
 ```javascript
 /**
@@ -189,7 +197,7 @@ Lives in `public/session.js`. It queues on the same `writing` chain as `set` (`p
 function writeCache(next)
 ```
 
-`public/firebase-client.js`. The body still calls the same `set`s (`public/firebase-client.js:498-509`) and does not delete. It returns the `writing` promise so a caller can wait until those puts have landed. `forgetGoneProjects` then calls `deleteRemovedLocalIds(next.removed, next)` and waits for that too. Today the call at `public/firebase-client.js:530` does not wait. `deleteProjectNow` does the same pair of waits after the server delete (`public/render.js:1038-1039`). The demo branch (`public/render.js:1022-1023`) calls `writeCache` only. Section 9 asks EA to confirm that split. The delete is queued on `writing` after `writeCache`'s puts, so it runs after the pull's earlier `put` of the merged list (`public/firebase-client.js:337-338`).
+`public/firebase-client.js`. The body still calls the same `set`s (`public/firebase-client.js:498-509`) and does not decide which ids to delete. It returns the `writing` promise. The caller then puts back every outbox id and every `syncErrors` key from `before`, and then calls `deleteRemovedLocalIds(next.removed, before)`. The put-back is required because the outbox `set` clears the store (`public/session.js:75`) and the `syncErrors` `set` replaces the meta value (`public/session.js:78`). Without it, `dropPending: true` would drop `q` from the outbox store and `r` from `syncErrors` even though their entry rows stay. Today the call at `public/firebase-client.js:530` does not wait. `deleteProjectNow` does the same waits after the server delete (`public/render.js:1038-1039`), and only when question 8 allows the delete to start. The demo branch (`public/render.js:1022-1023`) calls `writeCache` only. The delete is queued on `writing` after `writeCache`'s puts, so it runs after the pull's earlier `put` of the merged list (`public/firebase-client.js:337-338`). A save that lands in memory after `before` was taken is still protected: the transaction reads `get(K.outbox)` and `get(K.syncErrors)` at that moment.
 
 `entry` (`public/render.js:576`) and the حفظ click (`public/render.js:1268`) both call `entryProjectChoice`. حفظ, when `blocked` is not `''`, does not call `commit`, does not change `state.formId`, and does not clear the amount, the note, or the party. The pills are drawn from the open list, so a blocked id matches no pill and no pill gets the selected class.
 
@@ -197,22 +205,22 @@ The subcontract line (`public/render.js:587`) still fills an empty subcontract f
 
 Files the code pull request touches:
 
-| File                                  | What                                                                                                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public/ledger.js`                    | `entryProjectChoice`, exported.                                                                                                                                           |
-| `public/render.js`                    | `entry` and حفظ call it. After `deleteProject` returns, `deleteProjectNow` waits for `writeCache`, then waits for `deleteRemovedLocalIds`. Demo does not call the delete. |
-| `public/sync.js`                      | `dropProjectLocal` fills `removed`. The keep-rule stays.                                                                                                                  |
-| `public/session.js`                   | `deleteRemovedLocalIds`. `set` stays put-only for projects and entries.                                                                                                   |
-| `public/firebase-client.js`           | `writeCache` returns the promise and does not delete. `forgetGoneProjects` waits for the write, then waits for `deleteRemovedLocalIds`.                                   |
-| `types/checkjs.d.ts`                  | `EntryProjectChoice`, `RemovedLocalIds`, and `DroppedProject.removed`.                                                                                                    |
-| `public/sw.js`                        | Bump `const VERSION`. Required because `public/` changed.                                                                                                                 |
-| `tests/ledger.test.js`                | The choice function.                                                                                                                                                      |
-| `tests/project-delete.test.js`        | `removed` matches the keep-rule.                                                                                                                                          |
-| `tests/rejected-entries.test.js`      | The reload probe, on the fake IndexedDB this file already has.                                                                                                            |
-| `tests/session-get.test.js`           | `set` of a shorter project list does not delete the missing id.                                                                                                           |
-| `tests/emulator/project-gone.test.js` | New. Local emulator only.                                                                                                                                                 |
-| `tests/browser-check.js`              | One check appended after the last check. The check at line 1820 is not edited.                                                                                            |
-| `docs/PSTACK_INVENTORY.md`            | One new section. No status word flipped.                                                                                                                                  |
+| File                                  | What                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `public/ledger.js`                    | `entryProjectChoice`, exported.                                                                                                                                                                                                                                                                                          |
+| `public/render.js`                    | `entry` and حفظ call it. `deleteProjectNow` blocks first when this phone still has a queued or refused line on that project (question 8, option a). Otherwise, after `deleteProject` returns, it waits for `writeCache`, the put-back, and `deleteRemovedLocalIds(next.removed, before)`. Demo does not call the delete. |
+| `public/sync.js`                      | `dropProjectLocal` fills `removed`. The keep-rule stays.                                                                                                                                                                                                                                                                 |
+| `public/session.js`                   | `deleteRemovedLocalIds(removed, before)`. `set` stays put-only for projects and entries.                                                                                                                                                                                                                                 |
+| `public/firebase-client.js`           | `writeCache` returns the promise. `forgetGoneProjects` then puts back the pre-drop outbox ids and `syncErrors` keys, and waits for `deleteRemovedLocalIds(next.removed, before)`.                                                                                                                                        |
+| `types/checkjs.d.ts`                  | `EntryProjectChoice`, `RemovedLocalIds`, and `DroppedProject.removed`.                                                                                                                                                                                                                                                   |
+| `public/sw.js`                        | Bump `const VERSION`. Required because `public/` changed.                                                                                                                                                                                                                                                                |
+| `tests/ledger.test.js`                | The choice function.                                                                                                                                                                                                                                                                                                     |
+| `tests/project-delete.test.js`        | `removed` matches the keep-rule.                                                                                                                                                                                                                                                                                         |
+| `tests/rejected-entries.test.js`      | The reload probe, on the fake IndexedDB this file already has.                                                                                                                                                                                                                                                           |
+| `tests/session-get.test.js`           | `set` of a shorter project list does not delete the missing id.                                                                                                                                                                                                                                                          |
+| `tests/emulator/project-gone.test.js` | New. Local emulator only.                                                                                                                                                                                                                                                                                                |
+| `tests/browser-check.js`              | One check appended after the last check. The check at line 1820 is not edited.                                                                                                                                                                                                                                           |
+| `docs/PSTACK_INVENTORY.md`            | One new section. No status word flipped.                                                                                                                                                                                                                                                                                 |
 
 ## 5. State transitions
 
@@ -227,6 +235,8 @@ Files the code pull request touches:
 | Blocked                                 | User taps a pill             | The tapped id     | `''`                    | Stores on the tapped project |
 | Any                                     | Hash `#entry/<open id>`      | That id           | `''`                    | Stores on that project       |
 | Any                                     | Hash `#entry/<id not open>`  | That id           | `missing` or `archived` | Does not store               |
+
+`archived` in that table is only `isArchived` (`public/ledger.js:43`). A stored project this user cannot see, including a site user whose assignment was removed (`public/ledger.js:53`), is `missing`. The words for that case are question 10. `validateEntry` already uses «مشروع غير مسند» for that user (`public/ledger.js:180`).
 
 Leaving the entry screen still clears the form message (`public/render.js:1148`). The amount and the note stay in `state` while the form stays up, because `captureForm` runs at the start of the next paint (`public/render.js:915-922`). A reload builds a new `state` (`public/render.js:40`). The typed draft is not in IndexedDB today, and this plan does not start storing it. After a reload the form is a first paint: if another open project remains, rule 5 selects it, and there is no leftover draft to put on it.
 
@@ -255,7 +265,7 @@ message, no row, same draft, same form id
 
 **Two owner phones.** Both are `role == 'owner'`. No name is compared.
 
-- Phone A deletes. The server delete runs. Then phone A drops locally with `dropPending: true` and the new IndexedDB delete makes that durable. Phone A's own unsent rows for that project leave memory, which they already do today, and they leave IndexedDB too. That is the deleting phone only.
+- Phone A is the deleting phone. If it still has a queued or refused line on that project, the recommended answer (question 8, option a) blocks the delete before `deleteProject`. Nothing is removed from the server or from IndexedDB. If EA instead picks option b, the server delete runs, the project row and the synced entries leave IndexedDB, and the queued and refused entry ids stay, including their outbox ids and `syncErrors` keys. Option c, which is today's `dropPending: true` memory drop made permanent, is ruled out. Either allowed path passes `before` into `deleteRemovedLocalIds`, so `q` and `r` from the fixture above are not deleted.
 - Phone B has the form open on that project, or it has a queued line, or it has a refused line. Phone B learns on its next pull, including the pull after it comes back online. `dropPending` is false. The queued line and the refused line stay in the entries store, the outbox, and `syncErrors`. The project row leaves IndexedDB. If phone B's form is open, A1 blocks حفظ and does not point it at phone B's other project.
 - Both phones offline. Neither drop runs. Each one drops on its own reconnect, under the same rules. A kept line on phone B is phone B's row. Phone A's delete does not reach into phone B's IndexedDB.
 
@@ -269,14 +279,17 @@ Each new test has one mutation that makes that test fail. The mutation is not le
 
 ### Unit
 
-1. **Choice, two projects.** `openIds` is `['p-b']`, `storedIds` is `['p-b']`, `currentId` is `'p-a'`. The result is `{ projectId: 'p-a', blocked: 'missing' }`. Mutation: return `openIds[0]` and `blocked: ''`. That is line `public/render.js:585`. The test goes red.
+1. **Choice, two projects.** `openIds` is `['p-b']`, `stored` is `[{ id: 'p-b' }]`, `currentId` is `'p-a'`. The result is `{ projectId: 'p-a', blocked: 'missing' }`. Mutation: return `openIds[0]` and `blocked: ''`. That is line `public/render.js:585`. The test goes red.
 2. **Choice, first paint.** `currentId` and `requestedId` empty, `openIds` is `['p-a', 'p-b']`. The result is `{ projectId: 'p-a', blocked: '' }`. Mutation: always return `blocked: 'missing'`. The test goes red.
 3. **Choice, hash.** `requestedId` is `'p-b'` and it is open, `currentId` is `'p-a'`. The result uses `'p-b'`. Mutation: ignore `requestedId`. The test goes red.
 4. **Choice, hash of a gone id.** `requestedId` is `'p-a'`, not open, not stored, and `openIds` is `['p-b']`. The result stays `'p-a'` and `missing`. Mutation: fall through to `'p-b'`. The test goes red.
-5. **Choice, archived.** `currentId` is `'p-a'`, `storedIds` contains it, `openIds` does not. The result is `blocked: 'archived'` and the id stays. Mutation: treat it as `openIds[0]`. The test goes red.
+5. **Choice, archived.** `currentId` is `'p-a'`, the stored row has `status: 'archived'`, and `openIds` does not contain it. The result is `blocked: 'archived'` and the id stays. Mutation: treat it as `openIds[0]`. The test goes red.
+   5b. **Choice, not assigned.** The stored row for `'p-a'` is active, `openIds` does not contain it, and the user is a site user who is no longer assigned (`public/ledger.js:53`). The result is `blocked: 'missing'`, not `'archived'`. Mutation: return `'archived'`. The test goes red. That is the N3 mix-up.
 6. **Keep-rule ids.** `dropProjectLocal(..., { dropPending: false })` on a store with a synced entry, a queued entry, and a refused entry. `removed.projectIds` is the project. `removed.entryIds` contains the synced id and does not contain the queued id or the refused id. The queued and refused rows are still in `entries`. Mutation: push the queued id into `removed.entryIds`. The test goes red. The existing keep assertions stay (`tests/project-delete.test.js:77-81`, `tests/rejected-entries.test.js:491-494`).
-7. **Reload probe.** Fake IndexedDB, the same shape as `tests/rejected-entries.test.js:271-301`. Seed project A, project B, a synced entry on A, a queued entry on A, a refused entry on A. Call `writeCache(dropProjectLocal(..., A, { dropPending: false }))`, then `deleteRemovedLocalIds` with that result's `removed`, await both, then `loadAll`. A is absent. B is present. The synced entry is absent. The queued entry is present. The refused entry is present. `goneProjectNames.A` is A's name. Mutation: `deleteRemovedLocalIds` does nothing. `loadAll` shows A again. The test goes red. `writeCache` alone must not be enough to remove A. That is the same mutation.
-8. **Guard.** Call `deleteRemovedLocalIds` with the queued id inside `removed.entryIds` and also inside `guard.outbox`. After `loadAll` the queued row is present. Mutation: delete every passed id and ignore the guard. The test goes red.
+7. **Reload probe, other phone.** Fake IndexedDB, the same shape as `tests/rejected-entries.test.js:271-301`. Seed project A, project B, a synced entry on A, a queued entry on A, a refused entry on A. Take `before`, call `dropProjectLocal(before, A, { dropPending: false })`, `writeCache`, put back nothing new because `before` and the result agree on the kept ids, then `deleteRemovedLocalIds(next.removed, before)`, await, then `loadAll`. A is absent. B is present. The synced entry is absent. The queued entry is present. The refused entry is present. `goneProjectNames.A` is A's name. Mutation: `deleteRemovedLocalIds` does nothing. `loadAll` shows A again. The test goes red.
+8. **Outbox guard.** Call `deleteRemovedLocalIds` with the queued id inside `removed.entryIds` and also inside `before.outbox`. After `loadAll` the queued row is present. Mutation: ignore `before.outbox` and delete every passed entry id. The test goes red.
+   8b. **syncErrors guard.** The same call with the refused id inside `removed.entryIds` and `before.syncErrors`, and not in the outbox. After `loadAll` the refused row is present and its `syncErrors` value is unchanged. Mutation: ignore `before.syncErrors`. The refused row is gone. The test goes red.
+   8c. **Project guard.** `removed.projectIds` lists A and B. After `writeCache`, `get(K.projects)` still contains B and does not contain A. `deleteRemovedLocalIds` runs. After `loadAll`, A is absent and B is present. Mutation: delete every project id in `removed` and ignore `get(K.projects)`. B is gone. The test goes red.
 9. **set stays append-only.** `set('projects', [one of two rows])`, then `loadAll`. Both rows are present. Mutation: make `set` delete keys that are not in the array. The test goes red. This is the lock that keeps Shape A out.
 10. **No clear.** The fake records calls. `deleteRemovedLocalIds` does not call `clear` on `projects` or `entries`. Mutation: `clear` then `put`. The test goes red. A `clear` is how a crash in the middle would lose a kept line. The one transaction deletes by id instead.
 
@@ -287,24 +300,29 @@ New file `tests/emulator/project-gone.test.js`. Local emulators only.
 11. **Two projects, form open.** Sign in as an owner (the role, not a fixed display name). Create project A and project B on the emulator. Open `#entry`, tap A, type an amount and a note. Delete A's document the way the app already deletes a project. Let the pull finish. Assert no pill has the selected class, the amount and the note are still in the fields, and حفظ does not create a `ledgerEntries` document. B's entry count is unchanged. The on-screen sentence is the one EA approved in section 9. Mutation: put line `public/render.js:585` back. حفظ creates a document whose `projectId` is B. The test goes red.
 12. **One project.** The same, with only A. حفظ stores nothing. `state`'s project id is still A's id. Mutation: set the id to `undefined` and call `commit`. The choice assertion goes red even though `validateEntry` would still store nothing.
 13. **Reload probe.** Owner, project A with a synced entry and a second entry that the server has refused with «رُفض الإرسال لأن المشروع محذوف». Pull, await the cache promise, load the page again against the same `aj-u-` database. A is not in the project list. The refused row is on the rejected screen. The bell count for a separate still-queued id is unchanged. Mutation: skip `deleteRemovedLocalIds`. The reloaded page shows A's name. The test goes red.
-14. **Second owner phone.** Two users, both `role: 'owner'`, different uids. Phone A deletes. Phone B has a queued entry on that project and the form open. After phone B's pull, the queued entry is still in its outbox, the form does not select phone B's other project, and حفظ on phone B creates no document. Mutation: call `dropProjectLocal` with `dropPending: true` on phone B. The queued entry disappears. The test goes red.
-15. **Offline.** With the form open and the project still present, set the page offline before any confirming pull. حفظ queues one entry on that same project. The other project does not gain a row. Then go online. The existing refusal path may relabel the queued row. It must not create a second row on the other project.
+14. **Second owner phone.** Two users, both `role: 'owner'`, different uids. Phone A deletes. Phone B has a queued entry on that project and the form open. After phone B's pull, the queued entry is still in its outbox, the form does not select phone B's other project, and حفظ on phone B creates no document. Mutation: on phone B, pass `next` to `deleteRemovedLocalIds` instead of `before`. The queued entry disappears. The test goes red.
+15. **Offline.** With the form open and the project still present, set the page offline before any confirming pull. حفظ queues one entry on that same project. The other project does not gain a row. Then go online. The existing refusal path may relabel the queued row. It must not create a second row on the other project. Mutation: while offline, replace the chosen id with `openIds[0]` before حفظ. The queued entry's `projectId` is the other project. The test goes red.
+16. **Probe, deleting phone.** Unit, on the fake IndexedDB, not the emulator. Use the fixture in section 4: entries `s`, `q`, `r` on A, `b` on B, outbox `['q']`, `syncErrors.r` set. `dropPending: true`, then the put-back, then `deleteRemovedLocalIds(next.removed, before)`, then `loadAll`. A is absent. `s` is absent. `b` is present. `q` and `r` are present in the entries store. The outbox still contains `q`. `syncErrors.r` is still «رُفض الإرسال لأن المشروع محذوف». Mutation: pass `next` as the guard instead of `before`. `q` and `r` are deleted. The test goes red. That is r1.
+17. **deleteProjectNow survives a reload.** On the local emulator, an owner deletes project A through the app after the server delete returns, with a synced entry and with `q` and `r` still on the phone. If question 8 option a is the answer, the delete does not start and a reload still shows A, `q`, and `r`. If option b is the answer, reload against the same `aj-u-` database: A is absent, `s` is absent, `q` and `r` are present, and `q` is still in the outbox. Mutation: call `deleteRemovedLocalIds(next.removed, next)`. The reload has lost `q` and `r`. The test goes red.
+18. **Demo does not persist.** `?role=owner` runs the demo branch (`public/render.js:1022-1023`) and does not call `deleteRemovedLocalIds`. `loadAll` still has the project row. Mutation: the demo branch calls `deleteRemovedLocalIds`. The project is absent after `loadAll`. The test goes red.
+19. **Thrown read does not drop.** The owner probe's read throws. `forgetGoneProjects` does not call `dropProjectLocal`. The project is still in memory and in IndexedDB. Mutation: treat the throw as an empty array and drop. The project is gone. The test goes red. An empty array is still the only confirmation (`public/firebase-client.js:310-312`).
 
 ### Browser
 
 Append one check to `tests/browser-check.js` after the last current check. Do not edit the check at `tests/browser-check.js:1820`. That line is the site-user export flake. It gets its own plan. Appending after it leaves that statement where it is.
 
-16. **Demo form.** `?role=owner`, open `#entry`, remember the selected project id, remove that project from the local project list, render, type a valid amount, press حفظ. The other demo project does not gain an entry. The message is the approved missing-project sentence. Mutation: the old line 585. The entry's `projectId` is the other demo project. The test goes red. This check does not open a Firebase project.
+21. **Demo form.** `?role=owner`, open `#entry`, remember the selected project id, remove that project from the local project list, render, type a valid amount, press حفظ. The other demo project does not gain an entry. The message is the approved missing-project sentence. Mutation: the old line 585. The entry's `projectId` is the other demo project. The test goes red. This check does not open a Firebase project.
 
 The code pull request does not add a retry, a skip, or a longer sleep. It does not edit the login-relogin wait. It does not point the new emulator file at production.
 
 ## 8. Blast radius
 
 - **Wrong project.** The behaviour that changes is line `public/render.js:585`. A first paint with nothing chosen still selects the first open project (rule 5). A hash of an open id still selects it (rule 1). A pill tap still selects it (`public/render.js:1226`).
-- **Archived.** The same line today also jumps away from an archived project, because the open list omits it (`public/ledger.js:69-70`). The chosen shape blocks that jump too. `validateEntry` would have stored the row (`public/ledger.js:178-179`). The block is what stops it. The words are question 2.
+- **Archived.** The same line today also jumps away from an archived project, because the open list omits it (`public/ledger.js:69-70`). The chosen shape blocks that jump too. `blocked` is `'archived'` only when `isArchived` is true (`public/ledger.js:43`). `validateEntry` would have stored an archived row that is still in the list (`public/ledger.js:178-179`). The block is what stops it. The words are question 2, and until a sentence is approved the block shows no message.
+- **Not assigned.** A site user who lost the assignment is `missing`, not `archived` (`public/ledger.js:53`). The words are question 10, the existing «مشروع غير مسند» (`public/ledger.js:180`).
 - **Amounts already stored.** A1 does not rewrite them. A refused row stays a refused row. `countedEntries` still leaves `syncErrors` ids out of totals (`public/ledger.js:307-309`).
 - **Server.** No new call to `deleteProject`. No rules change. `projectOpen` stays the server's answer to a create (`firestore.rules:52-54`). The local delete cannot remove a project the server still has, because that id is never placed in `removed`.
-- **Keep-rule.** `dropPending: false` at `public/firebase-client.js:530` stays. `dropPending: true` at `public/render.js:1039` stays. The IndexedDB delete follows `removed`, so it cannot be stricter or looser than the memory drop.
+- **Keep-rule.** `dropPending: false` at `public/firebase-client.js:530` stays for the other phone. `dropPending: true` at `public/render.js:1039` still describes the memory snapshot on the deleting phone. The IndexedDB delete is stricter than that snapshot: an id in `before.outbox` or `before.syncErrors` is not deleted. r1 followed `removed` alone, and that was the error.
 - **Other stores.** Subcontracts, amendments, finance, terms, foremen, `syncErrors`, and `goneProjectNames` already go through `meta` (`public/session.js:73`, `:78`). This plan does not move them into object stores. `dropProjectLocal` at this commit does not return parties, agreements, or account rows. Those values are not passed to `writeCache`, so they are not deleted. E's later edit of `dropProjectLocal` has to keep the `removed` field and the keep-rule. This plan does not do E's edit.
 - **Order.** The pull `put`s projects before the drop (`public/firebase-client.js:337-338`, then `:384`). `forgetGoneProjects` queues the delete after `writeCache` returns its place on `writing`, so the delete runs after that `put`.
 - **Crash.** One transaction for both object stores. No `clear`. A crash rolls back to the previous database, which is today's resurrection, and the next pull tries again. A crash cannot commit a deleted kept line and a surviving project as a half-finished pair.
@@ -317,28 +335,34 @@ The code pull request does not add a retry, a skip, or a longer sleep. It does n
 
 Each one has a recommended default. A new Arabic sentence is not used unless EA and Ameer approve that sentence. A1 is marked for the accountant on questions 1, 5, and 6.
 
+r2 leaves questions 1, 3, 4, 5, 6, 7, and 9 as written. Question 2 adds one plain sentence: an archived block shows no message until a sentence is approved. Question 8 is rewritten because r1's default would have deleted queued and refused lines on the deleting phone. Question 10 is new. It is the wording for a stored project this user can no longer see.
+
 1. **Words when the project is not stored.** Recommended: the existing «المشروع غير موجود» (`public/ledger.js:179`). Leave «رُفض الإرسال لأن المشروع محذوف» (`public/sync-status.js:15`) for a send the server refused. Proposed sentence, unused unless approved: «هذا المشروع لم يعد موجوداً. اختر مشروعاً ثم احفظ.»
-2. **Words when the project is archived and still stored.** Recommended: do not reuse «المشروع غير موجود», and do not reuse «أرشفة هذا المشروع؟» (`public/render.js:984`). Proposed sentence, unused unless approved: «هذا المشروع مؤرشف. اختر مشروعاً مفتوحاً ثم احفظ.» Until a sentence is approved, the code pull request still blocks the save and still does not switch, and it shows no new Arabic for this case.
+2. **Words when the project is archived and still stored.** Recommended: do not reuse «المشروع غير موجود», and do not reuse «أرشفة هذا المشروع؟» (`public/render.js:984`). Proposed sentence, unused unless approved: «هذا المشروع مؤرشف. اختر مشروعاً مفتوحاً ثم احفظ.» Until a sentence is approved, an archived block shows no message. The save stays blocked, and the form does not switch projects.
 3. **When the message shows.** Recommended: on the paint that first notices the block, and again if they tap حفظ. The amount, the note, and the party stay. The form id stays. A bad amount still shows the existing «المبلغ يجب أن يكون رقماً صحيحاً موجباً» (`public/ledger.js:119`) and stores nothing. The gone check runs only after the amount is valid.
 4. **First open, nothing chosen.** Recommended: the form may start on the first open project. That is not a switch. A later loss of a chosen id never replaces it.
 5. **Re-pick.** Recommended: the other pills stay, none of them is selected, and a tap is the choice. After the tap, حفظ stores one new entry on the tapped project, using the amount and the note already typed. It is not a transfer and not a reversal. The accountant should confirm that a typed amount may be saved onto a different project once the user has tapped it.
 6. **What a blocked save stores.** Recommended, for the accountant: it stores nothing. It does not write a refused row, and it does not move the amount. Option أ stays the rule for a row that was already saved and then refused. This bug is a row that has not been saved.
 7. **Where a kept line is visible.** Recommended: leave the screens as they are. A row whose `syncErrors` value is «رُفض الإرسال لأن المشروع محذوف» stays on the rejected screen. A row that is only in the outbox stays in the bell count (`public/render.js:1080-1084`) until the existing flush labels it. No new screen and no new sentence. The row stays in IndexedDB either way.
-8. **Deleting phone's own unsent rows.** Recommended: do not change `dropPending: true` on that phone (`public/render.js:1039`). Other phones keep `dropPending: false` (`public/firebase-client.js:530`). The IndexedDB delete follows that result. It does not start dropping queued rows on the other phones.
+8. **Deleting phone, queued or refused lines.** r1's default is withdrawn. It let `dropPending: true` (`public/render.js:1039`) remove those lines from memory, and the IndexedDB delete would then have erased them. The A2 rule rules that out. The other phone stays on `dropPending: false` (`public/firebase-client.js:530`). On this phone, pick one:
+   - **(a) Recommended.** Block the project delete while this phone has a queued or refused line on that project. `projectDeleteBlock` does not do that today (`public/render.js:944-954`). The delete does not call the server. Proposed sentence, unused unless EA and Ameer approve it: «في هذا المشروع قيود لم تُرسل أو رُفض إرسالها. أرسلها أو صدّرها قبل الحذف.» The nearby logout sentences stay where they are (`public/session.js:371`, `:376`). Until that sentence is approved, a blocked delete shows no new Arabic.
+   - **(b)** Allow the delete. The project row and the synced entries leave IndexedDB. The queued and refused rows stay, including the outbox id and the `syncErrors` key they had before the drop.
+   - **(c)** Today's behaviour: `dropPending: true` drops those lines from memory, and a reload can still show the entry rows only because `set` does not delete them (`public/session.js:77`). Making that loss permanent is what r1 did. The A2 rule rules this option out.
 9. **Demo delete.** Recommended: do not persist it. There is no server confirmation (`public/render.js:1022-1023`). The example seed is not the health-center project. The missing-document path and the successful `deleteProject` path do persist.
+10. **Words when a stored project is no longer assigned.** A site user can lose the assignment while the row is still stored and not archived (`public/ledger.js:53`). r1 called that `archived`. r2 calls it `missing`. Recommended: show the existing «مشروع غير مسند» (`public/ledger.js:180`). That sentence is already what `validateEntry` pushes. No new Arabic for this case unless EA rejects the reuse.
 
 ## 10. Inventory rows the code pull request would touch
 
 This docs pull request does not edit `docs/PSTACK_INVENTORY.md`. The code pull request appends one section, in the same style as «Login-relogin pill» (`docs/PSTACK_INVENTORY.md:178-186`). Statuses above it stay. The file does not say the app is pstack-compliant. `arena` stays banned. `principle-attack-the-premise` does not apply (`docs/PSTACK_INVENTORY.md:23`): this is one plan, not two failed fixes of the same gate. `principle-redesign-from-first-principles` does not apply (`docs/PSTACK_INVENTORY.md:41`): the drop decision and the entry form already exist. The work stops one assignment and persists a drop the code already computed.
 
-| Skill                           | What the code pull request can record                                                                                                                                                                                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `principle-fix-root-causes`     | Line 585 replaces the selected project. The fix stops that replacement and refuses the save. Line 77 puts rows and never deletes them. The fix deletes only the ids the drop already removed. A retry, a hide-on-load, and a clear of the store are not the fix. |
-| `principle-prove-it-works`      | Unit tests 1–10, emulator tests 11–15, and the appended browser check. Each mutation above is run and pasted. The reload probe is test 7 and test 13.                                                                                                            |
-| `blast-radius`                  | Section 8. No rules diff. No live write. The check at `tests/browser-check.js:1820` is unchanged. `set` still does not delete.                                                                                                                                   |
-| `bug-fix`                       | The defect is the one at `docs/plans/flake-login-relogin-plan.md:149-150`. The failing tests are written against the current lines, then the functions land.                                                                                                     |
-| `principle-boundary-discipline` | `ledger.js` owns the choice. `render.js` paints it and handles the tap. `sync.js` owns which ids leave. `session.js` owns the IndexedDB delete. The callers are `forgetGoneProjects` and the successful branch of `deleteProjectNow`.                            |
-| `tdd`                           | A link only if the code pull request's history shows a failing run committed before the change that makes it pass. Landing the tests in the same commit is not that evidence.                                                                                    |
+| Skill                           | What the code pull request can record                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `principle-fix-root-causes`     | Line 585 replaces the selected project. The fix stops that replacement and refuses the save. Line 77 puts rows and never deletes them. The fix deletes a confirmed-gone project and its synced entries, and it does not delete an id that was in the outbox or in `syncErrors` before the drop. A retry, a hide-on-load, a clear of the store, and guarding on the post-drop snapshot are not the fix. |
+| `principle-prove-it-works`      | Unit tests 1–10, 5b, 8b, 8c, 16, and 19. Emulator tests 11–15 and 17. Demo test 18. Browser check 21. Each mutation above is run and pasted. The reload probes are tests 7, 13, 16, and 17. The probe fixture is test 16.                                                                                                                                                                              |
+| `blast-radius`                  | Section 8. No rules diff. No live write. The check at `tests/browser-check.js:1820` is unchanged. `set` still does not delete.                                                                                                                                                                                                                                                                         |
+| `bug-fix`                       | The defect is the one at `docs/plans/flake-login-relogin-plan.md:149-150`. The failing tests are written against the current lines, then the functions land.                                                                                                                                                                                                                                           |
+| `principle-boundary-discipline` | `ledger.js` owns the choice. `render.js` paints it and handles the tap. `sync.js` owns which ids leave. `session.js` owns the IndexedDB delete. The callers are `forgetGoneProjects` and the successful branch of `deleteProjectNow`.                                                                                                                                                                  |
+| `tdd`                           | A link only if the code pull request's history shows a failing run committed before the change that makes it pass. Landing the tests in the same commit is not that evidence.                                                                                                                                                                                                                          |
 
 `principle-fix-root-causes` is line 30, `principle-prove-it-works` is line 40, `blast-radius` is line 58, `bug-fix` is line 104, `principle-boundary-discipline` is line 24, and `tdd` is line 82. Those status words stay «مطبّقة». The new section is evidence. It is not a new status.
 
