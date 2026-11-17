@@ -420,7 +420,8 @@ function agreementDoc(input)
  * The refusal text stays on the row. Logout stays blocked until that refusal is exported,
  * the #72 pattern (public/render.js rejectedLogoutBlock lines 547-551, called at line 1247;
  * the alert is public/session.js line 371; the export records the id at public/render.js line 1324).
- * Those lines are at main 29ada0bc. This is default (i). The question is under For EA/Ameer. Answer pending.
+ * Those lines are at main 29ada0bc. EA decided (i) at 05:59 Baghdad on 2026-11-17.
+ * There is no re-cancel in v1. The record is under For EA/Ameer.
  */
 function agreementReversalDoc(input)
 
@@ -644,6 +645,7 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 - Two taps of `cancel-agreement` append one live `rev_<agreementId>` row in `agreements` and one outbox id.
 - A refused `rev_` whose id is in `syncErrors` does not hide the measurement or approval buttons. `laborQtyDoc` does not return `cancelled`.
 - While that refused `rev_<agreementId>` is in `agreements` and its id is in `syncErrors`, `cancel-agreement` is off. A tap and a direct `commitDoc` append nothing and queue nothing. Measurement and approval stay on. The refusal text stays on the row. Logout is refused until the export (`public/render.js` lines 547-551 and 1324, `public/session.js` line 371, at `29ada0bc`).
+- The same agreements list with an empty `syncErrors` leaves `cancel-agreement` on, and `agreementReversalDoc` may return that same `rev_` id. `syncErrors` is per phone, so another owner phone that does not hold the refused row can still cancel.
 - (a) The local project is not `active`, or `forgetGoneProjects` has dropped it. `cancel-agreement` is off. Nothing is queued. No sentence is shown. The agreement row is unchanged.
 - (b) Emulator. The owner phone is online and still shows the project as active. An admin sets the project to `closed` with rules disabled. The cancel is queued and refused. `syncErrors` has `رُفض الإرسال` (`public/sync-status.js` line 12 at `29ada0bc`). A deleted project uses `رُفض الإرسال لأن المشروع محذوف` (line 15) once E's probe covers `agreements`. There is no live `rev_`. The agreement row is unchanged.
 - A body whose id is in `syncErrors` is not offered to `approve-labor`.
@@ -770,13 +772,13 @@ EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-1
 
 ## For EA/Ameer
 
-Answer pending. Default (i) unless EA says otherwise.
+Decided. EA, under Ameer's delegation, 2026-11-17 05:59 Baghdad. Review `REVIEW-pr79-r8-0f5f8b76.md`, sha256 `3bd8c479`. The answer is (i). There is no re-cancel in v1.
 
-(i) While a refused `rev_` of an agreement exists and its id is in `syncErrors`, `cancel-agreement` is off on this phone. Measurement and approval stay on. Nothing is appended or queued. The refusal text stays on the row. Logout stays blocked until export, the #72 pattern (`public/render.js` lines 547-551 and 1324, `public/session.js` line 371, at main `29ada0bc`). Nothing is deleted. No new text.
+The refused `rev_` line stays visible with `رُفض الإرسال` and must be exported before logout, like other refused lines (`public/render.js` lines 547-551 and 1324, `public/session.js` line 371, at main `29ada0bc`). Measurement and approval stay available. The cancel button stays off for that agreement on this phone. Nothing is deleted. There is no new string and no rules change. Another owner phone can still cancel, because `syncErrors` is stored on that phone only. A phone that does not hold the refused row does not see it.
 
-(ii) A new cancel id is impossible under the current rules. `agreementReversalCreate` (`firestore.rules` lines 620-642 at `29ada0bc`) requires the id to be `rev_` plus the agreement id, so there is one cancel id per agreement. A second id would be a rules change. This sketch does not make one.
+(ii) is out. A new cancel id is impossible under the current rules. `agreementReversalCreate` (`firestore.rules` lines 620-642 at `29ada0bc`) requires the id to be `rev_` plus the agreement id, so there is one cancel id per agreement.
 
-(iii) Re-sending the same id would clear the refusal mark. `SyncStatus.applyFlush` deletes a `syncErrors` key only when that id is synced or kept (`public/sync-status.js` lines 174-175). That conflicts with answers-file option أ, section "E plan N6", which keeps a refused line visible and does not discard it silently. This sketch does not choose (iii).
+(iii) is out. Re-sending the same id would clear the refusal mark. `SyncStatus.applyFlush` deletes a `syncErrors` key only when that id is synced or kept (`public/sync-status.js` lines 174-175). That conflicts with answers-file option أ, section "E plan N6", which keeps a refused line visible and does not discard it silently.
 
 ## Decisions this sketch does not make
 
