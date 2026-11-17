@@ -1137,6 +1137,7 @@ declare var POLICY: any;
 declare function paintBell(): void;
 declare var deleteLock: boolean;
 declare var flushing: Promise<unknown> | null;
+declare var flushTimer: ReturnType<typeof setTimeout> | null;
 declare var lastSyncAt: number;
 
 // App errors carry a timeout flag, a Firebase code, or ledger validation messages.
