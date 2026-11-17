@@ -574,7 +574,14 @@ function openMemorySession(search) {
     document: {
       body: { dataset: {} },
       addEventListener() {},
-      querySelector() { return { hidden: true, textContent: '', innerHTML: '', value: '', reset() {} }; },
+      /**
+       * @param {string} [sel]
+       * @returns {null | { hidden: boolean, textContent: string, innerHTML: string, value: string, reset?: () => void }}
+       */
+      querySelector(sel) {
+        void sel;
+        return { hidden: true, textContent: '', innerHTML: '', value: '', reset() {} };
+      },
       querySelectorAll() { return []; },
       createElement() { return { hidden: true, textContent: '', append() {}, appendChild() {} }; },
       createElementNS() { return { setAttribute() {}, append() {} }; },
