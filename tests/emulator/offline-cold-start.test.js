@@ -450,10 +450,12 @@ test('after sign-out, an offline cold open stays on the login form', { timeout: 
       return {
         n: (window.AJ.get('outbox') || []).length,
         busy: !!(bell && bell.getAttribute('aria-busy') === 'true'),
+        armed: !!window.flushTimer,
       };
     });
     assert.equal(flushed.n, 0, 'the outbox is empty after the flush');
     assert.equal(flushed.busy, false, 'the bell is idle after the flush');
+    assert.equal(flushed.armed, false, 'no flush is armed');
     await page.click('#logout');
     await page.waitForSelector('#login-email', { state: 'visible', timeout: 20000 });
     assert.equal(await page.locator('#shell').isHidden(), true);

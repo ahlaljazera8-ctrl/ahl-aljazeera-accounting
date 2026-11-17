@@ -431,6 +431,7 @@ testSeq('a pull that learns the project is gone removes the pill and does not th
     await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
     const form = await waitFor(session, `document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')})`, 5000);
     assert.equal(form, true, 'entry form should render');
+    await session.ev(`(async () => { let run = window.flushing; while (run) { await run; run = window.flushing; } return 1; })()`);
     await session.ev(`window.__gate = new Promise(resolve => { window.__open = resolve; });
       window.__held = false;
       const orig = forgetGoneProjects;
