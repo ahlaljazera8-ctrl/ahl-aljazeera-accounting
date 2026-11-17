@@ -157,6 +157,8 @@ These are not the pill click. The code pull request does not change `public/` to
 
 **Login, `login-relogin.test.js:344` and `:145-147`.** The assertion text starts with `login.` The shell did not show within 20s. The Architect's unmodified run was 9/10, and the one red carried a WebChannel `Listen` stream error in the page log. The app does not call `onSnapshot`. Firestore still opens a Listen stream. `memoryLocalCache` (`public/firebase-client.js:121-127`) is there so a failed watch is not replayed from IndexedDB. It does not stop the SDK from logging a Listen error. Not root-caused to a line that throws. The login button path is unchanged by this plan.
 
+browser-check.js:1820 (site user export) failed once on 97871185, job 133741201310, docs-only head, r2 4/4. It's timing-based (sleep 200 / setTimeout 30 / 40), and the log doesn't say which of its 6 conditions missed. Out of scope here; it gets its own root-cause plan later (same rules: no retries, skips or longer sleeps; first make the check print which condition failed).
+
 ## 7. Inventory row, in the code pull request
 
 `docs/PSTACK_INVENTORY.md` gets one section. Statuses above it stay. `setup-pstack` stays «ناقصة». The file does not say the app is pstack-compliant. `arena` stays banned. `principle-attack-the-premise` does not apply. One fix, not two failed fixes of the same premise.
