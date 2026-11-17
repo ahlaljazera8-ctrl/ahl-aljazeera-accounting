@@ -12,6 +12,7 @@ const {
 const { doc, setDoc, getDocs, collection } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 const { openChrome, waitForPage } = require('../chrome-debug.js');
+const { pageExceptionText } = require('../page-exception.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'csp.headers@example.invalid';
@@ -147,7 +148,7 @@ async function connect(port, chrome) {
   const ev = async expression => {
     const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
     const details = res.result && res.result.exceptionDetails;
-    if (details) throw new Error(details.text || (details.exception && details.exception.description) || 'eval failed');
+    if (details) throw new Error(pageExceptionText(details));
     return res.result.result.value;
   };
   await send('Page.enable');
