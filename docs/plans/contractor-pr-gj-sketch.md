@@ -2,7 +2,7 @@
 
 No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The four code pull requests come after the Architect reviews this sketch and Ameer says go.
 
-Revision r7, on head `33fbcadf`. Revision r6, on head `b2914047`. D citations were rechecked at main `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
+Revision r8, on head `bd38a9af`. Revision r7, on head `33fbcadf`. Revision r6, on head `b2914047`. D citations were rechecked at main `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. Strings list: `strings-contractor-module-r2.22.md`, sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`. PR B's types and `post` are the ones in `contractor-pr-b-sketch-r3.md`. This sketch treats that file as what B will add. It does not re-specify B.
 
@@ -380,14 +380,15 @@ function agreementDoc(input)
 
 /**
  * @typedef {LaborAgreement & {
+ *   method: 'lump'|'unit'|'daily'|'milestone',
  *   id: string,
  *   partyId: string,
  *   projectId: string,
  *   description: string,
  *   currency: 'IQD'
  * }} StoredAgreement
- * LaborAgreement is public/accounts.js lines 19-28: method and the method-group fields only.
- * StoredAgreement adds id, partyId, projectId, description, and currency, the row the reversal copies.
+ * LaborAgreement is public/accounts.js lines 19-28. Its method is optional.
+ * StoredAgreement requires method. It also adds id, partyId, projectId, description, and currency.
  */
 
 /**
@@ -404,11 +405,19 @@ function agreementDoc(input)
  * The label reuses سبب التصحيح. No new sentence.
  * Ameer's recorded Q9 is the same fields plus reversesId. The reason is D's engineering note.
  * The agreement row is not edited and not deleted. The button label reuses عكس.
- * projectActive (firestore.rules line 626 at 29ada0bc) also covers this create.
- * It is status == 'active' (line 375). On a closed, archived, or deleted project
- * the cancel is refused. The agreement row stays, with its existing text.
- * The phone shows the existing رُفض الإرسال, or the deleted-project sentence once E's probe lands.
- * The button stays off. No new sentence.
+ * projectActive (firestore.rules line 626 at main 29ada0bc) also covers this create.
+ * It is status == 'active' (line 375).
+ * (a) The phone already knows the project is not active, including one
+ * forgetGoneProjects has dropped. The button is off. Nothing is queued. No sentence is shown.
+ * The agreement row is unchanged.
+ * (b) The phone still shows the project as active, and the server has closed or deleted it.
+ * The cancel is queued. The server refuses it. The row leaves the pending count.
+ * The phone shows رُفض الإرسال (public/sync-status.js line 12 at 29ada0bc),
+ * or رُفض الإرسال لأن المشروع محذوف (line 15) once E's probe covers agreements.
+ * The agreement row is unchanged. That rev_ is in syncErrors, so it is not live.
+ * The id is always rev_ plus the agreement id. Cancel dedup skips a second append
+ * only when that rev_ is live. commitDoc still will not append while the id is in the local list.
+ * A refused rev_ stays for the bell. What a later tap does with that same id is under For EA/Ameer.
  */
 function agreementReversalDoc(input)
 
@@ -417,9 +426,10 @@ function agreementReversalDoc(input)
  * @returns {{ doc: object | null, errors: string[] }}
  * Calls Accounts.post('laborQty', input). Lump and amount-milestone ids are slotBodyId.
  * A uuid body on a lump or amount-milestone agreement is errors ['method'].
- * When agreements holds rev_ plus this agreement id, the result is errors ['cancelled']
- * and nothing is queued. approveLaborDoc does the same. EA س٢-ب: the server also refuses.
- * The two buttons are hidden in that case. No new sentence.
+ * A live rev_ of this agreement, one whose id is not in syncErrors, is errors ['cancelled'].
+ * rowIndex and rowCounts are the check. approveLaborDoc does the same. EA س٢-ب: the server also refuses.
+ * The two buttons are hidden only for that live rev_. A refused rev_ does not hide them.
+ * Nothing is queued on cancelled. No new sentence.
  */
 function laborQtyDoc(input)
 
@@ -576,7 +586,7 @@ The statement lines and the closing number come from C's `statementLines` and `b
 | `cap`, `cumulative` on a `deduct`                  | `الخصم أكبر من العمل المعتمد`                                                          | I. Approved 2026-11-15. Outside the 88.                                     |
 | `cap`, `cumulative` on `returnAdvance` or `settle` | `المُرجَع والتسوية أكبر من السلفة`                                                     | H and J. EA Q19. Outside the 88.                                            |
 | `targetId`, `settlesId`                            | no new sentence. The button stays off until a live row is chosen.                      | H, I, J                                                                     |
-| `cancelled`                                        | no new sentence. The work buttons stay hidden.                                         | G, after `rev_<agreementId>` is in `agreements`.                            |
+| `cancelled`                                        | no new sentence. The work buttons stay hidden.                                         | G, after a live `rev_<agreementId>`, not one whose id is in `syncErrors`.   |
 | `kind`                                             | no new sentence. `عكس` stays hidden on a `rev_` row.                                   | I                                                                           |
 | `review`                                           | `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`                                                  | J. `hasUnreviewedCash` is true. The save returns this code and no document. |
 | `ledger`                                           | the form does not send both a ledger and an explicit target                            | not shown                                                                   |
@@ -627,16 +637,18 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 - `post('approveLabor')` with no agreement object is `agreement`. That is `public/accounts.js` line 370, not `agreementDoc`.
 - Two taps of the agreement save append one `agreements` row and one outbox id. The button is disabled until `save` returns.
 - Two taps of `approve-labor` append one `appr_` and one outbox id.
-- `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, `docType` is `agreement`, and the body copies the original's values. An original that is itself `rev_` is `kind`. `reversalReason` is 1 to 500 characters and the label is the reused `سبب التصحيح`. An empty reason is refused. After a real reversal, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
-- Two taps of `cancel-agreement` append one `rev_<agreementId>` row in `agreements` and one outbox id.
-- A `cancel-agreement` whose project is closed, archived, or deleted queues nothing. The agreement row is unchanged. The button is off. The shown sentence is the existing `رُفض الإرسال`.
+- `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, `docType` is `agreement`, and the body copies the original's values. An original that is itself `rev_` is `kind`. `reversalReason` is 1 to 500 characters and the label is the reused `سبب التصحيح`. An empty reason is refused. After a live `rev_`, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
+- Two taps of `cancel-agreement` append one live `rev_<agreementId>` row in `agreements` and one outbox id.
+- A refused `rev_` whose id is in `syncErrors` does not hide the measurement or approval buttons. `laborQtyDoc` does not return `cancelled`.
+- (a) The local project is not `active`, or `forgetGoneProjects` has dropped it. `cancel-agreement` is off. Nothing is queued. No sentence is shown. The agreement row is unchanged.
+- (b) Emulator. The owner phone is online and still shows the project as active. An admin sets the project to `closed` with rules disabled. The cancel is queued and refused. `syncErrors` has `رُفض الإرسال` (`public/sync-status.js` line 12 at `29ada0bc`). A deleted project uses `رُفض الإرسال لأن المشروع محذوف` (line 15) once E's probe covers `agreements`. There is no live `rev_`. The agreement row is unchanged.
 - A body whose id is in `syncErrors` is not offered to `approve-labor`.
 - `approveLaborDoc` refuses a non-slot target on a lump agreement and a slot target on a unit agreement.
 - The builder's keys, minus `docType`, are a subset of D's allowlist. `createdAtDevice` is absent.
 
 `approve-labor` drive: sign in, open the person, save the brick agreement, save the measurement, approve it. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. The person page shows `عمل معتمد` 600,000. Home المصروف is unchanged. Screenshot and `firestore.json` under that id.
 
-`cancel-agreement` drive: cancel that agreement, then the measurement and approval buttons are hidden, and a new `laborQty` is refused. Firestore has `rev_<agreementId>` in `agreements`. The label on screen is `عكس`.
+`cancel-agreement` drive: cancel that agreement, then the measurement and approval buttons are hidden only because the `rev_` is live, and a new `laborQty` is refused. Firestore has `rev_<agreementId>` in `agreements`. The label on screen is `عكس`.
 
 ### H, `tests/accounts-payment.test.js`
 
@@ -751,6 +763,10 @@ EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-1
 - Q28 follows Q9 and D. `rev_<agreementId>` is a row in `agreements`, reached by `cancel-agreement`. Ameer's recorded words are the same fields plus `reversesId`. On main `d7dc8e9b`, `firestore.rules` lines 639-641 require `reversalReason` of 1 to 500 characters. The D sketch states that bound at line 232. Lines 129 and 135 name the key and the hasOnly rule. The screen reuses `سبب التصحيح`. The old agreement row is not edited. س٢-ب: after that reversal, new work and a new approval on that agreement are refused. This sketch drops the old question that put the same id in `accountTxns`.
 - Q29. An inexact unit split shows `المبلغ ليس عدداً صحيحاً`. No new sentence.
 - Q5. The service-worker number is the next free one at merge time. This sketch reserves none.
+
+## For EA/Ameer
+
+A refused cancel keeps `rev_<agreementId>` in the local `agreements` list and in `syncErrors`. It is not live, so the measurement and approval buttons come back. A later tap uses that same id. `commitDoc` appends only when the id is absent, so the refused row blocks a second document. Re-queueing it means taking that local row out of the dedup and clearing its `syncErrors` entry first. The owner would then be able to send the same cancel again after the project is active. This sketch does not choose that.
 
 ## Decisions this sketch does not make
 
