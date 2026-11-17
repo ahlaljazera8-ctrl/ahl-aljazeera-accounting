@@ -326,7 +326,7 @@ test('13 reload drops the gone project and keeps the refused row', { timeout: 12
     assert.equal(await waitFor(session, `!flushing && (AJ.get('entries')||[]).some(e => e && e.id === 'e-synced')`, 20000), true, 'the synced entry arrives');
     const bell = await session.ev(`(async () => {
       const refused = { id:'e-refused', projectId:${JSON.stringify(idA)}, direction:'expense', entryType:'materials', amount:4444, currency:'IQD', entryDate:'2026-11-17', description:'قيد مرفوض', partyName:'', isReversal:false, createdAtDevice:9, createdBy:${JSON.stringify(ownerUid)}, deviceId:'phone' };
-      const queued = { id:'e-queued', projectId:${JSON.stringify(idB)}, direction:'expense', entryType:'materials', amount:5555, currency:'IQD', entryDate:'2026-11-17', description:'قيد منتظر', partyName:'', isReversal:false, createdAtDevice:10, createdBy:${JSON.stringify(ownerUid)}, deviceId:'phone' };
+      const queued = { id:'e-queued', projectId:${JSON.stringify(idB)}, amount:5555, description:'قيد منتظر', createdAtDevice:10, createdBy:${JSON.stringify(ownerUid)}, deviceId:'phone' };
       await set(K.entries, (AJ.get('entries')||[]).concat([refused, queued]));
       await set(K.outbox, (AJ.get('outbox')||[]).concat(['e-queued']));
       const errors = Object.assign({}, AJ.get('syncErrors')||{});
@@ -335,8 +335,7 @@ test('13 reload drops the gone project and keeps the refused row', { timeout: 12
       return (AJ.get('outbox')||[]).length;
     })()`);
     await testEnv.withSecurityRulesDisabled(async ctx => { await deleteDoc(doc(ctx.firestore(), 'projects', idA)); });
-    await session.ev(`forgetGoneProjects(me(), [${JSON.stringify(idA)}], async (spec) => spec && spec.id === ${JSON.stringify(idA)} ? [] : [{ id: spec && spec.id, createdAtServer: 1 }])`);
-    await session.ev(`AJ.flush()`);
+    await session.ev(`(async () => { const run = flushRemote({ fromOutside: true }); await (window.flushing || run); return 1; })()`);
     assert.equal(await reloadApp(session, '#projects'), true, 'the reloaded page opens from the same database');
     const seen = await session.ev(`(() => {
       const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
@@ -361,7 +360,9 @@ test('14 the other owner phone keeps its queued line', { timeout: 180000 }, asyn
   const phoneA = await openPage();
   try {
     await login(phoneB, OWNER2_EMAIL);
-    assert.equal(await waitFor(phoneB, `!flushing && (AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(idA)}) && (AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(idC)})`, 20000), true, 'phone B sees the project');
+    await phoneB.ev(`(async () => { const run = flushRemote({ fromOutside: true }); await (window.flushing || run); return 1; })()`);
+    const sawB = await phoneB.ev(`(AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(idA)}) && (AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(idC)})`);
+    assert.equal(sawB, true, 'phone B sees the project ' + phoneB.logs.slice(-8).join(' | '));
     await phoneB.ev(`(async () => {
       const queued = { id:'e-phone-b', projectId:${JSON.stringify(idA)}, direction:'expense', entryType:'materials', amount:6666, currency:'IQD', entryDate:'2026-11-17', description:'قيد الهاتف', partyName:'', isReversal:false, createdAtDevice:11, createdBy:${JSON.stringify(owner2Uid)}, deviceId:'phone-b' };
       await set(K.entries, (AJ.get('entries')||[]).concat([queued]));
@@ -370,7 +371,9 @@ test('14 the other owner phone keeps its queued line', { timeout: 180000 }, asyn
     })()`);
     await phoneB.ev(`location.hash=${JSON.stringify('#entry/' + idA)}; dispatchEvent(new HashChangeEvent('hashchange')); document.querySelector(${JSON.stringify('[data-proj="' + idA + '"]')}).click(); 1`);
     await login(phoneA, OWNER_EMAIL);
-    assert.equal(await waitFor(phoneA, `(AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(idA)})`, 20000), true, 'phone A sees the project');
+    await phoneA.ev(`(async () => { const run = flushRemote({ fromOutside: true }); await (window.flushing || run); return 1; })()`);
+    const sawA = await phoneA.ev(`(AJ.get('projects')||[]).some(p => p && p.id === ${JSON.stringify(idA)})`);
+    assert.equal(sawA, true, 'phone A sees the project ' + phoneA.logs.slice(-8).join(' | '));
     await phoneA.ev(`location.hash=${JSON.stringify('#project/' + idA)}; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
     await phoneA.ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-delete').click(); document.querySelector('#confirm-yes').click(); 1`);
     await phoneA.ev(`(() => {

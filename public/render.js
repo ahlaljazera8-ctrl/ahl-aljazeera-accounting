@@ -46,6 +46,8 @@ const PROJECT_LINES_MSG = 'في هذا المشروع قيود لم تُرسل �
 let entryProjectBlocked = '';
 /** @type {EntryProjectBlock} */
 let entryProjectBlockKind = '';
+/** @type {string | null} */
+let pendingEntryId = null;
 let bellOpen = false;
 const ledger = () => L.createLedger(get(K.entries, []));
 /** @param {any} s */
@@ -593,7 +595,8 @@ const views = {
     const openIds = [];
     projects.forEach(p => { if (p && typeof p.id === 'string') openIds.push(p.id); });
     const stored = /** @type {LedgerProject[]} */ (get(K.projects, []) || []);
-    const choice = bindEntryProject(pid, openIds, stored);
+    const choice = bindEntryProject(entryHashOnce(), openIds, stored);
+    void pid;
     const subsHere = subcontractsOf(state.projectId);
     if (state.type === 'subcontractor' && !subsHere.some(/** @param {any} s */ s => s.id === state.subcontractId)) state.subcontractId = (subsHere[0] && subsHere[0].id) || '';
     if (state.fmGone && state.foremanId) {
@@ -962,6 +965,23 @@ function entryBlockSentence(projectId, blocked, stored) {
   if (row) return ENTRY_UNASSIGNED_MSG;
   return ENTRY_GONE_MSG;
 }
+/** @returns {string} */
+function entryIdFromHash() {
+  const parts = (location.hash || '').slice(1).split('/');
+  if (parts[0] !== 'entry') return '';
+  return parts[1] || '';
+}
+/**
+ * The #entry/<id> hash is read once per hashchange. A later repaint does not
+ * pass it again, so a pill tap stays. A hash change does not clear a block.
+ * @returns {string}
+ */
+function entryHashOnce() {
+  if (pendingEntryId === null) pendingEntryId = entryIdFromHash();
+  const id = pendingEntryId;
+  pendingEntryId = '';
+  return id;
+}
 /**
  * The hash is not a choice after a block. Only a project pill changes state.projectId.
  * @param {string | undefined} pid
@@ -1297,7 +1317,12 @@ document.addEventListener('click', ev => {
   if (window.AccountsView && AccountsView.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (window.ForemenUI && ForemenUI.onClick(/** @type {HTMLButtonElement} */ (b))) return;
   if (b.dataset.type) { state.type = b.dataset.type; render(); }
-  else if (b.dataset.proj) { state.projectId = b.dataset.proj; render(); }
+  else if (b.dataset.proj) {
+    entryProjectBlocked = '';
+    entryProjectBlockKind = '';
+    state.projectId = b.dataset.proj;
+    render();
+  }
   else if (b.dataset.add != null) {
     const amtEl = $('#amt');
     const parsed = L.parseAmount(amtEl ? amtEl.value : '');
@@ -1341,6 +1366,16 @@ document.addEventListener('click', ev => {
   }
   else if (b.id === 'save') {
     b.disabled = true; // id generated once per form; double-tap cannot duplicate
+    const openNow = L.projectList(u, get(K.projects, []), POLICY, 'open');
+    /** @type {string[]} */
+    const openNowIds = [];
+    openNow.forEach(p => { if (p && typeof p.id === 'string') openNowIds.push(p.id); });
+    const storedNow = /** @type {LedgerProject[]} */ (get(K.projects, []) || []);
+    const gate = L.entryProjectChoice({ currentId: state.projectId || '', openIds: openNowIds, stored: storedNow });
+    if (gate.blocked) {
+      setFormMsg(entryBlockSentence(gate.projectId, gate.blocked, storedNow), 'error');
+      return;
+    }
     const desc = $('#desc').value.trim();
     let party = ($('#party') && $('#party').value || '').trim();
     let subcontractId = '';
@@ -1555,7 +1590,10 @@ if (window.ForemenUI) {
   };
   ForemenUI.install(renderApi);
 }
-addEventListener('hashchange', render);
+addEventListener('hashchange', () => {
+  pendingEntryId = entryIdFromHash();
+  render();
+});
 addEventListener('online', () => {
   if (!demoRole() && get(K.sessionUser)) { flushRemote({ fromOutside: true }); refreshDirectory('online'); }
   else if (!$('#shell').hidden) render();

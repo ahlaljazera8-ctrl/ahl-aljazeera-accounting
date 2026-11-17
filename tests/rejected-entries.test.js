@@ -770,6 +770,7 @@ test('a demo delete does not remove the project row from IndexedDB', async () =>
   await session.set(session.K.outbox, []);
   await session.set(session.K.syncErrors, {});
   await session.deleteProjectNow('A');
+  await session.AJ.flush();
   await session.loadAll();
   assert.equal(ids(session.get(session.K.projects)).includes('A'), true);
 });
@@ -821,4 +822,187 @@ test('a blocked entry form disables حفظ and keeps the amount, the note, and t
   await session.set(session.K.entries, [{ id: 'q', projectId: 'p-only' }]);
   await session.set(session.K.outbox, ['q']);
   assert.equal(session.projectDeleteBlock('p-only'), LINES_MSG);
+});
+
+/**
+ * @param {{ id?: string, dataset?: Record<string, string> }} button
+ * @param {Array<[string, Function]>} listeners
+ */
+function clickButton(button, listeners) {
+  const target = {
+    closest(sel) {
+      if (sel === 'button') return button;
+      return null;
+    },
+  };
+  listeners.forEach(pair => { if (pair[0] === 'click') pair[1]({ target }); });
+}
+
+/**
+ * @param {Record<string, any>} session
+ * @param {string} hash
+ */
+function listenAndLoad(session, hash) {
+  /** @type {Array<[string, Function]>} */
+  const listeners = [];
+  /** @param {string} type @param {Function} fn */
+  const listen = (type, fn) => { listeners.push([type, fn]); };
+  session.location.hash = hash;
+  session.document.addEventListener = listen;
+  session.addEventListener = listen;
+  session.cache[session.K.sessionUser] = { uid: 'u-owner', role: 'owner', active: true, displayName: 'مالك' };
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8'), session);
+  return listeners;
+}
+
+test('a restored project pill clears the block', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry');
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' }]);
+  await session.set(session.K.entries, []);
+  session.render();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'archived', currency: 'IQD' }]);
+  session.render();
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), true);
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' }]);
+  session.render();
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), true);
+  clickButton({ id: '', dataset: { proj: 'A' } }, listeners);
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), false);
+  assert.equal(found['#main'].innerHTML.includes('pill on" data-proj="A"'), true);
+});
+
+test('a pill tap stays after a repaint when the hash still names the gone project', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry/A');
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' },
+    { id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD' },
+  ]);
+  await session.set(session.K.entries, []);
+  session.render();
+  await session.set(session.K.projects, [{ id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD' }]);
+  session.render();
+  assert.equal(found['#main'].innerHTML.includes('id="save" disabled'), true);
+  clickButton({ id: '', dataset: { proj: 'B' } }, listeners);
+  session.render();
+  const html = found['#main'].innerHTML;
+  assert.equal(html.includes('id="save" disabled'), false);
+  assert.equal(html.includes('pill on" data-proj="B"'), true);
+});
+
+test('a later hashchange to the same entry id is read again', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry/A');
+  await session.set(session.K.projects, [
+    { id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' },
+    { id: 'B', name: 'مشروع ب', status: 'active', currency: 'IQD' },
+  ]);
+  await session.set(session.K.entries, []);
+  session.render();
+  clickButton({ id: '', dataset: { proj: 'B' } }, listeners);
+  assert.equal(found['#main'].innerHTML.includes('pill on" data-proj="B"'), true);
+  session.location.hash = '#home';
+  listeners.forEach(pair => { if (pair[0] === 'hashchange') pair[1](); });
+  session.location.hash = '#entry/A';
+  listeners.forEach(pair => { if (pair[0] === 'hashchange') pair[1](); });
+  const html = found['#main'].innerHTML;
+  assert.equal(html.includes('pill on" data-proj="A"'), true);
+  assert.equal(html.includes('id="save" disabled'), false);
+});
+
+test('حفظ on a blocked archived project stores nothing', async () => {
+  const { session } = openMemorySession();
+  const found = {};
+  function node() {
+    return {
+      hidden: true, textContent: '', innerHTML: '', value: '', disabled: false, dataset: {},
+      classList: { toggle() {} },
+      setAttribute() {}, removeAttribute() {},
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      append() {}, appendChild() {}, remove() {}, addEventListener() {},
+    };
+  }
+  session.document.querySelector = sel => {
+    if (sel === '.tabs') return null;
+    if (!found[sel]) found[sel] = node();
+    return found[sel];
+  };
+  session.document.querySelectorAll = () => [];
+  session.PeopleDir = {
+    RENDER_ERROR: 'x', TIMEOUT_MS: 1,
+    createLoader() { return { run() { return Promise.resolve(); }, failed() { return false; }, reset() {} }; },
+  };
+  const listeners = listenAndLoad(session, '#entry');
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'active', currency: 'IQD' }]);
+  await session.set(session.K.entries, []);
+  session.render();
+  await session.set(session.K.projects, [{ id: 'A', name: 'مشروع أ', status: 'archived', currency: 'IQD' }]);
+  session.render();
+  found['#amt'].value = '1500';
+  found['#desc'].value = 'ملاحظة مؤرشف';
+  const before = session.get(session.K.entries, []).length;
+  clickButton({ id: 'save', dataset: {} }, listeners);
+  assert.equal(session.get(session.K.entries, []).length, before);
+  assert.equal(found['#msg'].textContent.includes('هذا المشروع مؤرشف'), true);
 });
