@@ -2,7 +2,7 @@
 
 No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The four code pull requests come after the Architect reviews this sketch and Ameer says go.
 
-Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
+Revision r6, on head `b2914047`. D citations were rechecked at main `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. Strings list: `strings-contractor-module-r2.22.md`, sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`. PR B's types and `post` are the ones in `contractor-pr-b-sketch-r3.md`. This sketch treats that file as what B will add. It does not re-specify B.
 
@@ -323,9 +323,10 @@ On this main, `Accounts` exports `LaborAgreement`, `AccountDoc`, `PostInput`, `p
  * createdByName is set when the display name is 1 to 80 characters.
  * No createdAtDevice. Each builder also sets docType.
  * The other keys, minus docType, are a subset of D's allowlist for that kind.
- * D is docs/plans/contractor-pr-d-sketch.md at 7ac193c5, on main as f1c50704.
+ * D is docs/plans/contractor-pr-d-sketch.md on main d7dc8e9b.
  * AccountTxn is lines 147-171. StatementApproval is lines 176-187.
- * AgreementReversal is lines 113-137. This sketch does not copy a second key list.
+ * AgreementReversal is lines 113-137. Those three ranges were rechecked at that SHA.
+ * The 1-500 reversalReason bound is firestore.rules lines 639-641, and D sketch line 232.
  */
 ```
 
@@ -378,13 +379,16 @@ function agreementDoc(input)
 
 /**
  * Action id cancel-agreement. Tab agreements. Module AccountWork.
- * @param {{ agreement: AgreementRow }} input
+ * @param {{ agreement: LaborAgreement, reversalReason: string, createdBy: string, deviceId: string }} input
+ * LaborAgreement is public/accounts.js line 28. createdBy and deviceId are the reverser's.
  * @returns {{ doc: object | null, errors: string[] }}
  * id is 'rev_' + the agreement id. The row is written to agreements, not accountTxns.
  * docType is 'agreement'. Copies the original's values, not only its keys.
  * An original whose id already starts with rev_ is errors ['kind']. Nothing is queued.
- * reversalReason is 1 to 500 characters. The label reuses سبب التصحيح. No new sentence.
- * D requires it (AgreementReversal, lines 129 and 135, at 7ac193c5 / main f1c50704).
+ * reversalReason is 1 to 500 characters (firestore.rules lines 639-641 at d7dc8e9b,
+ * agreementReversalCreate; D sketch line 232 states the same bound).
+ * Lines 129 and 135 of that sketch name the key and the hasOnly rule, not the length.
+ * The label reuses سبب التصحيح. No new sentence.
  * Ameer's recorded Q9 is the same fields plus reversesId. The reason is D's engineering note.
  * The agreement row is not edited and not deleted. The button label reuses عكس.
  */
@@ -575,7 +579,7 @@ Kept, reused, not in the 88: `حفظ` (`public/render.js` line 614), `رجوع` 
 
 ### H, new
 
-`تسجيل دفعة`, `الغرض`, `عن عمل معتمد`, `سلفة عمل قادم`, `إرجاع سلفة لم تُصرف`, `استرداد نقدي من العامل`, `المُرجَع أكبر من الدفعة`, `سلفة، ليست مصروفاً.`, `السلفة ليست مصروفاً`, `قبل هذه الدفعة` (string 81), `تظهر الدفعة في الكشف` (string 82), `حتى يدقّقها المالك.` (string 83), `تدقيق` (string 84), `غير مدقّق` (string 71). `مستحق عليه` and `مستحق له` are in the 88. H shows one of them from `balances().net`. A negative net is `مستحق عليه` only. `المتبقي سلفة` is not painted.
+`تسجيل دفعة`, `الغرض`, `عن عمل معتمد`, `سلفة عمل قادم`, `إرجاع سلفة لم تُصرف`, `استرداد نقدي من العامل`, `المُرجَع أكبر من الدفعة`, `سلفة، ليست مصروفاً.`, `السلفة ليست مصروفاً`, `قبل هذه الدفعة` (string 81), `تظهر الدفعة في الكشف` (string 82), `حتى يدقّقها المالك.` (string 83), `تدقيق` (string 84), `غير مدقّق` (string 71). `مستحق عليه` (string 16) and the reused `مستحق له` (inside string 87, not a string of its own) are the labels. H shows one of them from `balances().net`. A negative net is `مستحق عليه` only. `المتبقي سلفة` is not painted.
 
 ### I, new
 
@@ -717,7 +721,7 @@ The advisor's advance layout stays the one in plan section 3: advances paid minu
 
 ## EA, closed
 
-EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16, including Q24–Q29. The answers file to cite is `answers-EA-delegated-0034.md`, sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`. Ameer's 15:02 and 15:35 answers in that file win on the person-balance label. One string is still pending Ameer, below.
+EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16, including Q24–Q29. The answers file to cite is `answers-EA-delegated-0034.md`, sha256 `2b3bb1f0a7b485057c973db203d21930a7c683fbd1d185e6c2c58f68e2bd5bc1`. Where that file differs from `QUESTIONS-FOR-EA-r1`, the answers file wins. Ameer's 15:02 and 15:35 answers in it are the person-balance label. One string is still pending Ameer, below.
 
 - Q24. The three cash saves replace the three material buttons.
 - Q25. `خصم` ships inside I.
@@ -725,7 +729,7 @@ EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-1
 - Q18. The overpayment label is `مستحق عليه` only, from `balances().net`, with no `(سلفة)` and no `المتبقي سلفة`. Open advances stay in `سلف قائمة عليه`. No confirm step. Ameer, 2026-11-16 15:35, section "Ameer answers, 2026-11-16 15:35".
 - Q26. `آخر معتمد` stays out of `PURPOSES` and off the payment form.
 - Q27. The guard is F's. G–J depend on it. Strings 86 and 87 stay F's. G–J do not paint them and do not write a second guard. No G–J code pull request merges before that guard is on main.
-- Q28 follows Q9 and D. `rev_<agreementId>` is a row in `agreements`, reached by `cancel-agreement`. Ameer's recorded words are the same fields plus `reversesId`. D at `7ac193c5`, on main as `f1c50704`, also requires `reversalReason` of 1 to 500 characters (`docs/plans/contractor-pr-d-sketch.md` lines 129 and 135). The screen reuses `سبب التصحيح`. The old agreement row is not edited. س٢-ب: after that reversal, new work and a new approval on that agreement are refused. This sketch drops the old question that put the same id in `accountTxns`.
+- Q28 follows Q9 and D. `rev_<agreementId>` is a row in `agreements`, reached by `cancel-agreement`. Ameer's recorded words are the same fields plus `reversesId`. On main `d7dc8e9b`, `firestore.rules` lines 639-641 require `reversalReason` of 1 to 500 characters. The D sketch states that bound at line 232. Lines 129 and 135 name the key and the hasOnly rule. The screen reuses `سبب التصحيح`. The old agreement row is not edited. س٢-ب: after that reversal, new work and a new approval on that agreement are refused. This sketch drops the old question that put the same id in `accountTxns`.
 - Q29. An inexact unit split shows `المبلغ ليس عدداً صحيحاً`. No new sentence.
 - Q5. The service-worker number is the next free one at merge time. This sketch reserves none.
 
