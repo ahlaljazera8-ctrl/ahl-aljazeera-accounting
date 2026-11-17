@@ -366,6 +366,12 @@ interface LedgerApi {
     policy: LedgerPolicy | undefined,
     list: string,
   ): LedgerProject[];
+  entryProjectChoice(input: {
+    requestedId?: string;
+    currentId?: string;
+    openIds: readonly string[];
+    stored?: readonly { id?: string; status?: string }[] | null;
+  }): EntryProjectChoice;
   nextProjectStatus(
     user: LedgerUser | null | undefined,
     project: LedgerProject | null | undefined,
@@ -638,6 +644,18 @@ interface PersonResult {
   value?: PersonValue;
 }
 
+type EntryProjectBlock = 'missing' | 'archived' | '';
+
+interface EntryProjectChoice {
+  projectId: string;
+  blocked: EntryProjectBlock;
+}
+
+interface RemovedLocalIds {
+  projectIds: string[];
+  entryIds: string[];
+}
+
 interface DroppedProject {
   entries: LedgerEntry[];
   projects: LedgerProject[];
@@ -651,6 +669,7 @@ interface DroppedProject {
   foremen: SyncDoc[];
   foremanMoves: SyncDoc[];
   goneProjectNames: GoneProjectNames;
+  removed: RemovedLocalIds;
 }
 
 interface SyncApi {
@@ -1126,7 +1145,11 @@ declare function sendNow(): void;
 declare function rebuildFirebase(signOutUser?: boolean): Promise<any>;
 declare function isImportFailure(err: any): boolean;
 declare function cacheSnapshot(): any;
-declare function writeCache(next: any): void;
+declare function writeCache(next: DroppedProject, before?: LocalStore | null): Promise<unknown>;
+declare function deleteRemovedLocalIds(
+  removed: RemovedLocalIds | null | undefined,
+  before: LocalStore | null | undefined,
+): Promise<void>;
 declare function withTimeout<T>(p: T, ms: number, step: string): Promise<T>;
 declare function isPoison(err: any): boolean;
 declare var LOGIN_MS: number;

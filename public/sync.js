@@ -546,6 +546,8 @@
     const errors = src.syncErrors || {};
     const subIds = new Set((src.subcontracts || []).filter(row => row && row.projectId === projectId).map(row => row.id));
     const removed = new Set([projectId]);
+    /** @type {string[]} */
+    const removedEntryIds = [];
     // Another phone keeps a row that is still queued or already refused, so the
     // bell can show the rejection. The deleting phone drops those too.
     /** @param {SyncDoc | null | undefined} row */
@@ -553,7 +555,10 @@
     const entries = (src.entries || []).filter(row => {
       if (!row || row.projectId !== projectId) return true;
       if (keep(row)) return true;
-      removed.add(/** @type {string} */ (row.id));
+      if (typeof row.id === 'string' && row.id) {
+        removed.add(row.id);
+        removedEntryIds.push(row.id);
+      }
       return false;
     });
     const amendments = (src.amendments || []).filter(row => {
@@ -575,7 +580,13 @@
     /** @type {Record<string, { contractAmount?: number }>} */
     const finance = Object.assign({}, src.finance || {});
     delete finance[projectId];
-    const projects = (src.projects || []).filter(row => !row || row.id !== projectId);
+    /** @type {string[]} */
+    const removedProjectIds = [];
+    const projects = (src.projects || []).filter(row => {
+      if (!row || row.id !== projectId) return true;
+      if (typeof row.id === 'string' && row.id) removedProjectIds.push(row.id);
+      return false;
+    });
     /** @type {GoneProjectNames} */
     const goneProjectNames = Object.assign({}, src.goneProjectNames || {});
     const dropped = (src.projects || []).find(row => row && row.id === projectId);
@@ -587,7 +598,10 @@
     const statusPending = (src.statusPending || []).filter(id => id !== projectId);
     const foremen = (src.foremen || []).slice();
     const foremanMoves = (src.foremanMoves || []).slice();
-    return { entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves, goneProjectNames };
+    return {
+      entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves, goneProjectNames,
+      removed: { projectIds: removedProjectIds, entryIds: removedEntryIds },
+    };
   }
 
   /** @param {FlushCall} opts */

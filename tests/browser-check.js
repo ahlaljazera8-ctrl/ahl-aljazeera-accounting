@@ -1154,6 +1154,14 @@ let chrome;
     };
   })()`);
   check('the manage sheet lists أرشفة, red حذف, then إلغاء', placed && placed.order && placed.above && placed.red && placed.labels==='أرشفة|حذف|إلغاء');
+  await ev(`(async () => {
+    const school = new Set((AJ.get('entries') || []).filter(e => e && e.projectId === 'p-school').map(e => e.id));
+    await set(K.outbox, (AJ.get('outbox') || []).filter(id => !school.has(id)));
+    const errors = Object.assign({}, AJ.get('syncErrors') || {});
+    school.forEach(id => { delete errors[id]; });
+    await set(K.syncErrors, errors);
+    return 1;
+  })()`);
   await ev(`document.querySelector('#choose-delete').click(); 1`);
   await sleep(150);
   const step1 = await ev(`(()=>{
@@ -1336,6 +1344,14 @@ let chrome;
   check('one settle of the owed amount zeroes the balance', settled && settled.n===1 && settled.state==='settled' && settled.held===0 && settled.note==='');
   await ev(`location.hash='#project/p-school'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
+  await ev(`(async () => {
+    const school = new Set((AJ.get('entries') || []).filter(e => e && e.projectId === 'p-school').map(e => e.id));
+    await set(K.outbox, (AJ.get('outbox') || []).filter(id => !school.has(id)));
+    const errors = Object.assign({}, AJ.get('syncErrors') || {});
+    school.forEach(id => { delete errors[id]; });
+    await set(K.syncErrors, errors);
+    return 1;
+  })()`);
   await ev(`document.querySelector('#manage-project').click(); document.querySelector('#choose-delete').click(); 1`);
   await sleep(150);
   const blocked = await ev(`(()=>{
@@ -1833,6 +1849,84 @@ let chrome;
     const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
     return !document.querySelector('a[data-tab="accounts"]') && text.includes('هذه الشاشة للمالك.');
   })()`));
+  await go(`${BASE}index.html?role=owner#entry`);
+  await sleep(300);
+  const goneForm = await ev(`(async () => {
+    const selected = document.querySelector('[data-proj].on');
+    const picked = selected ? selected.getAttribute('data-proj') : '';
+    const rest = (AJ.get('projects') || []).filter(p => p && p.id !== picked);
+    const otherIds = rest.map(p => p.id);
+    const before = {};
+    otherIds.forEach(id => { before[id] = (AJ.get('entries') || []).filter(e => e && e.projectId === id).length; });
+    await set(K.projects, rest);
+    const amt = document.querySelector('#amt');
+    const desc = document.querySelector('#desc');
+    const party = document.querySelector('#party');
+    if (amt) amt.value = '1500';
+    if (desc) desc.value = 'ملاحظة الحفظ';
+    if (party) party.value = 'جهة الحفظ';
+    render();
+    const save = document.querySelector('#save');
+    const text = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    if (save) save.click();
+    await new Promise(r => setTimeout(r, 30));
+    const after = {};
+    otherIds.forEach(id => { after[id] = (AJ.get('entries') || []).filter(e => e && e.projectId === id).length; });
+    const gained = otherIds.some(id => after[id] !== before[id]);
+    return {
+      picked,
+      text,
+      disabled: !!(save && save.disabled),
+      selected: !!document.querySelector('[data-proj].on'),
+      gained,
+      amount: document.querySelector('#amt') && document.querySelector('#amt').value,
+      note: document.querySelector('#desc') && document.querySelector('#desc').value,
+      party: document.querySelector('#party') && document.querySelector('#party').value,
+      entries: (AJ.get('entries') || []).length,
+    };
+  })()`);
+  const goneSentence = 'هذا المشروع لم يعد موجوداً. لم يُحفظ القيد، اختر مشروعاً ثم احفظ.';
+  check('a gone demo project blocks حفظ and does not fill another project', goneForm && goneForm.text.includes(goneSentence) && goneForm.disabled === true && goneForm.selected === false && goneForm.gained === false);
+  const oneLeft = await ev(`(async () => {
+    const open = AJ.get('projects') || [];
+    const keep = open.slice(0, 1);
+    await set(K.projects, keep);
+    render();
+    const save = document.querySelector('#save');
+    return {
+      selected: !!document.querySelector('[data-proj].on'),
+      disabled: !!(save && save.disabled),
+      text: (document.querySelector('#main') && document.querySelector('#main').innerText) || '',
+      openId: keep[0] && keep[0].id,
+    };
+  })()`);
+  check('a blocked form does not auto-select the one project that is left', oneLeft && oneLeft.selected === false && oneLeft.disabled === true && oneLeft.text.includes(goneSentence));
+  const stayed = await ev(`(async () => {
+    const before = (AJ.get('entries') || []).length;
+    const save = document.querySelector('#save');
+    if (save) save.click();
+    await new Promise(r => setTimeout(r, 30));
+    return {
+      disabled: !!(document.querySelector('#save') && document.querySelector('#save').disabled),
+      amount: document.querySelector('#amt') && document.querySelector('#amt').value,
+      note: document.querySelector('#desc') && document.querySelector('#desc').value,
+      party: document.querySelector('#party') && document.querySelector('#party').value,
+      entries: (AJ.get('entries') || []).length,
+      before,
+    };
+  })()`);
+  check('حفظ stays disabled and a click keeps the amount, the note, and the party', stayed && stayed.disabled === true && stayed.amount === '1500' && stayed.note === 'ملاحظة الحفظ' && stayed.party === 'جهة الحفظ' && stayed.entries === stayed.before);
+  const hashed = await ev(`(async () => {
+    location.hash = '#entry/' + ${JSON.stringify(oneLeft && oneLeft.openId)};
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    const save = document.querySelector('#save');
+    return {
+      selected: !!document.querySelector('[data-proj].on'),
+      disabled: !!(save && save.disabled),
+      text: (document.querySelector('#main') && document.querySelector('#main').innerText) || '',
+    };
+  })()`);
+  check('a hash of an open project does not clear a blocked entry', hashed && hashed.selected === false && hashed.disabled === true && hashed.text.includes(goneSentence));
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

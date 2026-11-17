@@ -1006,3 +1006,64 @@ test('custody export uses Western digits for amounts, dates, and a negative bala
   assert.equal(whole.includes('حركة'), false);
   assert.equal(/[\u0660-\u0669\u06F0-\u06F9]/.test(only.join(',')), false);
 });
+
+test('a gone current project stays selected and blocked when another project is open', () => {
+  const choice = L.entryProjectChoice({
+    currentId: 'p-a',
+    openIds: ['p-b'],
+    stored: [{ id: 'p-b', status: 'active' }],
+  });
+  assert.deepEqual(choice, { projectId: 'p-a', blocked: 'missing' });
+});
+
+test('the first paint with nothing chosen uses the first open project', () => {
+  const choice = L.entryProjectChoice({ currentId: '', requestedId: '', openIds: ['p-a', 'p-b'], stored: [] });
+  assert.deepEqual(choice, { projectId: 'p-a', blocked: '' });
+});
+
+test('a hash of an open project replaces the current project', () => {
+  const choice = L.entryProjectChoice({
+    requestedId: 'p-b',
+    currentId: 'p-a',
+    openIds: ['p-a', 'p-b'],
+    stored: [{ id: 'p-a' }, { id: 'p-b' }],
+  });
+  assert.deepEqual(choice, { projectId: 'p-b', blocked: '' });
+});
+
+test('a hash of a gone project stays on that id', () => {
+  const choice = L.entryProjectChoice({
+    requestedId: 'p-a',
+    currentId: '',
+    openIds: ['p-b'],
+    stored: [{ id: 'p-b', status: 'active' }],
+  });
+  assert.deepEqual(choice, { projectId: 'p-a', blocked: 'missing' });
+});
+
+test('an archived current project stays blocked as archived', () => {
+  const choice = L.entryProjectChoice({
+    currentId: 'p-a',
+    openIds: ['p-b'],
+    stored: [{ id: 'p-a', status: 'archived' }, { id: 'p-b', status: 'active' }],
+  });
+  assert.deepEqual(choice, { projectId: 'p-a', blocked: 'archived' });
+});
+
+test('a stored active project that is not in the open list is missing, not archived', () => {
+  const siteUser = { uid: 's', role: 'site', active: true, assignedProjectIds: [] };
+  const stored = [{ id: 'p-a', status: 'active' }, { id: 'p-b', status: 'active' }];
+  const open = L.projectList(siteUser, stored, L.DEFAULT_POLICY, 'open').map(p => p.id);
+  assert.deepEqual(open, []);
+  const choice = L.entryProjectChoice({ currentId: 'p-a', openIds: open, stored });
+  assert.deepEqual(choice, { projectId: 'p-a', blocked: 'missing' });
+});
+
+test('one remaining open project does not replace a blocked id', () => {
+  const choice = L.entryProjectChoice({
+    currentId: 'p-gone',
+    openIds: ['p-only'],
+    stored: [{ id: 'p-only', status: 'active' }],
+  });
+  assert.deepEqual(choice, { projectId: 'p-gone', blocked: 'missing' });
+});

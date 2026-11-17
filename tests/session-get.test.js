@@ -491,3 +491,52 @@ test('T-D11 unparsable formatToParts digits use the +3 h day and the formatter s
   assert.equal(loaded.context.today(), '1999-01-02');
   assert.equal(constructs, 1);
 });
+
+test('set of a shorter project list does not delete the missing id', async () => {
+  const lists = { projects: [], entries: [], outbox: [] };
+  const meta = new Map();
+  function request(result) {
+    const req = { result };
+    queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
+    return req;
+  }
+  const s = loadSession();
+  s.db = {
+    transaction() {
+      const tx = {
+        objectStore(name) {
+          if (name === 'meta') {
+            return {
+              getAllKeys: () => request([...meta.keys()]),
+              getAll: () => request([...meta.values()]),
+              put(value, key) { meta.set(key, JSON.parse(JSON.stringify(value))); },
+              delete() {},
+              clear() { meta.clear(); },
+            };
+          }
+          const list = lists[name] || (lists[name] = []);
+          return {
+            getAll: () => request(list.map(row => Object.assign({}, row))),
+            put(row) {
+              const copy = JSON.parse(JSON.stringify(row));
+              const at = list.findIndex(item => item.id === copy.id);
+              if (at >= 0) list[at] = copy;
+              else list.push(copy);
+            },
+            delete(id) {
+              const at = list.findIndex(item => item.id === id);
+              if (at >= 0) list.splice(at, 1);
+            },
+            clear() { list.length = 0; },
+          };
+        },
+      };
+      queueMicrotask(() => { if (tx.oncomplete) tx.oncomplete(); });
+      return tx;
+    },
+  };
+  await s.set('projects', [{ id: 'A', name: 'أ' }, { id: 'B', name: 'ب' }]);
+  await s.set('projects', [{ id: 'A', name: 'أ' }]);
+  await s.loadAll();
+  assert.deepEqual(s.cache.projects.map(row => row.id).sort(), ['A', 'B']);
+});
