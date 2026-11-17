@@ -2,7 +2,7 @@
 
 No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The four code pull requests come after the Architect reviews this sketch and Ameer says go.
 
-Revision r8, on head `bd38a9af`. Revision r7, on head `33fbcadf`. Revision r6, on head `b2914047`. D citations were rechecked at main `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
+Revision r9, on head `0f5f8b76`. Revision r8, on head `bd38a9af`. Revision r7, on head `33fbcadf`. Revision r6, on head `b2914047`. D citations were rechecked at main `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`, section "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
 
 Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. Strings list: `strings-contractor-module-r2.22.md`, sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`. PR B's types and `post` are the ones in `contractor-pr-b-sketch-r3.md`. This sketch treats that file as what B will add. It does not re-specify B.
 
@@ -415,9 +415,12 @@ function agreementDoc(input)
  * The phone shows رُفض الإرسال (public/sync-status.js line 12 at 29ada0bc),
  * or رُفض الإرسال لأن المشروع محذوف (line 15) once E's probe covers agreements.
  * The agreement row is unchanged. That rev_ is in syncErrors, so it is not live.
- * The id is always rev_ plus the agreement id. Cancel dedup skips a second append
- * only when that rev_ is live. commitDoc still will not append while the id is in the local list.
- * A refused rev_ stays for the bell. What a later tap does with that same id is under For EA/Ameer.
+ * While a refused rev_ of this agreement exists, its id in syncErrors, cancel-agreement
+ * is off on this phone. Measurement and approval stay on. Nothing is appended or queued.
+ * The refusal text stays on the row. Logout stays blocked until that refusal is exported,
+ * the #72 pattern (public/render.js rejectedLogoutBlock lines 547-551, called at line 1247;
+ * the alert is public/session.js line 371; the export records the id at public/render.js line 1324).
+ * Those lines are at main 29ada0bc. This is default (i). The question is under For EA/Ameer. Answer pending.
  */
 function agreementReversalDoc(input)
 
@@ -640,6 +643,7 @@ Node tests assert a purpose, an id, an effect, or an error code. Verify drives a
 - `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, `docType` is `agreement`, and the body copies the original's values. An original that is itself `rev_` is `kind`. `reversalReason` is 1 to 500 characters and the label is the reused `سبب التصحيح`. An empty reason is refused. After a live `rev_`, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
 - Two taps of `cancel-agreement` append one live `rev_<agreementId>` row in `agreements` and one outbox id.
 - A refused `rev_` whose id is in `syncErrors` does not hide the measurement or approval buttons. `laborQtyDoc` does not return `cancelled`.
+- While that refused `rev_<agreementId>` is in `agreements` and its id is in `syncErrors`, `cancel-agreement` is off. A tap and a direct `commitDoc` append nothing and queue nothing. Measurement and approval stay on. The refusal text stays on the row. Logout is refused until the export (`public/render.js` lines 547-551 and 1324, `public/session.js` line 371, at `29ada0bc`).
 - (a) The local project is not `active`, or `forgetGoneProjects` has dropped it. `cancel-agreement` is off. Nothing is queued. No sentence is shown. The agreement row is unchanged.
 - (b) Emulator. The owner phone is online and still shows the project as active. An admin sets the project to `closed` with rules disabled. The cancel is queued and refused. `syncErrors` has `رُفض الإرسال` (`public/sync-status.js` line 12 at `29ada0bc`). A deleted project uses `رُفض الإرسال لأن المشروع محذوف` (line 15) once E's probe covers `agreements`. There is no live `rev_`. The agreement row is unchanged.
 - A body whose id is in `syncErrors` is not offered to `approve-labor`.
@@ -766,7 +770,13 @@ EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-1
 
 ## For EA/Ameer
 
-A refused cancel keeps `rev_<agreementId>` in the local `agreements` list and in `syncErrors`. It is not live, so the measurement and approval buttons come back. A later tap uses that same id. `commitDoc` appends only when the id is absent, so the refused row blocks a second document. Re-queueing it means taking that local row out of the dedup and clearing its `syncErrors` entry first. The owner would then be able to send the same cancel again after the project is active. This sketch does not choose that.
+Answer pending. Default (i) unless EA says otherwise.
+
+(i) While a refused `rev_` of an agreement exists and its id is in `syncErrors`, `cancel-agreement` is off on this phone. Measurement and approval stay on. Nothing is appended or queued. The refusal text stays on the row. Logout stays blocked until export, the #72 pattern (`public/render.js` lines 547-551 and 1324, `public/session.js` line 371, at main `29ada0bc`). Nothing is deleted. No new text.
+
+(ii) A new cancel id is impossible under the current rules. `agreementReversalCreate` (`firestore.rules` lines 620-642 at `29ada0bc`) requires the id to be `rev_` plus the agreement id, so there is one cancel id per agreement. A second id would be a rules change. This sketch does not make one.
+
+(iii) Re-sending the same id would clear the refusal mark. `SyncStatus.applyFlush` deletes a `syncErrors` key only when that id is synced or kept (`public/sync-status.js` lines 174-175). That conflicts with answers-file option أ, section "E plan N6", which keeps a refused line visible and does not discard it silently. This sketch does not choose (iii).
 
 ## Decisions this sketch does not make
 
