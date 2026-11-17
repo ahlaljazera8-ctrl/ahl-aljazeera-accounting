@@ -1,32 +1,33 @@
-# Plan: the refused-entry click in login-relogin
+# Plan: the refused-entry click in login-relogin (r2)
 
-Plan only. No application code in this change. The code pull request waits until AgentLab Architect and EA have reviewed this plan. Ameer approves the merge.
+Revision after AgentLab Architect NOTES on PR #89 at `817a0d36`. Not an approval. Plan only. No application code in this change. The code pull request waits until Architect and EA have reviewed this revision. Ameer approves the merge.
 
-- **Repo.** `ahl-aljazeera-accounting`, read at `main` = `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`.
-- **Gates.** Ameer approves every merge and every behaviour or rules change. All 4 CI checks stay. No spending. `arena` is banned, so the two shapes below were written by hand.
-- **محاسب أهل الجزيرة was not asked.** This plan does not change a balance, an advance, a ledger rule, an export, or `firestore.rules`.
+- **Repo.** `ahl-aljazeera-accounting`, read at `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. `main` has since moved to `ae13d27c` with a docs-only file. This plan's line numbers are `d7dc8e9b`. The Architect confirmed them.
+- **Gates.** Ameer approves every merge and every behaviour or rules change. All 4 CI checks stay. No spending. `arena` is banned, so the shapes were written by hand.
+- **محاسب أهل الجزيرة was not asked.** The flake fix does not change a balance, an advance, a ledger rule, an export, or `firestore.rules`. A1 below would ask the accountant when it goes to Ameer. It is not this fix.
+- **r1's proof is not the bar.** A 0/24 pass on the unmodified test cannot separate a fix from the old wait. The 500ms pause went red only 7/10. Both are withdrawn. Section 4 is the bar.
 
 ## 0. What the next agent is building
 
-One wait in `tests/emulator/login-relogin.test.js`, then the refused save runs in the same page evaluation as the hash change. `session.ev` reports the page exception instead of the generic CDP word `Uncaught`.
+Test and helper changes only. Nothing under `public/`, so `const VERSION` in `public/sw.js` stays.
 
-Nothing under `public/` changes, so `const VERSION` in `public/sw.js` stays. No retry, no skip, no extra sleep, and no larger timeout.
+In `tests/emulator/login-relogin.test.js`, the online event and the capture of `window.flushing` are one evaluation. The test awaits that promise, then asserts the end state, including the idle bell. It does not poll. The hash change and the refused save stay one evaluation. `session.ev` reports the page exception.
+
+The same exception order is fixed in the other four harnesses through one helper. `tests/emulator/offline-cold-start.test.js` awaits the in-flight flush before logout. `docs/PSTACK_INVENTORY.md` gains the rows in section 7.
+
+No retry, no skip, no sleep, and no timeout used as the fix.
 
 ## 1. Root cause
 
-The page exception is `TypeError: Cannot read properties of null (reading 'click')`. CDP puts that sentence on `exceptionDetails.exception.description` and puts the word `Uncaught` on `exceptionDetails.text`. `session.ev` throws `details.text` first (`tests/emulator/login-relogin.test.js:90`), and `Uncaught` is truthy, so the description is never read. Both CI failures therefore print `Error: Uncaught`.
+Confirmed by the Architect at `817a0d36`. The page exception is `TypeError: Cannot read properties of null (reading 'click')`. CDP puts that sentence on `exceptionDetails.exception.description` and the word `Uncaught` on `exceptionDetails.text`. `session.ev` throws `details.text` first (`tests/emulator/login-relogin.test.js:90`). With the description read first, the same failure is the `TypeError`. The Architect reproduced that on the box.
 
-The null is the project pill `[data-proj="p-relogin"]`. It is not `#amt` and it is not `#save`. After the throw, the new-entry screen is up (`#title` is `قيد جديد`, `#amt` and `#save` exist, `#render-error` is empty) and `AJ.get('projects')` is `[]`. `AJ.get('goneProjectNames')` is `{ "p-relogin": "مشروع إعادة الدخول" }`. That name is written only by `dropProjectLocal` (`public/sync.js:582`).
+The null is the project pill `[data-proj="p-relogin"]`. After the throw, the new-entry screen is up and `#render-error` is empty. `render` catches its own throws (`public/render.js:1191-1202`). The app did not throw. A person cannot click null. A tap lands on the DOM that is there.
 
-The test deletes `projects/p-relogin` with rules disabled (`tests/emulator/login-relogin.test.js:370-372`) and then clicks the pill (`:375`). It decides the offline entry has been sent when the outbox length is 0 (`:367-368`). `performFlush` clears that outbox at `public/firebase-client.js:796-799`, and only then calls `fb.pull` (`:819`). `pull` ends in `forgetGoneProjects` (`:384` and `:516-530`). For an owner, that function reads each local project that already has `createdAtServer`. `p-relogin` was seeded with `createdAtServer`, so it is in that scan. A missing server document is passed to `dropProjectLocal` (`public/sync.js:542-590`), which removes the project from the memory cache and stores the name. `mergeById` does not do this removal. It keeps local rows that were not in the incoming set (`public/sync.js:282-290`). The owner project read is a collection query (`public/sync.js:381`), and `missingRequestedIds` only records a spec that has an id (`:521-530`), so `missingProjectIds` is not how this project disappears.
+`performFlush` clears the outbox at `public/firebase-client.js:798`, then `await fb.pull` at `:819`. `pull` calls `forgetGoneProjects` (`:384`, `:516-530`). For an owner that reads each local project which already has `createdAtServer`. A missing document goes to `dropProjectLocal` (`public/sync.js:542-590`), which stores the name at `:582` and removes the project from the memory cache. The `finally` sets `flushing = null` (`firebase-client.js:835`) and then `paintShell()` (`:836`), which calls `render` (`:650-651`). The pills come from `L.projectList` (`public/render.js:578`, `:610`). There is no `onSnapshot` and no `setInterval` in `public/`. `armFlushTail` (`firebase-client.js:841-881`) does not arm for this entry.
 
-`performFlush` then sets `flushing` to null and calls `paintShell` (`public/firebase-client.js:834-836`). `paintShell` calls `render` (`:650-651`). The entry screen builds its pills from `L.projectList` (`public/render.js:578` and `:610`). With the project gone, the pill is not in the document. The next evaluation calls `.click()` on null.
+The test's `outbox.length === 0` wait (`login-relogin.test.js:367`) is not "send finished". The bell keeps `جارٍ الإرسال` and `aria-busy` while `flushing` is set, even at count 0 (`public/render.js:1078-1091`). The only code that treats an empty outbox as done is the test.
 
-`render` catches its own throws and shows `#render-error` (`public/render.js:1191-1202`). That node was empty in the failure snapshot, so the app did not throw. The hash-change listener is `render` (`:1484`). Line 374 of the test only sets the hash. The stack is line 375 because that is the evaluation that clicks.
-
-This is not a user-visible crash. When the phone's pull learns that the server project is gone, the new-entry form stays on screen and the pill goes away. `#amt` and `#save` remain. A later save would fail inside `validateEntry` with `المشروع غير موجود` (`public/ledger.js:178-179`) and `commit` would not store a row (`public/render.js:332-336`). The test wants the other order. The phone still lists the project, the person saves, and the server refuses the create because `projectOpen` requires the project document (`firestore.rules:52-54` and `:121-123`). `flushOutbox` turns that refusal into `رُفض الإرسال`, and `messageAfterProjectProbe` changes it to `رُفض الإرسال لأن المشروع محذوف` when the project read says the document is missing (`public/sync-status.js:12`, `:15`, `:143-160`, and `public/sync.js:641-657`). The entry stays on the device and leaves the outbox. That path is what the assertions at `tests/emulator/login-relogin.test.js:376-387` already require. The flake is the test clicking before that path, after the in-flight pull has already removed the pill.
-
-The 20ms samples in section 3 are `[milliseconds since the online event, outbox length, 1 while flushRemote is running, 1 while p-relogin is still in the local list]`. A passing click often lands on the sample where the outbox is already empty, the flush is still running, and the project is still listed. The failure lands on the later sample, where the flush has finished and the project is gone.
+The test wants the phone to still list the project, then save, then have the server refuse the create because `projectOpen` requires the document (`firestore.rules:52-54`, `:121-123`). `messageAfterProjectProbe` stores `رُفض الإرسال لأن المشروع محذوف` (`public/sync-status.js:15`, `:157-160`). The assertions at `login-relogin.test.js:376-387` already require that. The flake is the click after the in-flight pull has removed the pill.
 
 ## 2. The two CI failures are the same click
 
@@ -37,137 +38,135 @@ The 20ms samples in section 3 are `[milliseconds since the online event, outbox 
 | Result    | 210 pass, 1 fail                                                                                      | 86 pass, 1 fail                                                                                       |
 | Test time | 2097.319793ms                                                                                         | 1710.558048ms                                                                                         |
 | Error     | `Error: Uncaught`                                                                                     | `Error: Uncaught`                                                                                     |
-| Stack     | `session.ev` at `login-relogin.test.js:90`, called from `:375`                                        | the same two lines                                                                                    |
+| Stack     | `session.ev` at `login-relogin.test.js:90:24`, called from `:375:5`                                   | the same two lines                                                                                    |
 
-`b3faf9a1` and `85e944b6` share tree `48a7b0cab5828d1eb194782e1c3cbdd485001d38`. The retrigger run [43975913522](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/actions/runs/43975913522) on that same tree passed. `git diff --stat b3faf9a1 d7dc8e9b` is empty for `tests/emulator/login-relogin.test.js`, `public/firebase-client.js`, `public/render.js`, `public/sync.js`, and `public/session.js`. The 86 versus 210 gap is `tests/emulator/account-rules.test.js`, which the PR #87 job did not run. The failing test was not edited between the two red runs.
+On run 43983515317 the live failure line is `23:59:28.98Z`, which is 02:59 on 17 Nov in Baghdad. `00:00:33Z` is only the end-of-run summary (`ℹ pass 210`, `ℹ fail 1`). The `maximum of 1000 expressions` lines in that job are 1 at `23:58:32Z`, then 68 from `23:59:58Z` through `00:00:17Z`. Those 68 come after the test has already failed. They are not this click. The same lines exist in runs from before #88.
 
-The same test passed on #88 head `930072edfed3f75eaa669bace7409f571a57d752`, run [43981507984](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/actions/runs/43981507984), and on `498b64bba3ba9c66829faa0137d70349660466cf`, run [43977102993](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/actions/runs/43977102993). Both emulator jobs were green.
+`b3faf9a1` and `85e944b6` share tree `48a7b0cab5828d1eb194782e1c3cbdd485001d38`. Rerun [43975913522](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/actions/runs/43975913522) passed. So did [43981507984](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/actions/runs/43981507984) (`930072ed`) and [43977102993](https://github.com/ahlaljazera8-ctrl/ahl-aljazeera-accounting/actions/runs/43977102993) (`498b64bb`). `git diff --stat b3faf9a1 d7dc8e9b` is empty for this test and for `public/firebase-client.js`, `public/render.js`, `public/sync.js`, and `public/session.js`.
 
-`PERMISSION_DENIED` with `maximum of 1000 expressions` at rules line 156 is in both red logs, and it is already in runs from before #88. In run 43983515317 those lines are at 00:00:17Z, from earlier tests in the same job. The login-relogin failure is at 00:00:33Z, and the test had been running for about 2.1s. The click throws in the page before the refused create is sent. Those log lines are not this failure.
+## 3. The wait
 
-## 3. Measured locally
+Shape A in r1 polled `waitFor` (`login-relogin.test.js:129-135`), which sleeps 200ms and swallows exceptions, up to 20s. That is a poll with a timeout. It is not the fix. `waitFor` stays for the other checks in this file. The settled check does not use it, so a throw there is visible. A `waitFor` timeout still hides the page exception. This revision does not rewrite every `waitFor`.
 
-Machine: Node `v26.13.0`, Google Chrome `157.0.8103.50`, Firestore emulator `cloud-firestore-emulator-v1.22.0`. Auth `127.0.0.1:9099`, Firestore `127.0.0.1:8080`. The test's own static server is `127.0.0.1:8765`. No production Firebase call was made. The project id string `ahl-aljazeera-accounting` is the emulator namespace.
-
-The unmodified test, this file only, one run at a time, 17 November 2026 00:26:07Z through 00:27:21Z:
-
-| Result                  | Count |
-| ----------------------- | ----- |
-| Pass                    | 24    |
-| `Uncaught` at the click | 0     |
-
-On this machine the click usually happens while the flush is still running and the pill is still there, so the unmodified test did not fail in those 24 runs. CI's gap from `deleteDoc` to the click evaluation is sometimes long enough for `paintShell` to land first. That is why the same bytes fail in one run and pass in the next.
-
-A 20ms sample inside the page, same test, 00:29:45Z through 00:30:08Z, 8 runs, 0 failures. In 4 of the 8 the click evaluation itself saw `flushing` set, `aria-busy="true"`, outbox length 0, and the pill still present. One of those traces was `[20,1,1,1]`, then `[180,0,1,1]`, and the click was taken on that second sample. A run in the same loop that kept sampling through the end of the flush was `[120,0,1,1]`, then `[200,0,0,1]`. The outbox was empty 80ms before the flush ended, and the project was still listed when it ended.
-
-The same test with the old outbox-only wait, plus a 500ms pause after `deleteDoc` and before the click, 00:31:33Z through 00:32:09Z:
-
-| Result                                                                            | Count |
-| --------------------------------------------------------------------------------- | ----- |
-| `TypeError: Cannot read properties of null (reading 'click')`                     | 7     |
-| Pass, pill still present because the flush had already finished before the delete | 3     |
-
-Failure snapshot, run 1, after the throw:
-
-```json
-{
-  "hash": "#entry",
-  "projects": [],
-  "gone": { "p-relogin": "مشروع إعادة الدخول" },
-  "flushing": 0,
-  "out": 0,
-  "btn": false,
-  "amt": true,
-  "save": true,
-  "renderErr": "",
-  "title": "قيد جديد"
-}
-```
-
-The trace for that run was `[22,1,1,1]`, `[300,0,1,1]`, `[520,0,0,0]`. The project disappears at the moment the flush ends, not at the moment the outbox hits 0.
-
-The 500ms pause is a probe. It is not part of the fix, and it must not be committed.
-
-The candidate wait below, with that same 500ms pause still after the delete, 00:34:12Z through 00:34:48Z: 10 pass, 0 fail. Every trace shows the flush ending with the project still listed, for example `[221,0,0,1]`. The pause then cannot remove the pill, because no pull is running. Runs 3, 5, and 8 go on to queue the refused entry (`outbox` length returns to 1) and the existing refusal assertions pass.
-
-Before any fix, the rate on this quiet emulator for the unmodified test is 0/24. The rate for the old wait once the pull is allowed to finish after the delete is 7/10. The two CI failures are that second rate, reached without an artificial pause because the runner's gap was long enough.
-
-## 4. The fix
-
-The phone is doing what `forgetGoneProjects` is for. The test has to save while the phone still lists the project, and it has to delete the server document only after the flush that followed the offline send has finished.
-
-### Shape A, chosen
-
-Wait for three facts that are already on screen or in the cache the screen renders, then delete, then save in one evaluation.
+The online listener calls `flushRemote` and does not await it (`public/render.js:1485-1486`). `flushRemote` assigns `window.flushing` before the body yields (`public/firebase-client.js:597-598`) and returns that promise (`:607`). One evaluation fires the event and keeps the promise:
 
 ```javascript
-const settled = await waitFor(
-  session,
-  `(() => {
+await session.ev(`dispatchEvent(new Event('online')); window.__run = window.flushing; 1`);
+await session.ev(`(async () => {
+  let run = window.__run;
+  while (run) { await run; run = window.flushing; }
   const bell = document.querySelector('#outbox');
   const busy = !!(bell && bell.getAttribute('aria-busy') === 'true');
   const n = (AJ.get('outbox') || []).length;
   const still = (AJ.get('projects') || []).some(p => p && p.id === ${JSON.stringify(PROJECT_ID)});
-  return n === 0 && !busy && still;
-})()`,
-  20000,
-);
+  return { n, busy, still, armed: !!window.flushTimer };
+})()`);
 ```
 
-`paintBell` sets `aria-busy` from `flushing` and removes it when the flush is done (`public/render.js:1084-1091`). `paintShell` runs after `forgetGoneProjects`, in the same turn that clears `flushing` (`public/firebase-client.js:834-836`). A poll in the test process cannot see a gap between those two lines. When the bell is idle and `p-relogin` is still in the cache, the probe saw the project, the server delete has not happened yet, and nothing in the page starts another pull until the next save. The online handler (`public/render.js:1485-1486`) has already run. `armFlushTail` does not arm for this entry. The traces show `flushing` staying clear until the refused save.
+`session.ev` already passes `awaitPromise: true`. The second call awaits the app's own flush. The `while` covers a flush that replaced `window.flushing` before the first promise settled. Then the test asserts, in the Node process, `n === 0`, `busy === false`, `still === true`, and `armed === false`. A failed assert does not delete the project and does not click.
 
-Then `deleteDoc`, unchanged. Then one evaluation does the hash change, the pill click, the amount, the description, and `#save`. Today those are two evaluations (`:374` and `:375`). A `paintShell` between them is the red run. Folding them removes that gap. The 10/10 above already passed with the two evaluations kept separate, after this wait, including a 500ms pause. The fold is the same wait plus no yield between render and click.
+The bell check stays. It is the fact on screen. `paintBell` sets `aria-busy` from `flushing` and clears it only when `paintShell` runs (`public/render.js:1084-1091`). The 20s watchdog inside `flushRemote` (`firebase-client.js:600-605`) sets `flushing = null` and calls `render`, and it does not clear `aria-busy`. The Architect's v4 held the pull forever: a bell wait failed the assertion `the offline entry sends once the phone is back`, and a wait on `window.flushing` alone would have been released by that watchdog. The assertion on the bell is what still fails in that case.
 
-`session.ev` throws `exception.description` when CDP sent one, and `details.text` otherwise. A future null click fails as the `TypeError`, not as `Uncaught`.
+`window.flushTimer` is the tail timer (`firebase-client.js:433-434`). This entry does not arm it. If it is set, the assert fails closed instead of deleting under a flush that is about to start.
 
-The 20000ms bound stays. It is the existing bound on "the send finished", not a longer timeout. The condition is what changes.
+Then `deleteDoc`, unchanged. Then one evaluation does the hash change, the pill click, the amount, the description, and `#save`. Today those are `:374` and `:375`.
 
-### Shape B, not chosen
+The 20000ms bound is not the signal and it is not raised.
 
-Wait until `window.flushing` is null and the project is still in the cache. That is the same bit `paintBell` reads. The bell is the fact a person can see, and it is set only after `paintShell`. Shape A uses the bell. Shape B would pass the same 10 runs and would miss a screen that still said it was sending if `paintBell` and the variable ever diverged.
+### Shape not chosen
 
-Not chosen, and not a fix: retrying the click, skipping the test, sleeping, or raising the 20000ms bound. A pause makes this fail more often. It does not make it deterministic.
+Waiting only until `window.flushing` is null, without the bell assert. The watchdog nulls `flushing` at 20s and leaves `aria-busy`. v4 is that case.
+
+## 4. Proof bar
+
+The gate is test-only. It does not edit `public/`. Before the online dispatch, the page holds `forgetGoneProjects` on a promise the test opens:
+
+```javascript
+window.__gate = new Promise(resolve => {
+  window.__open = resolve;
+});
+const orig = forgetGoneProjects;
+forgetGoneProjects = async function () {
+  await window.__gate;
+  return orig.apply(this, arguments);
+};
+```
+
+`forgetGoneProjects` is a classic-script function, so the page can replace it. The hold is released by `window.__open()`.
+
+The Architect ran this on the box against `d7dc8e9b` (Firestore emulator v1.22.0, Chrome, `node --test --test-name-pattern='refused entry stays'`). Each variant used description-first `session.ev`.
+
+| Variant                                                                      | Result                                                                                           |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Old outbox wait, gate opened after `deleteDoc`, then `await window.flushing` | 10/10 red, `TypeError: Cannot read properties of null (reading 'click')`                         |
+| r1's bell wait with the `!busy` term removed, same gate                      | 10/10 red, the same `TypeError`                                                                  |
+| Promise wait, then settle after the delete instead of a pause (Architect v6) | 10/10 green                                                                                      |
+| r1's poll, gate never opened                                                 | Red on `the offline entry sends once the phone is back`. The watchdog did not clear `aria-busy`. |
+| Unmodified test, no gate                                                     | 9/10. The one red is the login WebChannel in section 6, before the click.                        |
+
+The code pull request repeats that bar and raises the green count:
+
+1. Old outbox wait under the gate, opened only after `deleteDoc`: red, at least 10/10, and the thrown text is `TypeError: Cannot read properties of null (reading 'click')`. That also proves description-first `session.ev`.
+2. The section 3 wait under the same gate, opened before `deleteDoc`, then the assert, then the delete and the save: green, at least 30/30, on the local emulator.
+3. Mutation: the same fix with the idle-bell assert removed, gate opened after `deleteDoc`: red, 10/10, the same `TypeError`. The Architect already saw 10/10 for the `!busy` removal. The code pull request runs it again and pastes the count. The mutation is not left in the tree.
+4. About 30 reruns of the emulator job on the code-PR head. Zero failures of this click. Any other failure is named in the PR, including the two in section 6. GitHub Actions minutes on this plan are not a spend.
+
+A permanent test stays in the file, beside the fixed save. It holds the pull across the delete and asserts that the pill is gone and `#render-error` is empty. It does not click. It does not sleep. It is the app behaviour the gate made deterministic: a pull that learns the project is gone removes the pill and does not throw.
 
 ## 5. Files, types, and functions
 
-No new type. No new function. One file.
+No new type. One helper function. No `public/` function changes.
 
-| File                                   | Change                                                                                                                                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/emulator/login-relogin.test.js` | `session.ev` (`:87-91`) reports `exception.description`. The wait at `:367-368` gains the idle bell and the still-present project. The hash change at `:374` and the click at `:375` become one evaluation. |
+| File                                        | Change                                                                                                                                                                                                                                                                      |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/page-exception.js`                   | New. `pageExceptionText(details)` returns `exception.description`, then `exception.value`, then `details.text`, then `eval failed`.                                                                                                                                         |
+| `tests/emulator/login-relogin.test.js`      | `:73` log and `:90` throw use the helper. The online dispatch at `:366` captures `window.flushing`. The outbox wait at `:367-368` becomes the await plus the assert in section 3. `:374` and `:375` become one evaluation. The permanent gate test from section 4 is added. |
+| `tests/emulator/app-entry.test.js`          | `:81` log and `:94` throw use the helper.                                                                                                                                                                                                                                   |
+| `tests/emulator/session-live.test.js`       | `:107` uses the helper. `:388` stays.                                                                                                                                                                                                                                       |
+| `tests/emulator/security-headers.test.js`   | `:150` uses the helper.                                                                                                                                                                                                                                                     |
+| `tests/sw-cache.test.js`                    | `:62` uses the helper. The 8000ms race around that evaluate stays.                                                                                                                                                                                                          |
+| `tests/emulator/offline-cold-start.test.js` | `:444` stops treating an empty outbox as done. See below.                                                                                                                                                                                                                   |
+| `docs/PSTACK_INVENTORY.md`                  | The section in section 7. `setup-pstack` stays «ناقصة».                                                                                                                                                                                                                     |
 
-The refusal wait at `:376-387`, the logout block, and the other five tests in the file stay. `public/` stays, including `public/sw.js`.
+`session-live.test.js:388` waits for an empty outbox and then reads the server document (`:390-394`). The server row is the "sent" check. That wait stays.
 
-### Tests that prove it
+`offline-cold-start.test.js` signs in, and login calls `flushRemote` before it returns (`public/app.js:176`). `:444` then waits until the outbox length is 0 and clicks `#logout` while `forgetGoneProjects` may still be running. The code pull request, after the shell is up and before that click, evaluates `let run = window.flushing; while (run) { await run; run = window.flushing; }` and asserts the bell is not `aria-busy` and the outbox length is 0. Then it clicks logout. No new timeout.
 
-The old wait plus a pause after `deleteDoc` failed 7/10 with the `TypeError` and the empty project list above. That pause is the demonstration, run locally against the emulator, and it is not committed.
+`tests/cdp-session.js` `ev` (`:250-256`) does not read `exceptionDetails` at all. It is a different gap. This change does not pretend to fix it.
 
-The new wait plus the same pause passed 10/10, and the existing assertions still required the refused entry to leave the outbox, keep an error matching `رُفض` or `محتوى`, and remain in IndexedDB after reload.
-
-The code pull request runs this file 24 times with no pause. The expected result is 24 pass. It runs `npm run test:emulator` once. The expected result is the current emulator count, all pass.
+The refusal assertions, the logout block, and the other tests in `login-relogin.test.js` stay. The code pull request's squash message drops `Co-authored-by: ameer`. r1's commit `817a0d36` carries that trailer.
 
 ### Blast radius
 
-The one fact this is safe because of: after the bell goes idle, no code path in this test starts `flushRemote` until `#save`. The server delete is invisible to the page until that save's pull. The pill is still rendered from the cache that just survived `forgetGoneProjects`. That was run, not only read. 10 of 10 runs with a 500ms pause after the delete still found the pill and passed the refusal assertions. The old wait, same pause, lost the pill 7 of 10 times.
+The safe fact for the save is the assert after the awaited flush: the bell is idle, the project is still listed, and `flushTimer` is clear, so the delete is not inside `forgetGoneProjects`. The Architect's v6 promise wait was 10/10 green. The code pull request's bar is 30/30 with the gate opened before the delete. Removing the bell check under the gate that opens after the delete was 10/10 `TypeError`.
 
-| Risk                                                              | Where                               | Likelihood after the wait                                                                                                      | What to check                                                                                  |
-| ----------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| The bell stays busy and the wait uses the whole 20s               | `public/render.js:1084`             | Low. The traces clear `flushing` about 80ms to 180ms after the outbox hits 0.                                                  | The assertion names the unsettled bell. It does not click.                                     |
-| The pull drops `p-relogin` while the server document still exists | `public/firebase-client.js:526-530` | Not seen. Every settled trace kept the project.                                                                                | The wait fails the assertion instead of throwing `Uncaught`. That failure would be an app bug. |
-| `session.ev` hides a failure that only set `details.text`         | `login-relogin.test.js:90`          | None for this throw. The description is present. If a future evaluation has text and no description, the text is still thrown. | One deliberate bad evaluation in this file.                                                    |
+The helper is text only. It changes the `Error` message when an evaluation throws. Passing calls do not throw. `waitFor` in `login-relogin.test.js:132` still swallows, so those timeouts do not gain the new sentence. The settled check is outside `waitFor`.
 
-Cleared. `render` did not throw. `#render-error` was empty, and `#amt` and `#save` were present, so the null is the pill. `entry()` does replace `state.projectId` when the selected id is no longer listed (`public/render.js:585`). With one project that id becomes undefined. It does not throw, and it is not this fix. The `1000 expressions` lines are not this click. `set` for a list store puts rows and does not delete the dropped project from IndexedDB (`public/session.js:77`). The screen reads the memory cache through `get`. The failure snapshot's project list was already empty. This change does not rewrite IndexedDB.
+### Known neighbours, not this change
 
-## 6. Verification
+Architect review of PR #89 at `817a0d36`, section 3. Both need `public/`. Both go to Ameer separately. A1 also asks محاسب أهل الجزيرة. This pull request does not change them and does not claim to.
 
-On the code pull request, emulator only, from the repo root:
+- **A1.** If the selected project is dropped while the entry form is open and another project remains, `entry()` sets `state.projectId` to `projects[0].id` (`public/render.js:585`). A later save would book the entry on that other project. With one project the id becomes undefined and `validateEntry` stores nothing (`public/ledger.js:178-179`). The Architect read this and did not run it.
+- **A2.** `set` for a list store puts rows and does not delete them (`public/session.js:77`). `dropProjectLocal` removes the project from memory only. A reload can show it again until the next owner pull. The Architect read this. A reload probe was not in that review.
 
-1. 24 sequential runs of `node --test --test-concurrency=1 --test-force-exit tests/emulator/login-relogin.test.js` against the local Auth and Firestore emulators. 24 pass. No pause added.
-2. `npm run test:emulator` once. Every test in that script passes, including this one.
-3. CI on that head, all 4 checks green: lint, format, types; ledger tests; browser checks; emulator rules and sync.
+## 6. Other failures the 30 reruns can hit
 
-This plan pull request does not change the test. Its emulator job can still hit the old race. A red emulator job on this plan, with the same `Uncaught` at line 375, is the bug this plan describes. It is not a defect in the plan text.
+These are not the pill click. The code pull request does not change `public/` to chase them. A rerun that fails on either is named, with the run id and the assertion text, and is not counted as this fix failing. Neither is given a longer timeout.
 
-## 7. Not in the code pull request
+**Project arrival, `login-relogin.test.js:345-346`.** The assertion is `the project should arrive from the emulator`. The wait is 15s for `مشروع إعادة الدخول` in `#main` after forcing `#projects`. It runs before the online event and before the gate. The Architect's promise-wait variant hit this 2 times in 20, on lines that the variant had not changed. Not root-caused past that. `set` does not render. The name appears when `paintShell` runs at the end of the login pull (`public/app.js:176`, `public/firebase-client.js:836`). The 15s wait returned false anyway. Cause of those 2 misses is unproven.
 
-A retry of the click or of the job. A skip. A sleep. A timeout above 20000ms. A change to `forgetGoneProjects`, `dropProjectLocal`, or `firestore.rules`. A production deploy, a rules deploy, or any write to the live project `ahl-aljazeera-accounting`.
+**Login, `login-relogin.test.js:344` and `:145-147`.** The assertion text starts with `login.` The shell did not show within 20s. The Architect's unmodified run was 9/10, and the one red carried a WebChannel `Listen` stream error in the page log. The app does not call `onSnapshot`. Firestore still opens a Listen stream. `memoryLocalCache` (`public/firebase-client.js:121-127`) is there so a failed watch is not replayed from IndexedDB. It does not stop the SDK from logging a Listen error. Not root-caused to a line that throws. The login button path is unchanged by this plan.
+
+## 7. Inventory row, in the code pull request
+
+`docs/PSTACK_INVENTORY.md` gets one section. Statuses above it stay. `setup-pstack` stays «ناقصة». The file does not say the app is pstack-compliant. `arena` stays banned. `principle-attack-the-premise` does not apply. One fix, not two failed fixes of the same premise.
+
+| Skill                       | This pull request                                                                                                                                                                                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `principle-fix-root-causes` | The test treated an empty outbox as a finished pull. The pull then drops a project deleted in that gap, and the click hits a missing pill. The fix awaits `flushRemote`'s promise and asserts the idle bell before the delete. A pause, a retry, and a longer timeout are not the fix.                                                           |
+| `principle-prove-it-works`  | The gate holds `forgetGoneProjects` until the test opens it. Old wait under the gate: at least 10/10 `TypeError: Cannot read properties of null (reading 'click')`. The bell assert removed, same gate: 10/10 of that `TypeError`. The promise wait: at least 30/30 green. About 30 emulator reruns on the head, and any other failure is named. |
+| `blast-radius`              | `pageExceptionText` is what the five harnesses throw. `offline-cold-start.test.js` awaits `window.flushing` before logout. `session-live.test.js:388` stays, because the next lines read the server document. No `public/` change. A1 and A2 are named and not edited.                                                                           |
+
+## 8. Not in the code pull request
+
+A retry of the click or of a job as the fix. A skip. A sleep. A larger timeout. A change to `forgetGoneProjects`, `dropProjectLocal`, `render.js:585`, `session.js:77`, or `firestore.rules`. A production deploy, a rules deploy, or any write to the live project `ahl-aljazeera-accounting`.
