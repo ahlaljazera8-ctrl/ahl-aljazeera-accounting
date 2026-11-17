@@ -6,6 +6,7 @@ const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { openChrome, waitForPage } = require('./chrome-debug.js');
+const { pageExceptionText } = require('./page-exception.js');
 
 const ROOT = path.join(__dirname, '../public');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -59,7 +60,7 @@ async function connect(port, chrome) {
       new Promise((_, no) => setTimeout(() => no(new Error('eval timed out')), 8000)),
     ]);
     const details = res.result && res.result.exceptionDetails;
-    if (details) throw new Error(details.text || (details.exception && details.exception.description) || 'eval failed');
+    if (details) throw new Error(pageExceptionText(details));
     return res.result.result.value;
   };
   await send('Page.enable');

@@ -13,6 +13,7 @@ const {
 const { doc, setDoc, deleteDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 const { openChrome, waitForPage } = require('../chrome-debug.js');
+const { pageExceptionText } = require('../page-exception.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'relogin.owner@example.invalid';
@@ -70,7 +71,7 @@ async function connect(port, chrome) {
     if (d.method === 'Runtime.consoleAPICalled') {
       logs.push((d.params.args || []).map(a => a.value || a.description || a.type || '').join(' ').slice(0, 400));
     } else if (d.method === 'Runtime.exceptionThrown') {
-      logs.push(String(d.params.exceptionDetails && (d.params.exceptionDetails.text || d.params.exceptionDetails.exception && d.params.exceptionDetails.exception.description) || 'exception').slice(0, 400));
+      logs.push(String(pageExceptionText(d.params.exceptionDetails)).slice(0, 400));
     } else if (d.method === 'Page.javascriptDialogOpening') {
       session.dialogs.push(d.params.message || '');
       send('Page.handleJavaScriptDialog', { accept: true });
@@ -87,7 +88,7 @@ async function connect(port, chrome) {
   session.ev = async expression => {
     const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
     const details = res.result && res.result.exceptionDetails;
-    if (details) throw new Error(details.text || (details.exception && details.exception.description) || 'eval failed');
+    if (details) throw new Error(pageExceptionText(details));
     return res.result.result.value;
   };
   session.close = () => { try { ws.close(); } catch (e) {} };
@@ -363,16 +364,26 @@ testSeq('an unsent entry blocks logout, and a refused entry stays on the device 
     assert.match(session.dialogs.join('\n'), /أرسل/);
 
     await session.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-    await session.ev(`dispatchEvent(new Event('online')); 1`);
-    const drained = await waitFor(session, `(AJ.get('outbox')||[]).length === 0`, 20000);
-    assert.equal(drained, true, 'the offline entry sends once the phone is back. ' + detail(session));
+    await session.ev(`dispatchEvent(new Event('online')); window.__run = window.flushing; 1`);
+    const settled = await session.ev(`(async () => {
+      let run = window.__run;
+      while (run) { await run; run = window.flushing; }
+      const bell = document.querySelector('#outbox');
+      const busy = !!(bell && bell.getAttribute('aria-busy') === 'true');
+      const n = (AJ.get('outbox') || []).length;
+      const still = (AJ.get('projects') || []).some(p => p && p.id === ${JSON.stringify(PROJECT_ID)});
+      return { n, busy, still, armed: !!window.flushTimer };
+    })()`);
+    assert.equal(settled.n, 0, 'the offline entry sends once the phone is back. ' + detail(session));
+    assert.equal(settled.busy, false, 'the bell is idle after the send. ' + detail(session));
+    assert.equal(settled.still, true, 'the project is still on the phone. ' + detail(session));
+    assert.equal(settled.armed, false, 'no flush is armed. ' + detail(session));
 
     await testEnv.withSecurityRulesDisabled(async ctx => {
       await deleteDoc(doc(ctx.firestore(), 'projects', PROJECT_ID));
     });
     const refusedNote = 'مرفوض بعد حذف المشروع';
-    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
-    await session.ev(`document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); document.querySelector('#amt').value='1000'; document.querySelector('#desc').value=${JSON.stringify(refusedNote)}; document.querySelector('#save').click(); 1`);
+    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}).click(); document.querySelector('#amt').value='1000'; document.querySelector('#desc').value=${JSON.stringify(refusedNote)}; document.querySelector('#save').click(); 1`);
     const refused = await waitFor(session, `(()=>{
       const row = (AJ.get('entries')||[]).find(e => e && e.description === ${JSON.stringify(refusedNote)});
       if (!row) return false;
@@ -399,6 +410,50 @@ testSeq('an unsent entry blocks logout, and a refused entry stays on the device 
       return false;
     })()`, 10000);
     assert.equal(still, true, 'the refused entry is still on the device');
+    assert.equal(session.production, '');
+  } finally { stopBrowser(session); fs.rmSync(dir, { recursive: true, force: true }); }
+}, 80000);
+
+testSeq('a pull that learns the project is gone removes the pill and does not throw', async () => {
+  const dir = '/tmp/aj-relogin-' + (portSeq++);
+  const session = await openBrowser(dir);
+  try {
+    await testEnv.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(), 'projects', PROJECT_ID), {
+        id: PROJECT_ID, name: PROJECT_NAME, clientName: 'زبون', location: 'السماوة', currency: 'IQD',
+        status: 'active', createdAtDevice: 1, createdAtServer: new Date(), createdBy: uid, deviceId: 'admin',
+      });
+    });
+    await gotoApp(session);
+    assert.equal(await login(session, 20000), true, 'login. ' + detail(session));
+    const sawProject = await waitFor(session, `location.hash='#projects', dispatchEvent(new HashChangeEvent('hashchange')), document.querySelector('#main').innerText.includes(${JSON.stringify(PROJECT_NAME)})`, 15000);
+    assert.equal(sawProject, true, 'the project should arrive from the emulator');
+    await session.ev(`location.hash='#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+    const form = await waitFor(session, `document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')})`, 5000);
+    assert.equal(form, true, 'entry form should render');
+    await session.ev(`(async () => { let run = window.flushing; while (run) { await run; run = window.flushing; } return 1; })()`);
+    await session.ev(`window.__gate = new Promise(resolve => { window.__open = resolve; });
+      window.__held = false;
+      const orig = forgetGoneProjects;
+      forgetGoneProjects = async function () {
+        window.__held = true;
+        await window.__gate;
+        return orig.apply(this, arguments);
+      };
+      1`);
+    await session.ev(`dispatchEvent(new Event('online')); 1`);
+    const held = await waitFor(session, `window.__held === true`, 20000);
+    assert.equal(held, true, 'the pull is held inside forgetGoneProjects. ' + detail(session));
+    await testEnv.withSecurityRulesDisabled(async ctx => {
+      await deleteDoc(doc(ctx.firestore(), 'projects', PROJECT_ID));
+    });
+    await session.ev(`(async () => { window.__open(); let run = window.flushing; while (run) { await run; run = window.flushing; } return 1; })()`);
+    const after = await session.ev(`({
+      pill: !!document.querySelector(${JSON.stringify('[data-proj="' + PROJECT_ID + '"]')}),
+      err: (document.querySelector('#render-error') || {}).textContent || ''
+    })`);
+    assert.equal(after.pill, false, 'the pill is gone after the pull learns the project is gone');
+    assert.equal(after.err, '', 'render did not throw');
     assert.equal(session.production, '');
   } finally { stopBrowser(session); fs.rmSync(dir, { recursive: true, force: true }); }
 }, 80000);

@@ -14,6 +14,7 @@ const {
 const { doc, setDoc, getDoc, updateDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 const { openChrome, waitForPage } = require('../chrome-debug.js');
+const { pageExceptionText } = require('../page-exception.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const PASS = 'emulator-only-pass';
@@ -104,7 +105,7 @@ async function connect(port, chrome) {
   session.ev = async expression => {
     const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
     const details = res.result && res.result.exceptionDetails;
-    if (details) throw new Error(details.text || (details.exception && details.exception.description) || 'eval failed');
+    if (details) throw new Error(pageExceptionText(details));
     return res.result.result.value;
   };
   session.close = () => { try { ws.close(); } catch (e) {} };

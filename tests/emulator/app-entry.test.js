@@ -11,6 +11,7 @@ const { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWith
 const { doc, setDoc, getDoc } = require('firebase/firestore');
 const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
 const { openChrome, waitForPage } = require('../chrome-debug.js');
+const { pageExceptionText } = require('../page-exception.js');
 
 const PROJECT = 'ahl-aljazeera-accounting';
 const EMAIL = 'app.entry@example.invalid';
@@ -78,7 +79,7 @@ async function connect(port, chrome) {
       session.logs.push((d.params.args || []).map(a => a.value || a.description || '').join(' ').slice(0, 300));
     } else if (d.method === 'Runtime.exceptionThrown') {
       const details = d.params.exceptionDetails;
-      session.logs.push(String((details && (details.text || (details.exception && details.exception.description))) || 'exception').slice(0, 300));
+      session.logs.push(String(pageExceptionText(details)).slice(0, 300));
     } else if (d.method === 'Page.javascriptDialogOpening') {
       send('Page.handleJavaScriptDialog', { accept: true, promptText: REASON });
     } else if (d.method === 'Fetch.requestPaused') {
@@ -91,7 +92,7 @@ async function connect(port, chrome) {
   session.ev = async expression => {
     const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
     const details = res.result && res.result.exceptionDetails;
-    if (details) throw new Error(details.text || (details.exception && details.exception.description) || 'eval failed');
+    if (details) throw new Error(pageExceptionText(details));
     return res.result.result.value;
   };
   session.close = () => { try { ws.close(); } catch (e) {} };
