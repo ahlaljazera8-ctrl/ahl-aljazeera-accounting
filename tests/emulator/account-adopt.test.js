@@ -223,12 +223,12 @@ function localAccount(uid, fields) {
   }, fields);
 }
 
-async function phoneKeepsRefusal(uid, local, denied) {
-  const err = denied && denied.code ? denied : Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
+async function flushRefusedAccount(uid, local, write, rival) {
+  const before = { id: local.id, kind: local.kind, amount: local.amount, targetId: local.targetId };
   const result = await Sync.flushOutbox({
     ids: [local.id],
     load: id => (id === local.id ? local : null),
-    write: async () => { throw err; },
+    write,
     readDependency: async readId => {
       const got = await getDoc(doc(db(uid), 'accountTxns', readId));
       return got.exists() ? { status: 'found', doc: got.data() } : { status: 'missing' };
@@ -237,21 +237,36 @@ async function phoneKeepsRefusal(uid, local, denied) {
   });
   assert.equal(result.synced.includes(local.id), false);
   assert.equal(result.parked.includes(local.id), false);
+  assert.equal(result.kept.includes(local.id), false);
+  assert.equal(result.adopted.length, 0);
   assert.equal(result.failed.length, 1);
   assert.equal(result.failed[0].id, local.id);
   assert.equal(result.failed[0].message, Status.REJECTED);
+  assert.equal(local.id, before.id);
+  assert.equal(local.kind, before.kind);
+  assert.equal(local.amount, before.amount);
+  assert.equal(local.targetId, before.targetId);
+  if (rival) {
+    assert.equal(result.adopted.some(row => row.remote && (row.remote.id === rival.id || row.remote.kind === rival.kind)), false);
+    const winner = await getDoc(doc(db(uid), 'accountTxns', rival.id));
+    assert.equal(winner.exists(), true);
+    assert.equal(winner.data().kind, rival.kind);
+  }
+  assert.equal((await getDoc(doc(db(uid), 'accountTxns', local.id))).exists(), false);
   const applied = Status.applyFlush([local.id], {}, result);
   assert.equal(applied.outbox.includes(local.id), false);
   assert.equal(applied.errors[local.id], Status.REJECTED);
   const csv = Ledger.rejectedEntriesToCSV(
-    [{ id: local.id, projectId: local.projectId, amount: local.amount, description: local.kind, currency: local.currency, createdBy: uid }],
+    [{ id: local.id, projectId: local.projectId || P1, amount: local.amount, description: local.kind, currency: local.currency || 'IQD', createdBy: uid }],
     [{ id: P1, name: 'School' }],
     {},
     applied.errors,
   );
   assert.equal(csv.includes(local.id), true);
   assert.equal(csv.includes(Status.REJECTED), true);
-  return { outbox: applied.outbox, errors: applied.errors, kept: local };
+  assert.equal(Ledger.rejectedLogoutBlocked([{ id: local.id }], []), true);
+  assert.equal(Ledger.rejectedLogoutBlocked([{ id: local.id }], [local.id]), false);
+  return { errors: applied.errors, kept: local };
 }
 
 async function racedApprovalAndRejection(body, bothAppr, bothRej) {
@@ -266,17 +281,23 @@ async function racedApprovalAndRejection(body, bothAppr, bothRej) {
   const apprExists = (await getDoc(doc(db(OWNER_A), 'accountTxns', bothAppr.id))).exists();
   const rejExists = (await getDoc(doc(db(OWNER_A), 'accountTxns', bothRej.id))).exists();
   assert.equal(apprExists && rejExists, false);
-  if (!apprExists && !rejExists) {
-    const apprLocal = localAccount(OWNER_A, bothAppr);
-    const rejLocal = localAccount(OWNER_B, bothRej);
-    const apprPhone = await phoneKeepsRefusal(OWNER_A, apprLocal, apprTry.err);
-    const rejPhone = await phoneKeepsRefusal(OWNER_B, rejLocal, rejTry.err);
-    assert.equal(apprPhone.errors[bothAppr.id], Status.REJECTED);
-    assert.equal(rejPhone.errors[bothRej.id], Status.REJECTED);
-    assert.equal(apprPhone.kept.amount, 600000);
-    assert.equal(rejPhone.kept.kind, 'rej');
-    assert.equal(rejPhone.kept.targetId, body.id);
-  }
+  assert.equal(apprTry.ok, apprExists);
+  assert.equal(rejTry.ok, rejExists);
+  const refused = async (uid, fields, err, rival) => {
+    const local = localAccount(uid, fields);
+    // A second create after both were denied can land once the overlap is gone.
+    // Replay the denial this create already returned. A stored rival is denied again by the rules.
+    const write = rival
+      ? async () => { await send(uid, 'accountTxns', fields.id, fields); }
+      : async () => { throw err && err.code ? err : Object.assign(new Error('permission-denied'), { code: 'permission-denied' }); };
+    const phone = await flushRefusedAccount(uid, local, write, rival);
+    assert.equal(phone.errors[fields.id], Status.REJECTED);
+    assert.equal(phone.kept.id, fields.id);
+    assert.equal(phone.kept.kind, fields.kind);
+    assert.equal(phone.kept.targetId, body.id);
+  };
+  if (!apprExists) await refused(OWNER_A, bothAppr, apprTry.err, rejExists ? bothRej : null);
+  if (!rejExists) await refused(OWNER_B, bothRej, rejTry.err, apprExists ? bothAppr : null);
   return { apprExists, rejExists };
 }
 
@@ -461,5 +482,5 @@ if (RACE_RUNS > 0) {
     console.log('E27_RACE_COUNTS ' + JSON.stringify(counts));
     assert.equal(counts.bothLanded, 0);
     assert.equal(counts.onlyAppr + counts.onlyRej + counts.bothDenied, RACE_RUNS);
-  }, 300000);
+  }, 600000);
 }

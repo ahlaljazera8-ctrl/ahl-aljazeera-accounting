@@ -820,6 +820,107 @@ test('E28 plain denial', async () => {
   assert.equal(row.amount, 600000);
 });
 
+test('E27 both denied keeps each row and blocks logout until export', async () => {
+  const body = txn();
+  const appr = txn({ id: 'appr_' + SLOT, kind: 'appr', purpose: 'approveLabor', targetId: SLOT, amount: 600000, createdBy: 'owner-a' });
+  const rej = txn({ id: 'rej_' + SLOT, kind: 'rej', purpose: undefined, amount: undefined, targetId: SLOT, createdBy: 'owner-b' });
+  const read = id => (id === SLOT ? { status: 'found', doc: body } : { status: 'missing' });
+  const apprFlush = await runFlush([appr], { read });
+  const rejFlush = await runFlush([rej], { read });
+  [apprFlush, rejFlush].forEach(flush => {
+    assert.equal(flush.result.adopted.length, 0);
+    assert.equal(flush.result.synced.length, 0);
+    assert.equal(flush.result.parked.length, 0);
+    assert.equal(flush.result.failed.length, 1);
+    assert.equal(flush.result.failed[0].message, Status.REJECTED);
+    assert.deepEqual(flush.calls.reads, [flush.result.failed[0].id, SLOT]);
+  });
+  assert.equal(apprFlush.calls.reads.includes(rej.id), false);
+  assert.equal(rejFlush.calls.reads.includes(appr.id), false);
+  assert.equal(appr.kind, 'appr');
+  assert.equal(appr.amount, 600000);
+  assert.equal(appr.targetId, SLOT);
+  assert.equal(rej.kind, 'rej');
+  assert.equal(rej.targetId, SLOT);
+  const apprApplied = Status.applyFlush([appr.id], {}, apprFlush.result);
+  const rejApplied = Status.applyFlush([rej.id], {}, rejFlush.result);
+  assert.equal(apprApplied.outbox.includes(appr.id), false);
+  assert.equal(rejApplied.outbox.includes(rej.id), false);
+  const errors = Object.assign({}, apprApplied.errors, rejApplied.errors);
+  assert.equal(errors[appr.id], Status.REJECTED);
+  assert.equal(errors[rej.id], Status.REJECTED);
+  const Ledger = require('../public/ledger.js');
+  const csv = Ledger.rejectedEntriesToCSV(
+    [
+      { id: appr.id, projectId: 'p1', amount: 600000, description: 'appr', currency: 'IQD', createdBy: 'owner-a' },
+      { id: rej.id, projectId: 'p1', description: 'rej', currency: 'IQD', createdBy: 'owner-b' },
+    ],
+    [{ id: 'p1', name: 'مدرسة' }],
+    {},
+    errors,
+  );
+  assert.equal(csv.includes(appr.id), true);
+  assert.equal(csv.includes(rej.id), true);
+  assert.equal(csv.includes(Status.REJECTED), true);
+  const screen = loadScreen({
+    accountTxns: [appr, rej],
+    syncErrors: errors,
+    slotLosers: {},
+    linkRefusals: {},
+    agreements: [],
+    statementApprovals: [],
+    parties: [],
+    rejectedExportedIds: [],
+    entries: [],
+    projects: [{ id: 'p1', name: 'مدرسة' }],
+  });
+  assert.equal(screen.rejectedLogoutBlock(), true);
+  screen.set(screen.K.rejectedExportedIds, [appr.id]);
+  assert.equal(screen.rejectedLogoutBlock(), true);
+  screen.set(screen.K.rejectedExportedIds, [appr.id, rej.id]);
+  assert.equal(screen.rejectedLogoutBlock(), false);
+});
+
+test('E27 a denied rival is refused and is not adopted as the stored document', async () => {
+  const body = txn();
+  const winner = txn({ id: 'appr_' + SLOT, kind: 'appr', purpose: 'approveLabor', targetId: SLOT, amount: 600000, createdBy: 'owner-a' });
+  const loser = txn({ id: 'rej_' + SLOT, kind: 'rej', purpose: undefined, amount: undefined, targetId: SLOT, createdBy: 'owner-b' });
+  const { result, calls } = await runFlush([loser], {
+    read: id => {
+      if (id === loser.id) return { status: 'missing' };
+      if (id === winner.id) return { status: 'found', doc: winner };
+      if (id === body.id) return { status: 'found', doc: body };
+      return { status: 'missing' };
+    },
+  });
+  assert.deepEqual(calls.reads, [loser.id, body.id]);
+  assert.equal(calls.reads.includes(winner.id), false);
+  assert.equal(result.adopted.length, 0);
+  assert.equal(result.synced.includes(loser.id), false);
+  assert.equal(result.parked.includes(loser.id), false);
+  assert.equal(result.failed[0].message, Status.REJECTED);
+  assert.equal(loser.kind, 'rej');
+  assert.equal(loser.targetId, SLOT);
+  assert.equal(winner.kind, 'appr');
+  const applied = Status.applyFlush([loser.id], {}, result);
+  assert.equal(applied.outbox.includes(loser.id), false);
+  assert.equal(applied.errors[loser.id], Status.REJECTED);
+});
+
+test('an aborted account write stays queued with no sync error', async () => {
+  const row = txn({ id: 'appr_' + SLOT, kind: 'appr', purpose: 'approveLabor', targetId: SLOT, amount: 600000 });
+  const { result, calls } = await runFlush([row], {
+    write: async () => { throw codeErr('aborted'); },
+  });
+  assert.equal(result.kept.includes(row.id), true);
+  assert.equal(result.failed.length, 0);
+  assert.equal(result.synced.includes(row.id), false);
+  assert.equal(calls.reads.length, 0);
+  const applied = Status.applyFlush([row.id], {}, result);
+  assert.equal(applied.outbox.includes(row.id), true);
+  assert.equal(applied.errors[row.id], undefined);
+});
+
 test('a parked id leaves the outbox and loses its previous sync error', () => {
   const applied = Status.applyFlush(['parked-id', 'kept-id'], {
     'parked-id': Status.REJECTED,
