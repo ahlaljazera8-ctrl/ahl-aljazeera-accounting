@@ -53,18 +53,31 @@ interface SyncRow {
   createdByName?: unknown;
   subcontractId?: unknown;
   reversesEntryId?: unknown;
-  docType?: 'foreman' | 'foremanMove';
+  docType?: 'foreman' | 'foremanMove' | 'party' | 'agreement' | 'accountTxn' | 'statementApproval';
   foremanId?: string;
   kind?: string;
   reversesMoveId?: string;
   date?: string;
   note?: string;
+  partyId?: string;
+  agreementId?: string;
+  targetId?: string;
+  settlesId?: string;
+  reversesId?: string;
+  supersedesId?: string;
+  purpose?: string;
+  ledger?: string;
+  qty?: number;
+  fxRate?: number;
+  txnDate?: string;
+  [key: string]: unknown;
 }
 
 interface SyncFailure {
   timeout?: boolean;
   code?: string;
   message?: string;
+  client?: boolean;
 }
 
 interface FlushRow {
@@ -76,7 +89,11 @@ interface FlushResult {
   synced?: readonly string[];
   failed?: readonly FlushRow[];
   kept?: readonly string[];
+  parked?: readonly string[];
 }
+
+type DependencyRead =
+  { status: 'found'; doc: SyncDoc } | { status: 'missing' } | { status: 'denied' } | { status: 'transient' };
 
 interface SyncErrorMap {
   [id: string]: string | undefined;
@@ -109,6 +126,11 @@ interface SyncStatusApi {
   PROJECT_DELETED: string;
   sameContent(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
   sameReversal(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
+  payloadDiffers(local: SyncRow | null | undefined, remote: SyncRow | null | undefined): boolean;
+  dependencyStatus(
+    err: SyncFailure | null | undefined,
+    exists: boolean | null,
+  ): 'found' | 'missing' | 'denied' | 'transient' | 'auth';
   isTransient(err: SyncFailure | null | undefined): boolean;
   isAlreadyExists(err: SyncFailure | null | undefined): boolean;
   isDeadAuth(err: SyncFailure | null | undefined): boolean;
@@ -545,10 +567,18 @@ interface SyncDoc {
   createdBy?: string;
   amount?: number;
   note?: string;
-  docType?: 'foreman' | 'foremanMove';
+  docType?: 'foreman' | 'foremanMove' | 'party' | 'agreement' | 'accountTxn' | 'statementApproval';
   foremanId?: string;
   kind?: string;
   reversesMoveId?: string;
+  partyId?: string;
+  agreementId?: string;
+  targetId?: string;
+  settlesId?: string;
+  reversesId?: string;
+  supersedesId?: string;
+  purpose?: string;
+  method?: string;
   work?: string;
   clientName?: string;
   status?: string;
@@ -599,9 +629,29 @@ interface LocalStore {
   statusPending?: readonly string[] | null;
   foremen?: readonly SyncDoc[] | null;
   foremanMoves?: readonly SyncDoc[] | null;
+  parties?: readonly SyncDoc[] | null;
+  agreements?: readonly SyncDoc[] | null;
+  accountTxns?: readonly SyncDoc[] | null;
+  statementApprovals?: readonly SyncDoc[] | null;
+  slotLosers?: Readonly<Record<string, SyncDoc>> | null;
+  linkRefusals?: Readonly<Record<string, SyncDoc>> | null;
   goneProjectNames?: GoneProjectNames | null;
   rejectedExportedIds?: readonly string[] | null;
   [key: string]: unknown;
+}
+
+interface QueueStores {
+  entries?: readonly SyncDoc[] | null;
+  projects?: readonly SyncDoc[] | null;
+  subcontracts?: readonly SyncDoc[] | null;
+  amendments?: readonly SyncDoc[] | null;
+  foremen?: readonly SyncDoc[] | null;
+  foremanMoves?: readonly SyncDoc[] | null;
+  parties?: readonly SyncDoc[] | null;
+  agreements?: readonly SyncDoc[] | null;
+  accountTxns?: readonly SyncDoc[] | null;
+  statementApprovals?: readonly SyncDoc[] | null;
+  [key: string]: readonly SyncDoc[] | null | undefined;
 }
 
 interface FlushCall {
@@ -611,6 +661,8 @@ interface FlushCall {
   exists?: (local: SyncDoc) => unknown;
   readServer?: (local: SyncDoc) => unknown;
   projectProbe?: (local: SyncDoc) => Promise<ProjectProbe | null> | ProjectProbe | null;
+  readDependency?: (id: string) => Promise<DependencyRead>;
+  mintId?: () => string;
 }
 
 interface PullCall {
@@ -668,6 +720,12 @@ interface DroppedProject {
   statusPending: string[];
   foremen: SyncDoc[];
   foremanMoves: SyncDoc[];
+  parties: SyncDoc[];
+  agreements: SyncDoc[];
+  accountTxns: SyncDoc[];
+  statementApprovals: SyncDoc[];
+  slotLosers: Record<string, SyncDoc>;
+  linkRefusals: Record<string, SyncDoc>;
   goneProjectNames: GoneProjectNames;
   removed: RemovedLocalIds;
 }
@@ -697,8 +755,29 @@ interface SyncApi {
     kept: string[];
     failed: { id: string; message: string }[];
     adopted: { id: string; remote: SyncDoc }[];
+    parked: string[];
+    slotLosers: { key: string; doc: SyncDoc }[];
+    linkRefusals: { localId: string; doc: SyncDoc }[];
     authDead: boolean;
   }>;
+  queueRefusal(doc: SyncDoc | null | undefined): string | null;
+  localDoc(id: string, stores: QueueStores | null | undefined): SyncDoc | null;
+  accountReads(user: SyncUser | null | undefined, since: unknown): readonly ReadSpec[];
+  pullAccounts(opts: SubPull): Promise<{
+    parties: SyncDoc[];
+    agreements: SyncDoc[];
+    accountTxns: SyncDoc[];
+    statementApprovals: SyncDoc[];
+    watermark: number | null;
+  }>;
+  ACCOUNTS_MARK: string;
+  slotLoserKey(id: string): string;
+  slotLoserViews(
+    losers: Readonly<Record<string, SyncDoc>> | null | undefined,
+  ): { key: string; doc: SyncDoc; readOnly: true }[];
+  linkRefusalViews(
+    refusals: Readonly<Record<string, SyncDoc>> | null | undefined,
+  ): { key: string; doc: SyncDoc; readOnly: true }[];
   contractAmountOf(doc: SyncDoc | null | undefined): number | null;
   withoutContractAmount(doc: SyncDoc | null | undefined): SyncDoc | null | undefined;
   splitProjectSave(

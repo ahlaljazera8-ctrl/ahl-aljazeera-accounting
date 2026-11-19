@@ -57,8 +57,8 @@ test('a site user sees the owner sentence', () => {
   assert.equal(html.includes('+ شخص جديد'), false);
 });
 
-test('canCreateParty is false until collectionFor returns parties, and false in the demo', () => {
-  assert.equal(UI.canCreateParty(g.me()), false);
+test('canCreateParty is true once collectionFor returns parties, and false in the demo', () => {
+  assert.equal(UI.canCreateParty(g.me()), true);
   const orig = Sync.collectionFor;
   Sync.collectionFor = () => 'parties';
   g.demoRole = () => 'owner';

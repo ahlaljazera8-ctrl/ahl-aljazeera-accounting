@@ -24,6 +24,11 @@
     if (!doc) return null;
     if (doc.docType === 'foreman') return FOREMEN;
     if (doc.docType === 'foremanMove') return FOREMAN_MOVES;
+    if (doc.docType === 'party') return 'parties';
+    if (doc.docType === 'agreement') return 'agreements';
+    if (doc.docType === 'accountTxn') return 'accountTxns';
+    if (doc.docType === 'statementApproval') return 'statementApprovals';
+    if (typeof doc.docType === 'string' && doc.docType) return null;
     if (doc.entryType) return 'ledgerEntries';
     if (typeof doc.name === 'string' && doc.currency) return 'projects';
     if (typeof doc.agreedOn === 'string' && doc.projectId && !doc.currency) return 'subcontracts';
@@ -51,8 +56,69 @@
     return out;
   }
 
+  const PARTY_REMOTE = ['id', 'name', 'note', 'createdBy', 'createdAtServer', 'deviceId'];
+  const STATEMENT_REMOTE = ['id', 'partyId', 'projectId', 'periodKind', 'periodStart', 'periodEnd', 'createdBy', 'createdAtServer'];
+  const AGREEMENT_REMOTE = {
+    lump: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'lumpAmount'],
+    unit: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'unitRate', 'unitQty', 'unitName'],
+    daily: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'dayRate'],
+    milestone: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'milestoneAmount', 'milestoneMode'],
+  };
+  const REVERSAL_REMOTE = {
+    lump: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'lumpAmount', 'reversesId', 'reversalReason'],
+    unit: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'unitRate', 'unitQty', 'unitName', 'reversesId', 'reversalReason'],
+    daily: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'dayRate', 'reversesId', 'reversalReason'],
+    milestone: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'milestoneAmount', 'milestoneMode', 'reversesId', 'reversalReason'],
+  };
+  const REJ_REMOTE = ['id', 'kind', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const REV_REMOTE = ['id', 'kind', 'purpose', 'ledger', 'projectId', 'partyId', 'agreementId', 'amount', 'currency', 'fxRate', 'reversesId', 'reversalReason', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const REVW_REMOTE = ['id', 'kind', 'purpose', 'ledger', 'projectId', 'partyId', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const STL_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'settlesId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const SUP_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'supersedesId', 'qty', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const APPR_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'targetId', 'amount', 'qty', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const DEDUCT_APPR_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const CASH_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const POINTER_CASH_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const QTY_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'qty', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+
+  /**
+   * A payLabor that still carries targetId is the Q14 guard. The cash allowlist
+   * omits that key, and sending it is what the rules deny on the next flush.
+   * @param {SyncDoc} doc
+   * @returns {readonly string[]}
+   */
+  function txnRemoteKeys(doc) {
+    if (doc.kind === 'rej') return REJ_REMOTE;
+    if (doc.kind === 'rev') return REV_REMOTE;
+    if (doc.kind === 'revw') return REVW_REMOTE;
+    if (doc.kind === 'stl') return STL_REMOTE;
+    if (doc.kind === 'sup') return SUP_REMOTE;
+    if (doc.kind === 'appr' && doc.purpose === 'approveDeduct') return DEDUCT_APPR_REMOTE;
+    if (doc.kind === 'appr') return APPR_REMOTE;
+    if (doc.kind === 'body' && (doc.purpose === 'payLabor' || doc.purpose === 'advanceLabor')) {
+      return doc.targetId ? CASH_REMOTE.concat(['targetId']) : CASH_REMOTE;
+    }
+    if (doc.kind === 'body' && (doc.purpose === 'returnAdvance' || doc.purpose === 'refundLabor' || doc.purpose === 'deduct')) return POINTER_CASH_REMOTE;
+    return QTY_REMOTE;
+  }
+
+  /**
+   * @param {SyncDoc} doc
+   * @returns {readonly string[]}
+   */
+  function agreementRemoteKeys(doc) {
+    const method = doc.method === 'unit' || doc.method === 'daily' || doc.method === 'milestone' || doc.method === 'lump' ? doc.method : '';
+    const rev = (typeof doc.id === 'string' && doc.id.indexOf('rev_') === 0) || !!doc.reversesId;
+    const table = rev ? REVERSAL_REMOTE : AGREEMENT_REMOTE;
+    return method ? table[method] : ['id'];
+  }
+
   /** @param {SyncDoc} doc @returns {SyncDoc} */
   function toRemote(doc) {
+    if (doc.docType === 'party') return copyFields(doc, PARTY_REMOTE);
+    if (doc.docType === 'agreement') return copyFields(doc, agreementRemoteKeys(doc));
+    if (doc.docType === 'accountTxn') return copyFields(doc, txnRemoteKeys(doc));
+    if (doc.docType === 'statementApproval') return copyFields(doc, STATEMENT_REMOTE);
     if (doc.docType === 'foreman') return blankNote(copyFields(doc, ['id', 'name', 'note', 'projectId', 'createdBy']));
     if (doc.docType === 'foremanMove') return blankNote(copyFields(doc, ['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdBy', 'deviceId']));
     if (doc.entryType) {
@@ -591,6 +657,16 @@
     const goneProjectNames = Object.assign({}, src.goneProjectNames || {});
     const dropped = (src.projects || []).find(row => row && row.id === projectId);
     if (dropped && typeof dropped.name === 'string' && dropped.name) goneProjectNames[projectId] = dropped.name;
+    /** @param {readonly SyncDoc[] | null | undefined} rows */
+    const rowsForProject = rows => (rows || []).filter(row => {
+      if (!row || row.projectId !== projectId) return true;
+      if (keep(row)) return true;
+      if (typeof row.id === 'string' && row.id) removed.add(row.id);
+      return false;
+    });
+    const agreements = rowsForProject(src.agreements);
+    const accountTxns = rowsForProject(src.accountTxns);
+    const statementApprovals = rowsForProject(src.statementApprovals);
     /** @type {Record<string, unknown>} */
     const syncErrors = Object.assign({}, src.syncErrors || {});
     removed.forEach(id => { delete syncErrors[id]; });
@@ -598,14 +674,192 @@
     const statusPending = (src.statusPending || []).filter(id => id !== projectId);
     const foremen = (src.foremen || []).slice();
     const foremanMoves = (src.foremanMoves || []).slice();
+    const parties = (src.parties || []).slice();
+    /**
+     * @param {Readonly<Record<string, SyncDoc>> | null | undefined} map
+     * @returns {Record<string, SyncDoc>}
+     */
+    const filterMap = map => {
+      const srcMap = map || {};
+      if (!dropPending) return Object.assign({}, srcMap);
+      /** @type {Record<string, SyncDoc>} */
+      const out = {};
+      Object.keys(srcMap).forEach(key => {
+        const doc = srcMap[key];
+        if (doc && doc.projectId === projectId) return;
+        out[key] = doc;
+      });
+      return out;
+    };
+    const slotLosers = filterMap(src.slotLosers);
+    const linkRefusals = filterMap(src.linkRefusals);
     return {
       entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves, goneProjectNames,
+      parties, agreements, accountTxns, statementApprovals, slotLosers, linkRefusals,
       removed: { projectIds: removedProjectIds, entryIds: removedEntryIds },
     };
   }
 
+  const ACCOUNTS_MARK = 'accounts';
+  const SLOT_ID = /^000[0-9a-f]{32}[1-9]$/;
+  /** @type {Record<string, 1>} */
+  const ACCOUNT_TYPES = { foreman: 1, foremanMove: 1, party: 1, agreement: 1, accountTxn: 1, statementApproval: 1 };
+
+  /**
+   * @param {SyncDoc | null | undefined} doc
+   * @returns {string | null}
+   */
+  function queueRefusal(doc) {
+    if (!doc || typeof doc.docType !== 'string' || !doc.docType) return null;
+    if (!ACCOUNT_TYPES[doc.docType]) return 'docType';
+    if (doc.docType === 'accountTxn' && doc.kind === 'inv') return 'kind';
+    return null;
+  }
+
+  /**
+   * @param {string} id
+   * @param {QueueStores | null | undefined} stores
+   * @returns {SyncDoc | null}
+   */
+  function localDoc(id, stores) {
+    if (!id || !stores) return null;
+    const names = ['entries', 'projects', 'subcontracts', 'amendments', 'foremen', 'foremanMoves', 'parties', 'agreements', 'accountTxns', 'statementApprovals'];
+    for (let i = 0; i < names.length; i++) {
+      const rows = stores[names[i]];
+      if (!rows) continue;
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        if (row && row.id === id) return row;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {SyncUser | null | undefined} user
+   * @param {unknown} since
+   * @returns {readonly ReadSpec[]}
+   */
+  function accountReads(user, since) {
+    if (!user || user.role !== 'owner' || user.active !== true) return [];
+    return sinceClause([
+      { collection: 'parties', where: [] },
+      { collection: 'agreements', where: [] },
+      { collection: 'accountTxns', where: [] },
+      { collection: 'statementApprovals', where: [] },
+    ], since);
+  }
+
+  /** @param {SubPull} opts */
+  async function pullAccounts(opts) {
+    const specs = accountReads(opts.user, opts.since);
+    const empty = { parties: /** @type {SyncDoc[]} */ ([]), agreements: /** @type {SyncDoc[]} */ ([]), accountTxns: /** @type {SyncDoc[]} */ ([]), statementApprovals: /** @type {SyncDoc[]} */ ([]), watermark: finiteMillis(opts.since) };
+    if (!specs.length) return empty;
+    /** @type {SyncDoc[]} */
+    const parties = [];
+    /** @type {SyncDoc[]} */
+    const agreements = [];
+    /** @type {SyncDoc[]} */
+    const accountTxns = [];
+    /** @type {SyncDoc[]} */
+    const statementApprovals = [];
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      const rows = await readSpecs([spec], opts.read);
+      rows.forEach(row => {
+        if (!row) return;
+        const tagged = Object.assign({}, row);
+        if (spec.collection === 'parties') { tagged.docType = 'party'; parties.push(tagged); }
+        else if (spec.collection === 'agreements') { tagged.docType = 'agreement'; agreements.push(tagged); }
+        else if (spec.collection === 'accountTxns') { tagged.docType = 'accountTxn'; accountTxns.push(tagged); }
+        else { tagged.docType = 'statementApproval'; statementApprovals.push(tagged); }
+      });
+    }
+    return {
+      parties, agreements, accountTxns, statementApprovals,
+      watermark: nextWatermark(opts.since, parties.concat(agreements, accountTxns, statementApprovals)),
+    };
+  }
+
+  /** @param {string} id @returns {string} */
+  function slotLoserKey(id) { return 'slotLoser:' + id; }
+
+  /**
+   * @param {Readonly<Record<string, SyncDoc>> | null | undefined} losers
+   * @returns {{ key: string, doc: SyncDoc, readOnly: true }[]}
+   */
+  function slotLoserViews(losers) {
+    const map = losers || {};
+    return Object.keys(map).map(key => ({ key, doc: map[key], readOnly: /** @type {true} */ (true) }));
+  }
+
+  /**
+   * @param {Readonly<Record<string, SyncDoc>> | null | undefined} refusals
+   * @returns {{ key: string, doc: SyncDoc, readOnly: true }[]}
+   */
+  function linkRefusalViews(refusals) {
+    const map = refusals || {};
+    return Object.keys(map).map(key => ({ key, doc: map[key], readOnly: /** @type {true} */ (true) }));
+  }
+
+  /** @param {SyncDoc | null | undefined} doc */
+  function isAccountDoc(doc) {
+    return !!(doc && (doc.docType === 'party' || doc.docType === 'agreement' || doc.docType === 'accountTxn' || doc.docType === 'statementApproval'));
+  }
+
+  /** @param {SyncDoc | null | undefined} doc */
+  function isSlotBody(doc) {
+    return !!(doc && doc.docType === 'accountTxn' && doc.kind === 'body' && typeof doc.id === 'string' && SLOT_ID.test(doc.id));
+  }
+
+  /**
+   * Pointers that can be parents. A rev_ id is never a parent.
+   * @param {SyncDoc | null | undefined} doc
+   * @returns {string[]}
+   */
+  function parentPointers(doc) {
+    /** @type {string[]} */
+    const out = [];
+    ['targetId', 'reversesId', 'supersedesId', 'settlesId'].forEach(key => {
+      const value = doc && doc[key];
+      if (typeof value === 'string' && value && value.indexOf('rev_') !== 0) out.push(value);
+    });
+    return out;
+  }
+
+  /** @returns {Record<string, { needsApproval?: boolean, effect?: { cash?: number } }> | null} */
+  function purposesTable() {
+    if (typeof module === 'object' && module.exports) {
+      try { return require('./accounts.js').PURPOSES; } catch (e) { return null; }
+    }
+    const win = /** @type {Window} */ (typeof globalThis !== 'undefined' ? globalThis : {});
+    const accounts = /** @type {{ PURPOSES?: Record<string, { needsApproval?: boolean, effect?: { cash?: number } }> }} */ (win.Accounts);
+    return accounts && accounts.PURPOSES ? accounts.PURPOSES : null;
+  }
+
+  /**
+   * @param {SyncDoc | null | undefined} doc
+   * @param {Record<string, { needsApproval?: boolean, effect?: { cash?: number } }>} table
+   * @returns {boolean}
+   */
+  function cashNeverJoins(doc, table) {
+    const row = doc && doc.purpose ? table[String(doc.purpose)] : null;
+    if (!row || !row.effect) return false;
+    return row.needsApproval === false && row.effect.cash !== 0;
+  }
+
+  /**
+   * No Firebase code, or a client invalid-argument from building the reference.
+   * @param {SyncFailure | null | undefined} err
+   */
+  function isClientRefusal(err) {
+    if (!err || err.code == null || err.code === '') return true;
+    if (String(err.code) !== 'invalid-argument') return false;
+    return err.client === true || /document reference/i.test(String(err.message || ''));
+  }
+
   /** @param {FlushCall} opts */
-  async function flushOutbox({ ids, load, write, exists, readServer, projectProbe }) {
+  async function flushOutbox({ ids, load, write, exists, readServer, projectProbe, readDependency, mintId }) {
     const Status = statusApi();
     /** @type {string[]} */
     const synced = [];
@@ -615,63 +869,255 @@
     const failed = [];
     /** @type {{ id: string, remote: SyncDoc }[]} */
     const adopted = [];
+    /** @type {string[]} */
+    const parked = [];
+    /** @type {{ key: string, doc: SyncDoc }[]} */
+    const slotLosers = [];
+    /** @type {{ localId: string, doc: SyncDoc }[]} */
+    const linkRefusals = [];
+    const syncedSet = new Set();
+    const keptSet = new Set();
+    const failedSet = new Set();
+    const parkedSet = new Set();
+    const unresolved = new Set();
     const seen = new Set();
-    for (const id of ids) {
+    /** @param {boolean} authDead */
+    const pack = authDead => ({ synced, kept, failed, adopted, parked, slotLosers, linkRefusals, authDead });
+    /** @param {string} id */
+    const keepId = id => { kept.push(id); keptSet.add(id); };
+    /** @param {string} id */
+    const syncId = id => { synced.push(id); syncedSet.add(id); };
+    /** @param {string} id @param {string} message */
+    const failId = (id, message) => { failed.push({ id, message }); failedSet.add(id); };
+    /**
+     * @param {SyncDoc} local
+     * @returns {Promise<'auth' | 'failed'>}
+     */
+    async function failAccount(local) {
+      let message = Status ? Status.REJECTED : 'رُفض الإرسال';
+      if (local.projectId && Status && typeof projectProbe === 'function') {
+        /** @type {ProjectProbe | null | undefined} */
+        let probe;
+        try {
+          probe = await projectProbe(local);
+        } catch (probeErr) {
+          if (Status.isDeadAuth(/** @type {SyncFailure} */ (probeErr))) {
+            keepId(/** @type {string} */ (local.id));
+            return 'auth';
+          }
+          probe = null;
+        }
+        const project = load(/** @type {string} */ (local.projectId));
+        const neverSent = !!(project && !project.createdAtServer && project.id && synced.indexOf(project.id) === -1);
+        message = Status.messageAfterProjectProbe(message, probe, neverSent);
+      }
+      failId(/** @type {string} */ (local.id), message);
+      return 'failed';
+    }
+    /**
+     * @param {SyncDoc} local
+     * @param {SyncDoc} remote
+     */
+    function adoptServer(local, remote) {
+      syncId(/** @type {string} */ (local.id));
+      adopted.push({ id: /** @type {string} */ (local.id), remote });
+    }
+    /** @param {SyncDoc} slot */
+    function parkSubtree(slot) {
+      const table = purposesTable();
+      slotLosers.push({ key: slotLoserKey(/** @type {string} */ (slot.id)), doc: Object.assign({}, slot) });
+      if (!table) { unresolved.add(/** @type {string} */ (slot.id)); return; }
+      /** @type {SyncDoc[]} */
+      const docs = [];
+      const queued = new Set();
+      ids.forEach(qid => {
+        if (queued.has(qid) || syncedSet.has(qid) || qid === slot.id) return;
+        queued.add(qid);
+        const doc = load(qid);
+        if (doc) docs.push(doc);
+      });
+      const set = new Set([/** @type {string} */ (slot.id)]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        docs.forEach(doc => {
+          if (!doc.id || set.has(doc.id)) return;
+          if (cashNeverJoins(doc, table)) return;
+          if (parentPointers(doc).some(pointer => set.has(pointer))) { set.add(doc.id); grew = true; return; }
+          if (isSlotBody(doc) && doc.agreementId && doc.agreementId === slot.agreementId && String(doc.id).slice(-1) > String(slot.id).slice(-1)) {
+            set.add(doc.id);
+            grew = true;
+          }
+        });
+      }
+      docs.forEach(doc => {
+        if (!doc.id || !set.has(doc.id) || parkedSet.has(doc.id)) return;
+        parked.push(doc.id);
+        parkedSet.add(doc.id);
+        slotLosers.push({ key: slotLoserKey(doc.id), doc: Object.assign({}, doc) });
+      });
+    }
+    /**
+     * @param {SyncDoc} local
+     * @param {SyncDoc} remote
+     * @returns {'adopted' | 'queued' | 'refused'}
+     */
+    function adoptFound(local, remote) {
+      if (Status && Status.sameContent(local, remote)) { syncId(/** @type {string} */ (local.id)); return 'adopted'; }
+      if (isSlotBody(local) && remote.kind === 'body') {
+        const differs = Status && Status.payloadDiffers(local, remote);
+        adoptServer(local, remote);
+        if (differs) parkSubtree(local);
+        return 'adopted';
+      }
+      if (local.docType === 'accountTxn' && local.kind === 'rev' && remote.kind === 'rev' && local.reversesId && local.reversesId === remote.reversesId) {
+        adoptServer(local, remote);
+        return 'adopted';
+      }
+      if (local.docType === 'agreement' && typeof local.id === 'string' && local.id.indexOf('rev_') === 0 && local.reversesId && local.reversesId === remote.reversesId) {
+        adoptServer(local, remote);
+        return 'adopted';
+      }
+      const shared = local.kind === 'appr' || local.kind === 'rej' || local.kind === 'revw' || local.kind === 'sup';
+      if (shared && remote.kind === local.kind) {
+        const sameTarget = local.kind === 'sup'
+          ? !!(local.supersedesId && local.supersedesId === remote.supersedesId)
+          : !!(local.targetId && local.targetId === remote.targetId);
+        if (sameTarget) { adoptServer(local, remote); return 'adopted'; }
+      }
+      if (local.kind === 'stl' && remote.kind === 'stl' && local.targetId && local.targetId === remote.targetId) {
+        const differ = local.settlesId !== remote.settlesId || local.amount !== remote.amount;
+        const minted = differ && typeof mintId === 'function' ? mintId() : '';
+        if (differ && !minted) return 'queued';
+        adoptServer(local, remote);
+        if (differ) linkRefusals.push({ localId: minted, doc: Object.assign({}, local) });
+        return 'adopted';
+      }
+      return 'refused';
+    }
+    for (let index = 0; index < ids.length; index++) {
+      const id = ids[index];
       if (seen.has(id)) continue;
       seen.add(id);
+      if (parkedSet.has(id)) continue;
       const local = load(id);
-      if (!local) { kept.push(id); continue; }
-      if (isSeed(local)) { synced.push(id); continue; }
-      if (!collectionFor(local)) { kept.push(id); continue; }
+      if (!local) { keepId(id); continue; }
+      if (isSeed(local)) { syncId(id); continue; }
+      if (!collectionFor(local)) { keepId(id); continue; }
+      if (isAccountDoc(local)) {
+        const pointers = parentPointers(local);
+        const table = purposesTable();
+        if (table && cashNeverJoins(local, table) && pointers.some(pointer => parkedSet.has(pointer))) { keepId(id); continue; }
+        if (unresolved.size && (pointers.some(pointer => unresolved.has(pointer)) || (isSlotBody(local) && [...unresolved].some(slotId => {
+          const root = load(slotId);
+          return !!(root && local.agreementId && local.agreementId === root.agreementId && String(local.id).slice(-1) > String(slotId).slice(-1));
+        })))) { keepId(id); continue; }
+        if (pointers.some(pointer => failedSet.has(pointer))) {
+          if (await failAccount(local) === 'auth') return pack(true);
+          continue;
+        }
+        if (pointers.some(pointer => parkedSet.has(pointer))) { keepId(id); continue; }
+        if (pointers.some(pointer => keptSet.has(pointer) || (!syncedSet.has(pointer) && ids.indexOf(pointer) > index))) { keepId(id); continue; }
+      }
       try {
         await write(local);
-        synced.push(id);
+        syncId(id);
       } catch (err) {
-        if (Status && Status.isDeadAuth(/** @type {SyncFailure} */ (err))) {
-          kept.push(id);
-          return { synced, kept, failed, adopted, authDead: true };
+        const failure = /** @type {SyncFailure} */ (err);
+        if (Status && Status.isDeadAuth(failure)) { keepId(id); return pack(true); }
+        if (!Status || Status.isTransient(failure)) { keepId(id); continue; }
+        if (isAccountDoc(local)) {
+          if (isClientRefusal(failure) || typeof readDependency !== 'function') {
+            if (await failAccount(local) === 'auth') return pack(true);
+            continue;
+          }
+          /** @type {DependencyRead | undefined} */
+          let own;
+          try {
+            own = await readDependency(/** @type {string} */ (local.id));
+          } catch (readErr) {
+            if (Status.isDeadAuth(/** @type {SyncFailure} */ (readErr))) { keepId(id); return pack(true); }
+            const status = Status.dependencyStatus(/** @type {SyncFailure} */ (readErr), null);
+            if (status === 'auth') { keepId(id); return pack(true); }
+            if (status === 'denied') {
+              if (await failAccount(local) === 'auth') return pack(true);
+            } else keepId(id);
+            continue;
+          }
+          const ownStatus = own && own.status;
+          if (ownStatus === 'transient' || !ownStatus) { keepId(id); continue; }
+          if (ownStatus === 'denied') {
+            if (await failAccount(local) === 'auth') return pack(true);
+            continue;
+          }
+          if (ownStatus === 'found') {
+            const found = /** @type {{ status: 'found', doc: SyncDoc }} */ (own);
+            const outcome = adoptFound(local, found.doc || {});
+            if (outcome === 'queued') { keepId(id); continue; }
+            if (outcome === 'refused') {
+              if (local.docType === 'statementApproval') {
+                failId(/** @type {string} */ (local.id), Status.failureMessage(failure, local, found.doc, false));
+                continue;
+              }
+              if (await failAccount(local) === 'auth') return pack(true);
+            }
+            continue;
+          }
+          const pointers = parentPointers(local);
+          if (!pointers.length) {
+            if (await failAccount(local) === 'auth') return pack(true);
+            continue;
+          }
+          /** @type {DependencyRead | undefined} */
+          let pointer;
+          try {
+            pointer = await readDependency(pointers[0]);
+          } catch (readErr) {
+            if (Status.isDeadAuth(/** @type {SyncFailure} */ (readErr))) { keepId(id); return pack(true); }
+            const status = Status.dependencyStatus(/** @type {SyncFailure} */ (readErr), null);
+            if (status === 'auth') { keepId(id); return pack(true); }
+            if (status === 'transient') { keepId(id); continue; }
+            if (await failAccount(local) === 'auth') return pack(true);
+            continue;
+          }
+          if (!pointer || pointer.status === 'transient') { keepId(id); continue; }
+          if (await failAccount(local) === 'auth') return pack(true);
+          continue;
         }
-        if (!Status || Status.isTransient(/** @type {SyncFailure} */ (err))) { kept.push(id); continue; }
         let remote = null;
         let unverified = false;
         try {
           if (typeof readServer === 'function') remote = /** @type {SyncDoc | null} */ (await readServer(local));
           else if (typeof exists === 'function' && await exists(local)) unverified = true;
         } catch (readErr) {
-          if (Status.isDeadAuth(/** @type {SyncFailure} */ (readErr))) {
-            kept.push(id);
-            return { synced, kept, failed, adopted, authDead: true };
-          }
-          if (Status.isTransient(/** @type {SyncFailure} */ (readErr))) { kept.push(id); continue; }
+          if (Status.isDeadAuth(/** @type {SyncFailure} */ (readErr))) { keepId(id); return pack(true); }
+          if (Status.isTransient(/** @type {SyncFailure} */ (readErr))) { keepId(id); continue; }
           unverified = true;
         }
-        if (remote && Status.sameContent(local, remote)) { synced.push(id); continue; }
+        if (remote && Status.sameContent(local, remote)) { syncId(id); continue; }
         if (remote && Status.sameReversal(local, remote)) {
-          synced.push(id);
+          syncId(id);
           adopted.push({ id, remote });
           continue;
         }
-        let message = Status.failureMessage(/** @type {SyncFailure} */ (err), local, remote, unverified && !remote);
+        let message = Status.failureMessage(failure, local, remote, unverified && !remote);
         if (message === Status.REJECTED && local.entryType && typeof projectProbe === 'function') {
           /** @type {ProjectProbe | null} */
           let probe;
           try {
             probe = await projectProbe(local);
           } catch (probeErr) {
-            if (Status.isDeadAuth(/** @type {SyncFailure} */ (probeErr))) {
-              kept.push(id);
-              return { synced, kept, failed, adopted, authDead: true };
-            }
+            if (Status.isDeadAuth(/** @type {SyncFailure} */ (probeErr))) { keepId(id); return pack(true); }
             probe = null;
           }
           const project = load(/** @type {string} */ (local.projectId));
           const neverSent = !!(project && !project.createdAtServer && project.id && synced.indexOf(project.id) === -1);
           message = Status.messageAfterProjectProbe(message, probe, neverSent);
         }
-        failed.push({ id, message });
+        failId(id, message);
       }
     }
-    return { synced, kept, failed, adopted, authDead: false };
+    return pack(false);
   }
 
   return {
@@ -680,5 +1126,6 @@
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
     readSetKey, readSetChanged, stripMoney, termsPayload, subcontractReads, pullSubcontracts,
     exactProjectName, projectDeleteDocs, projectDeleteBatches, missingRequestedIds, dropProjectLocal,
+    queueRefusal, localDoc, accountReads, pullAccounts, ACCOUNTS_MARK, slotLoserKey, slotLoserViews, linkRefusalViews,
   };
 });

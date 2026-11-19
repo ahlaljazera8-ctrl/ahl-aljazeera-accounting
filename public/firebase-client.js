@@ -294,6 +294,37 @@ async function createFirebaseClient(mods, generation) {
       if (status !== 'archived' && status !== 'active') throw new Error('status');
       await fsMod.updateDoc(fsMod.doc(fdb, 'projects', id), { status });
     },
+    /**
+     * @param {string} id
+     * @returns {Promise<DependencyRead>}
+     */
+    async readDependency(id) {
+      const local = S.localDoc(id, {
+        entries: get(K.entries, []),
+        projects: get(K.projects, []),
+        subcontracts: get(K.subcontracts, []),
+        amendments: get(K.amendments, []),
+        foremen: get(K.foremen, []),
+        foremanMoves: get(K.foremanMoves, []),
+        parties: get(K.parties, []),
+        agreements: get(K.agreements, []),
+        accountTxns: get(K.accountTxns, []),
+        statementApprovals: get(K.statementApprovals, []),
+      });
+      const col = (local && S.collectionFor(local)) || 'accountTxns';
+      try {
+        const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, col, id));
+        if (!snap.exists()) return { status: 'missing' };
+        return { status: 'found', doc: /** @type {SyncDoc} */ (snap.data() || {}) };
+      } catch (err) {
+        const failure = /** @type {SyncFailure} */ (err);
+        if (isDeadAuth(failure)) throw failure;
+        const status = window.SyncStatus ? SyncStatus.dependencyStatus(failure, null) : 'transient';
+        if (status === 'auth') throw failure;
+        if (status === 'denied') return { status: 'denied' };
+        return { status: 'transient' };
+      }
+    },
     /** @param {SyncDoc} local */
     async exists(local) {
       const snap = await fsMod.getDocFromServer(fsMod.doc(fdb, S.collectionFor(local), local.id));
@@ -367,6 +398,17 @@ async function createFirebaseClient(mods, generation) {
       set(K.foremen, S.mergeById(get(K.foremen, []), fm.foremen, pendingForemen));
       set(K.foremanMoves, S.mergeById(get(K.foremanMoves, []), fm.moves, pendingForemen));
       set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { foremen: fm.watermark }));
+      const accounts = await S.pullAccounts({
+        user,
+        since: previousMark.accounts,
+        read: readSpec,
+      });
+      const pendingAccounts = get(K.outbox, []);
+      set(K.parties, S.mergeById(get(K.parties, []), accounts.parties, pendingAccounts));
+      set(K.agreements, S.mergeById(get(K.agreements, []), accounts.agreements, pendingAccounts));
+      set(K.accountTxns, S.mergeById(get(K.accountTxns, []), accounts.accountTxns, pendingAccounts));
+      set(K.statementApprovals, S.mergeById(get(K.statementApprovals, []), accounts.statementApprovals, pendingAccounts));
+      set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { [S.ACCOUNTS_MARK]: accounts.watermark }));
       if (Ledger.can(user, 'owner')) {
       for (const sub of names) {
         if (!sub || pendingNow.includes(sub.id)) continue;
@@ -485,6 +527,12 @@ function cacheSnapshot() {
     amendments: get(K.amendments, []),
     foremen: get(K.foremen, []),
     foremanMoves: get(K.foremanMoves, []),
+    parties: get(K.parties, []),
+    agreements: get(K.agreements, []),
+    accountTxns: get(K.accountTxns, []),
+    statementApprovals: get(K.statementApprovals, []),
+    slotLosers: get(K.slotLosers, {}) || {},
+    linkRefusals: get(K.linkRefusals, {}) || {},
     finance: get(K.finance, {}) || {},
     terms: get(K.terms, {}) || {},
     outbox: get(K.outbox, []),
@@ -566,6 +614,12 @@ function writeCache(next, before) {
   set(K.amendments, next.amendments);
   set(K.foremen, next.foremen || []);
   set(K.foremanMoves, next.foremanMoves || []);
+  set(K.parties, next.parties || []);
+  set(K.agreements, next.agreements || []);
+  set(K.accountTxns, next.accountTxns || []);
+  set(K.statementApprovals, next.statementApprovals || []);
+  set(K.slotLosers, next.slotLosers || {});
+  set(K.linkRefusals, next.linkRefusals || {});
   set(K.finance, next.finance);
   set(K.terms, next.terms);
   set(K.outbox, next.outbox);
@@ -677,6 +731,51 @@ function flushRemote(opts) {
   }, FLUSH_MS);
   run.then(() => clearTimeout(timer), () => clearTimeout(timer));
   return run;
+}
+/**
+ * Adopted account rows and both loser maps land before either applyFlush.
+ * @param {{ adopted?: { id: string, remote: SyncDoc }[], parked?: string[], slotLosers?: { key: string, doc: SyncDoc }[], linkRefusals?: { localId: string, doc: SyncDoc }[] } | null | undefined} result
+ */
+function commitAccountFlush(result) {
+  if (!result) return;
+  const adoptedRows = result.adopted || [];
+  const parkedIds = result.parked || [];
+  const losers = result.slotLosers || [];
+  const refusals = result.linkRefusals || [];
+  if (!adoptedRows.length && !parkedIds.length && !losers.length && !refusals.length) return;
+  if (losers.length) {
+    const map = Object.assign({}, get(K.slotLosers, {}) || {});
+    losers.forEach(row => { if (row && row.key) map[row.key] = row.doc; });
+    set(K.slotLosers, map);
+  }
+  if (refusals.length) {
+    const map = Object.assign({}, get(K.linkRefusals, {}) || {});
+    refusals.forEach(row => { if (row && row.localId) map[row.localId] = row.doc; });
+    set(K.linkRefusals, map);
+  }
+  if (adoptedRows.length) {
+    const byId = new Map(adoptedRows.map(row => [row.id, row.remote]));
+    [[K.accountTxns, 'accountTxn'], [K.agreements, 'agreement'], [K.parties, 'party'], [K.statementApprovals, 'statementApproval']].forEach(pair => {
+      const key = /** @type {string} */ (pair[0]);
+      const docType = /** @type {string} */ (pair[1]);
+      const rows = /** @type {SyncDoc[]} */ (get(key, []));
+      let changed = false;
+      const next = rows.map(row => {
+        if (!row || !row.id || !byId.has(row.id)) return row;
+        changed = true;
+        const remote = window.Sync.fromRemote(byId.get(row.id) || {});
+        if (!remote.docType) remote.docType = /** @type {SyncDoc['docType']} */ (row.docType || docType);
+        remote.id = row.id;
+        byId.delete(row.id);
+        return remote;
+      });
+      if (changed) set(key, next);
+    });
+  }
+  if (parkedIds.length) {
+    const drop = new Set(parkedIds);
+    set(K.accountTxns, /** @type {SyncDoc[]} */ (get(K.accountTxns, [])).filter(row => row && !drop.has(/** @type {string} */ (row.id))));
+  }
 }
 /**
  * @param {SyncDoc} local
@@ -816,7 +915,18 @@ async function performFlush(token, run) {
     if (ids.length) {
       const result = await window.Sync.flushOutbox({
         ids,
-        load: id => get(K.entries, []).find(/** @param {{ id?: string }} e */ e => e.id === id) || get(K.projects, []).find(/** @param {{ id?: string }} p */ p => p.id === id) || get(K.subcontracts, []).find(/** @param {{ id?: string }} s */ s => s.id === id) || get(K.amendments, []).find(/** @param {{ id?: string }} a */ a => a.id === id) || get(K.foremen, []).find(/** @param {{ id?: string }} f */ f => f.id === id) || get(K.foremanMoves, []).find(/** @param {{ id?: string }} m */ m => m.id === id) || null,
+        load: id => window.Sync.localDoc(id, {
+          entries: get(K.entries, []),
+          projects: get(K.projects, []),
+          subcontracts: get(K.subcontracts, []),
+          amendments: get(K.amendments, []),
+          foremen: get(K.foremen, []),
+          foremanMoves: get(K.foremanMoves, []),
+          parties: get(K.parties, []),
+          agreements: get(K.agreements, []),
+          accountTxns: get(K.accountTxns, []),
+          statementApprovals: get(K.statementApprovals, []),
+        }),
         write: async local => {
           const id = String((local && local.id) || '');
           const sent = await fb.writeLocal(local);
@@ -824,6 +934,11 @@ async function performFlush(token, run) {
         },
         exists: local => fb.exists(local),
         projectProbe: local => readProjectProbe(String((local && local.projectId) || ''), fb),
+        readDependency: id => fb.readDependency(id),
+        mintId: () => {
+          const mint = /** @type {{ uuid?: () => string }} */ (globalThis).uuid;
+          return typeof mint === 'function' ? mint() : '';
+        },
         readServer: async local => {
           try {
             if (typeof fb.readServer === 'function') return await fb.readServer(local);
@@ -837,6 +952,7 @@ async function performFlush(token, run) {
       flushResult = result;
       if (token !== sessionEpoch) return;
       if (result.authDead) { await holdSession(SESSION_DEAD_MSG); return; }
+      commitAccountFlush(result);
       if ((result.failed || []).length && typeof fb.refreshProfile === 'function') {
         try {
           const again = await fb.refreshProfile(live);
