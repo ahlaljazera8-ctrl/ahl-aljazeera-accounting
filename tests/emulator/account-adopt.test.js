@@ -30,8 +30,8 @@ let testEnv;
 let chain = Promise.resolve();
 const contexts = new Map();
 
-function testSeq(name, fn) {
-  test(name, { timeout: 60000 }, async () => {
+function testSeq(name, fn, timeout) {
+  test(name, { timeout: timeout || 60000 }, async () => {
     const prev = chain;
     let release;
     chain = new Promise(resolve => { release = resolve; });
@@ -216,6 +216,70 @@ async function loseAndAdopt(col, id, winner, loser, docType) {
   return result;
 }
 
+function localAccount(uid, fields) {
+  return Object.assign({
+    docType: 'accountTxn', createdBy: uid, createdByName: uid === OWNER_A ? 'Owner A' : 'Owner B',
+    deviceId: 'device-' + uid, createdAtServer: null,
+  }, fields);
+}
+
+async function phoneKeepsRefusal(uid, local, denied) {
+  const err = denied && denied.code ? denied : Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
+  const result = await Sync.flushOutbox({
+    ids: [local.id],
+    load: id => (id === local.id ? local : null),
+    write: async () => { throw err; },
+    readDependency: async readId => {
+      const got = await getDoc(doc(db(uid), 'accountTxns', readId));
+      return got.exists() ? { status: 'found', doc: got.data() } : { status: 'missing' };
+    },
+    projectProbe: async () => ({ exists: (await getDoc(doc(db(uid), 'projects', P1))).exists() }),
+  });
+  assert.equal(result.synced.includes(local.id), false);
+  assert.equal(result.parked.includes(local.id), false);
+  assert.equal(result.failed.length, 1);
+  assert.equal(result.failed[0].id, local.id);
+  assert.equal(result.failed[0].message, Status.REJECTED);
+  const applied = Status.applyFlush([local.id], {}, result);
+  assert.equal(applied.outbox.includes(local.id), false);
+  assert.equal(applied.errors[local.id], Status.REJECTED);
+  const csv = Ledger.rejectedEntriesToCSV(
+    [{ id: local.id, projectId: local.projectId, amount: local.amount, description: local.kind, currency: local.currency, createdBy: uid }],
+    [{ id: P1, name: 'School' }],
+    {},
+    applied.errors,
+  );
+  assert.equal(csv.includes(local.id), true);
+  assert.equal(csv.includes(Status.REJECTED), true);
+  return { outbox: applied.outbox, errors: applied.errors, kept: local };
+}
+
+async function racedApprovalAndRejection(body, bothAppr, bothRej) {
+  const attempt = (uid, id, fields) => send(uid, 'accountTxns', id, fields).then(
+    () => ({ ok: true, err: null }),
+    err => ({ ok: false, err }),
+  );
+  const [apprTry, rejTry] = await Promise.all([
+    attempt(OWNER_A, bothAppr.id, bothAppr),
+    attempt(OWNER_B, bothRej.id, bothRej),
+  ]);
+  const apprExists = (await getDoc(doc(db(OWNER_A), 'accountTxns', bothAppr.id))).exists();
+  const rejExists = (await getDoc(doc(db(OWNER_A), 'accountTxns', bothRej.id))).exists();
+  assert.equal(apprExists && rejExists, false);
+  if (!apprExists && !rejExists) {
+    const apprLocal = localAccount(OWNER_A, bothAppr);
+    const rejLocal = localAccount(OWNER_B, bothRej);
+    const apprPhone = await phoneKeepsRefusal(OWNER_A, apprLocal, apprTry.err);
+    const rejPhone = await phoneKeepsRefusal(OWNER_B, rejLocal, rejTry.err);
+    assert.equal(apprPhone.errors[bothAppr.id], Status.REJECTED);
+    assert.equal(rejPhone.errors[bothRej.id], Status.REJECTED);
+    assert.equal(apprPhone.kept.amount, 600000);
+    assert.equal(rejPhone.kept.kind, 'rej');
+    assert.equal(rejPhone.kept.targetId, body.id);
+  }
+  return { apprExists, rejExists };
+}
+
 testSeq('E27 two phones, emulator', async () => {
   await seed();
   const agreementId = uuid(1);
@@ -288,13 +352,7 @@ testSeq('E27 two phones, emulator', async () => {
   await allow(send(OWNER_A, 'accountTxns', bothBody.id, bothBody));
   const bothAppr = approval(bothBody.id, uuid(51), 600000, 8000);
   const bothRej = rejOf(bothBody.id);
-  const apprTry = send(OWNER_A, 'accountTxns', bothAppr.id, bothAppr).then(() => 'ok', () => 'no');
-  const rejTry = send(OWNER_B, 'accountTxns', bothRej.id, bothRej).then(() => 'ok', () => 'no');
-  const [apprLanded, rejLanded] = await Promise.all([apprTry, rejTry]);
-  const apprExists = (await getDoc(doc(db(OWNER_A), 'accountTxns', bothAppr.id))).exists();
-  const rejExists = (await getDoc(doc(db(OWNER_A), 'accountTxns', bothRej.id))).exists();
-  assert.equal(apprLanded === 'ok' || rejLanded === 'ok', true);
-  assert.equal(apprExists !== rejExists, true);
+  await racedApprovalAndRejection(bothBody, bothAppr, bothRej);
 
   const otherParty = await getDoc(doc(db(OWNER_B), 'parties', PARTY));
   assert.equal(otherParty.exists(), true);
@@ -383,3 +441,25 @@ testSeq('E33 deleted project, emulator', async () => {
   });
   assert.equal(archivedResult.failed[0].message, Status.REJECTED);
 });
+
+const RACE_RUNS = Number(process.env.E27_RACE_RUNS || 0);
+if (RACE_RUNS > 0) {
+  testSeq('E27 approval and rejection race, repeated', async () => {
+    await seed();
+    const counts = { onlyAppr: 0, onlyRej: 0, bothDenied: 0, bothLanded: 0 };
+    for (let i = 1; i <= RACE_RUNS; i++) {
+      const agreementId = uuid(1000 + i);
+      const body = measurement(uuid(5000 + i), agreementId, 8000);
+      await allow(send(OWNER_A, 'agreements', agreementId, unitAgreement(agreementId)));
+      await allow(send(OWNER_A, 'accountTxns', body.id, body));
+      const outcome = await racedApprovalAndRejection(body, approval(body.id, agreementId, 600000, 8000), rejOf(body.id));
+      if (outcome.apprExists && outcome.rejExists) counts.bothLanded += 1;
+      else if (outcome.apprExists) counts.onlyAppr += 1;
+      else if (outcome.rejExists) counts.onlyRej += 1;
+      else counts.bothDenied += 1;
+    }
+    console.log('E27_RACE_COUNTS ' + JSON.stringify(counts));
+    assert.equal(counts.bothLanded, 0);
+    assert.equal(counts.onlyAppr + counts.onlyRej + counts.bothDenied, RACE_RUNS);
+  }, 300000);
+}
