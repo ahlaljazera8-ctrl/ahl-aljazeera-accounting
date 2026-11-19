@@ -95,11 +95,57 @@ function subcontractSection(project, entries) {
   return `<div class="card" id="subcontracts"><h2>المقاولون</h2></div>${cards || '<div class="card"><div class="note">لا توجد عقود.</div></div>'}
     <a class="btn ghost" href="${subHref('subnew', project.id)}">+ عقد مقاول</a>`;
 }
+function accountStores() {
+  return {
+    entries: get(K.entries, []),
+    projects: get(K.projects, []),
+    subcontracts: get(K.subcontracts, []),
+    amendments: get(K.amendments, []),
+    foremen: get(K.foremen, []),
+    foremanMoves: get(K.foremanMoves, []),
+    parties: get(K.parties, []),
+    agreements: get(K.agreements, []),
+    accountTxns: get(K.accountTxns, []),
+    statementApprovals: get(K.statementApprovals, []),
+  };
+}
 /** @param {any} id */
 function queueDoc(id) {
+  if (window.Sync && typeof Sync.queueRefusal === 'function' && typeof Sync.localDoc === 'function') {
+    if (Sync.queueRefusal(Sync.localDoc(id, accountStores()))) return;
+  }
   const out = get(K.outbox, []);
   if (!out.includes(id)) set(K.outbox, out.concat([id]));
   if (!demoRole()) flushRemote({ fromOutside: true });
+}
+/**
+ * Account-module ids that must be exported before logout.
+ * @returns {{ id: string, doc: any, message: string }[]}
+ */
+function refusalDocs() {
+  const errors = get(K.syncErrors, {}) || {};
+  /** @type {{ id: string, doc: any, message: string }[]} */
+  const rows = [];
+  /** @param {any[] | null | undefined} list */
+  const fromList = list => {
+    (list || []).forEach(doc => {
+      if (!doc || typeof doc.id !== 'string' || !doc.id || typeof errors[doc.id] !== 'string') return;
+      rows.push({ id: doc.id, doc, message: errors[doc.id] });
+    });
+  };
+  fromList(get(K.accountTxns, []));
+  fromList(get(K.agreements, []));
+  fromList(get(K.parties, []));
+  fromList(get(K.statementApprovals, []));
+  const losers = get(K.slotLosers, {}) || {};
+  Object.keys(losers).forEach(key => {
+    rows.push({ id: key, doc: losers[key] || {}, message: typeof errors[key] === 'string' ? errors[key] : SyncStatus.CONFLICT });
+  });
+  const links = get(K.linkRefusals, {}) || {};
+  Object.keys(links).forEach(key => {
+    rows.push({ id: key, doc: links[key] || {}, message: typeof errors[key] === 'string' ? errors[key] : SyncStatus.CONFLICT });
+  });
+  return rows;
 }
 /** @param {any} u @param {any} | null | undefined} button */
 function saveSubcontract(u, button) {
@@ -558,7 +604,31 @@ function rejectedLogoutBlock() {
   /** @type {{ id: string }[]} */
   const listed = [];
   rejectedRows(me()).forEach(row => { if (typeof row.id === 'string' && row.id) listed.push({ id: row.id }); });
+  refusalDocs().forEach(row => { if (row.id) listed.push({ id: row.id }); });
   return L.rejectedLogoutBlocked(listed, get(K.rejectedExportedIds, []) || []);
+}
+/** @param {LedgerUser | null | undefined} u */
+function rejectedExportText(u) {
+  const ledgerRows = rejectedRows(u);
+  const extra = refusalDocs();
+  const errors = Object.assign({}, get(K.syncErrors, {}) || {});
+  const shaped = extra.map(row => {
+    const doc = row.doc || {};
+    errors[row.id] = row.message;
+    return {
+      id: row.id,
+      entryDate: typeof doc.txnDate === 'string' ? doc.txnDate : '',
+      projectId: doc.projectId || '',
+      amount: doc.amount,
+      currency: doc.currency || '',
+      description: doc.description || doc.purpose || doc.kind || '',
+      partyName: doc.partyId || doc.name || '',
+      createdBy: doc.createdBy,
+      createdByName: doc.createdByName,
+      createdAtDevice: doc.createdAtDevice,
+    };
+  });
+  return L.rejectedEntriesToCSV(ledgerRows.concat(shaped), get(K.projects, []), get(K.goneProjectNames, {}) || {}, errors);
 }
 const views = {
   home() {
@@ -832,7 +902,8 @@ const views = {
     const u = me();
     const back = `<button type="button" class="mini" id="back">رجوع</button>`;
     const rows = rejectedRows(u);
-    if (!rows.length) return back + '<div class="card">لا قيود مرفوضة بسبب حذف مشروع</div>';
+    const extra = refusalDocs();
+    if (!rows.length && !extra.length) return back + '<div class="card">لا قيود مرفوضة بسبب حذف مشروع</div>';
     const projects = get(K.projects, []);
     const gone = get(K.goneProjectNames, {}) || {};
     const errors = get(K.syncErrors, {}) || {};
@@ -855,7 +926,7 @@ const views = {
     const sumLines = [];
     if (sums.expense) sumLines.push(`<div class="kv"><span>مصروف</span>${money(sums.expense)}</div>`);
     if (sums.income) sumLines.push(`<div class="kv"><span>مقبوض</span>${money(sums.income)}</div>`);
-    const button = L.canExportRejected(u) ? '<button type="button" class="btn" id="rejected-csv">تصدير القيود المرفوضة</button>' : '';
+    const button = (rows.length || extra.length) && L.canExportRejected(u) ? '<button type="button" class="btn" id="rejected-csv">تصدير القيود المرفوضة</button>' : '';
     return `${back}<div class="card"><h2>${esc(SyncStatus.PROJECT_DELETED)}</h2></div>${cards}
       <div class="card"><div id="rejected-count">${rows.length}</div>${sumLines.join('')}
       <p>هذه المبالغ غير محسوبة بأرصدة المشاريع</p>${button}</div>`;
@@ -1277,7 +1348,7 @@ function renderScreen() {
     const person = Array.isArray(people) ? people.find(/** @param {any} p */ p => p && p.id === arg) : null;
     heading = person && person.name ? person.name : 'حسابات';
   }
-  if (v === 'rejected' && !rejectedRows(u).length) heading = 'لا قيود مرفوضة بسبب حذف مشروع';
+  if (v === 'rejected' && !rejectedRows(u).length && !refusalDocs().length) heading = 'لا قيود مرفوضة بسبب حذف مشروع';
   $('#title').textContent = heading;
   $('#main').innerHTML = /** @type {Record<string, (arg?: string) => string>} */ (views)[v](arg) + confirmDialog();
   if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person')) refreshDirectory('render');
@@ -1420,11 +1491,12 @@ document.addEventListener('click', ev => {
   } else if (b.id === 'rejected-csv') {
     if (!L.canExportRejected(u)) return;
     const rows = rejectedRows(u);
-    if (!rows.length) return;
-    const csv = L.rejectedEntriesToCSV(rows, get(K.projects, []), get(K.goneProjectNames, {}) || {}, get(K.syncErrors, {}) || {});
+    const extra = refusalDocs();
+    if (!rows.length && !extra.length) return;
+    const csv = rejectedExportText(u);
     const filename = 'aj-rejected-' + today() + '.csv';
     const pending = saveCsvFile(csv, filename);
-    const ids = rows.map(row => /** @type {string} */ (row.id));
+    const ids = rows.map(row => /** @type {string} */ (row.id)).concat(extra.map(row => row.id));
     pending.then(result => {
       if (result !== 'shared' && result !== 'downloaded') return;
       const prev = /** @type {string[]} */ (get(K.rejectedExportedIds, []) || []);

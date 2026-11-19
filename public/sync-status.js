@@ -59,8 +59,80 @@
    * @param {SyncRow | null | undefined} remote
    * @returns {boolean}
    */
+  const ACCOUNT_HEADER = ['id', 'kind', 'projectId', 'partyId', 'createdBy', 'createdByName'];
+  const BODY_KEYS = ['ledger', 'purpose', 'agreementId', 'qty', 'amount', 'currency', 'fxRate', 'txnDate', 'description'];
+  /** @type {Record<string, 1>} */
+  const NUMBER_KEYS = { qty: 1, amount: 1, fxRate: 1, lumpAmount: 1, unitRate: 1, unitQty: 1, dayRate: 1, milestoneAmount: 1 };
+
+  /**
+   * The only compared key list for that account kind.
+   * createdAtServer and deviceId are not on it.
+   * @param {string | null | undefined} kind
+   * @returns {readonly string[] | null}
+   */
+  function accountKeys(kind) {
+    if (kind === 'body') return ACCOUNT_HEADER.concat(BODY_KEYS);
+    if (kind === 'appr') return ACCOUNT_HEADER.concat(BODY_KEYS, ['targetId']);
+    if (kind === 'rej') return ACCOUNT_HEADER.concat(['targetId']);
+    if (kind === 'sup') return ACCOUNT_HEADER.concat(['supersedesId'], BODY_KEYS);
+    if (kind === 'stl') return ACCOUNT_HEADER.concat(['targetId', 'settlesId', 'amount', 'ledger', 'purpose', 'agreementId', 'currency']);
+    if (kind === 'rev') return ACCOUNT_HEADER.concat(['reversesId', 'reversalReason'], BODY_KEYS);
+    if (kind === 'revw') return ACCOUNT_HEADER.concat(['targetId']);
+    return null;
+  }
+
+  /**
+   * @param {string} key
+   * @param {unknown} left
+   * @param {unknown} right
+   */
+  function sameAccountValue(key, left, right) {
+    if (NUMBER_KEYS[key]) return left === right;
+    return norm(left) === norm(right);
+  }
+
+  /**
+   * @param {readonly string[]} keys
+   * @param {SyncRow} local
+   * @param {SyncRow} remote
+   */
+  function keysEqual(keys, local, remote) {
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (!sameAccountValue(key, local[key], remote[key])) return false;
+    }
+    return true;
+  }
+
+  /**
+   * @param {SyncRow} local
+   * @param {SyncRow | null | undefined} remote
+   */
+  function accountSame(local, remote) {
+    if (!remote) return false;
+    if (local.docType === 'party') return keysEqual(['id', 'name', 'note', 'createdBy'], local, remote);
+    if (local.docType === 'agreement') {
+      return keysEqual(['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'lumpAmount', 'unitRate', 'unitQty', 'unitName', 'dayRate', 'milestoneAmount', 'milestoneMode', 'reversesId', 'reversalReason'], local, remote);
+    }
+    if (local.docType === 'statementApproval') {
+      return keysEqual(['id', 'partyId', 'projectId', 'periodKind', 'periodStart', 'periodEnd', 'createdBy'], local, remote);
+    }
+    if (local.docType !== 'accountTxn') return false;
+    const keys = accountKeys(typeof local.kind === 'string' ? local.kind : '');
+    if (!keys) return false;
+    return keysEqual(keys, local, remote);
+  }
+
+  /**
+   * @param {SyncRow | null | undefined} local
+   * @param {SyncRow | null | undefined} remote
+   * @returns {boolean}
+   */
   function sameContent(local, remote) {
     if (!local || !remote) return false;
+    if (local.docType === 'party' || local.docType === 'agreement' || local.docType === 'accountTxn' || local.docType === 'statementApproval') {
+      return accountSame(local, remote);
+    }
     if (local.docType === 'foreman') {
       /** @type {readonly (keyof SyncRow)[]} */
       const foremanKeys = ['id', 'name', 'note', 'projectId', 'createdBy'];
@@ -87,6 +159,39 @@
     }
     if (local.id && remote.id && local.id !== remote.id) return false;
     return true;
+  }
+
+  /**
+   * True when a compared body key outside createdBy and createdByName differs.
+   * partyId and projectId count. createdAtServer and deviceId do not.
+   * @param {SyncRow | null | undefined} local
+   * @param {SyncRow | null | undefined} remote
+   * @returns {boolean}
+   */
+  function payloadDiffers(local, remote) {
+    if (!local || !remote || local.docType !== 'accountTxn') return false;
+    const keys = accountKeys(typeof local.kind === 'string' ? local.kind : '');
+    if (!keys) return false;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (key === 'createdBy' || key === 'createdByName') continue;
+      if (!sameAccountValue(key, local[key], remote[key])) return true;
+    }
+    return false;
+  }
+
+  /**
+   * @param {SyncFailure | null | undefined} err
+   * @param {boolean | null} exists
+   * @returns {'found' | 'missing' | 'denied' | 'transient' | 'auth'}
+   */
+  function dependencyStatus(err, exists) {
+    if (err && isDeadAuth(err)) return 'auth';
+    if (err && String(err.code || '') === 'permission-denied') return 'denied';
+    if (err && isTransient(err)) return 'transient';
+    if (err) return 'transient';
+    if (exists === false) return 'missing';
+    return 'found';
   }
 
   /**
@@ -169,10 +274,12 @@
   function applyFlush(outbox, errors, result) {
     const drop = new Set((result && result.synced) || []);
     ((result && result.failed) || []).forEach(row => { if (row && row.id) drop.add(row.id); });
+    ((result && result.parked) || []).forEach(id => { if (id) drop.add(id); });
     /** @type {SyncErrorMap} */
     const errMap = Object.assign({}, errors || {});
     ((result && result.synced) || []).forEach(id => { delete errMap[id]; });
     ((result && result.kept) || []).forEach(id => { delete errMap[id]; });
+    ((result && result.parked) || []).forEach(id => { if (id) delete errMap[id]; });
     ((result && result.failed) || []).forEach(row => { if (row && row.id) errMap[row.id] = row.message; });
     return {
       outbox: (outbox || []).filter(id => !drop.has(id)),
@@ -213,7 +320,7 @@
 
   return {
     FB_VER, FIRESTORE_URL, REJECTED, CONFLICT, UNVERIFIED, PROJECT_DELETED,
-    sameContent, sameReversal, isTransient, isAlreadyExists, isDeadAuth, failureMessage, messageAfterProjectProbe,
+    sameContent, sameReversal, payloadDiffers, dependencyStatus, isTransient, isAlreadyExists, isDeadAuth, failureMessage, messageAfterProjectProbe,
     applyFlush, badgeHtml, readRemote,
   };
 });
