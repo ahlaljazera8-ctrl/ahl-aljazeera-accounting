@@ -657,14 +657,6 @@
     const goneProjectNames = Object.assign({}, src.goneProjectNames || {});
     const dropped = (src.projects || []).find(row => row && row.id === projectId);
     if (dropped && typeof dropped.name === 'string' && dropped.name) goneProjectNames[projectId] = dropped.name;
-    /** @type {Record<string, unknown>} */
-    const syncErrors = Object.assign({}, src.syncErrors || {});
-    removed.forEach(id => { delete syncErrors[id]; });
-    const outbox = (src.outbox || []).filter(id => !removed.has(id));
-    const statusPending = (src.statusPending || []).filter(id => id !== projectId);
-    const foremen = (src.foremen || []).slice();
-    const foremanMoves = (src.foremanMoves || []).slice();
-    const parties = (src.parties || []).slice();
     /** @param {readonly SyncDoc[] | null | undefined} rows */
     const rowsForProject = rows => (rows || []).filter(row => {
       if (!row || row.projectId !== projectId) return true;
@@ -675,6 +667,14 @@
     const agreements = rowsForProject(src.agreements);
     const accountTxns = rowsForProject(src.accountTxns);
     const statementApprovals = rowsForProject(src.statementApprovals);
+    /** @type {Record<string, unknown>} */
+    const syncErrors = Object.assign({}, src.syncErrors || {});
+    removed.forEach(id => { delete syncErrors[id]; });
+    const outbox = (src.outbox || []).filter(id => !removed.has(id));
+    const statusPending = (src.statusPending || []).filter(id => id !== projectId);
+    const foremen = (src.foremen || []).slice();
+    const foremanMoves = (src.foremanMoves || []).slice();
+    const parties = (src.parties || []).slice();
     /**
      * @param {Readonly<Record<string, SyncDoc>> | null | undefined} map
      * @returns {Record<string, SyncDoc>}
@@ -1055,6 +1055,10 @@
             const outcome = adoptFound(local, found.doc || {});
             if (outcome === 'queued') { keepId(id); continue; }
             if (outcome === 'refused') {
+              if (local.docType === 'statementApproval') {
+                failId(/** @type {string} */ (local.id), Status.failureMessage(failure, local, found.doc, false));
+                continue;
+              }
               if (await failAccount(local) === 'auth') return pack(true);
             }
             continue;

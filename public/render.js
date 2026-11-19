@@ -615,6 +615,11 @@ function rejectedExportText(u) {
   const shaped = extra.map(row => {
     const doc = row.doc || {};
     errors[row.id] = row.message;
+    const people = /** @type {{ id?: string, name?: string }[]} */ (get(K.parties, []) || []);
+    const person = people.find(item => item && item.id && item.id === doc.partyId);
+    const partyName = person && typeof person.name === 'string' && person.name
+      ? person.name
+      : (typeof doc.name === 'string' ? doc.name : '');
     return {
       id: row.id,
       entryDate: typeof doc.txnDate === 'string' ? doc.txnDate : '',
@@ -622,7 +627,7 @@ function rejectedExportText(u) {
       amount: doc.amount,
       currency: doc.currency || '',
       description: doc.description || doc.purpose || doc.kind || '',
-      partyName: doc.partyId || doc.name || '',
+      partyName,
       createdBy: doc.createdBy,
       createdByName: doc.createdByName,
       createdAtDevice: doc.createdAtDevice,

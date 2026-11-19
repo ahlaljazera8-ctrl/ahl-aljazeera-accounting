@@ -784,8 +784,8 @@ test('E26 logout export', () => {
   const revId = 'rev_' + AGR;
   const store = {
     entries: [], projects: [{ id: 'p1', name: 'مدرسة' }], agreements: [{ id: revId, docType: 'agreement', projectId: 'p1', amount: 600000, description: 'عكس', reversalReason: 'سبب' }],
-    accountTxns: [{ id: accountId, docType: 'accountTxn', projectId: 'p1', amount: 600000, description: 'دفعة', purpose: 'payLabor', currency: 'IQD' }],
-    statementApprovals: [], parties: [],
+    accountTxns: [{ id: accountId, docType: 'accountTxn', projectId: 'p1', partyId: 'person-kareem', amount: 600000, description: 'دفعة', purpose: 'payLabor', currency: 'IQD' }],
+    statementApprovals: [], parties: [{ id: 'person-kareem', name: 'كريم البناء' }],
     syncErrors: { [accountId]: Status.REJECTED, [revId]: Status.REJECTED },
     slotLosers: { [slotKey]: { id: SLOT, projectId: 'p1', amount: 1, description: 'قياس' } },
     linkRefusals: { [linkKey]: { id: 'stl_1', projectId: 'p1', amount: 5, description: 'تسوية' } },
@@ -800,6 +800,8 @@ test('E26 logout export', () => {
   assert.equal(csv.includes(linkKey), true);
   assert.equal(csv.includes(revId), true);
   assert.equal(csv.includes('600000'), true);
+  assert.equal(csv.includes('كريم البناء'), true);
+  assert.equal(csv.includes('person-kareem'), false);
   assert.equal(csv.includes(Status.CONFLICT), true);
   screen.set(screen.K.rejectedExportedIds, [accountId, slotKey, linkKey, revId]);
   assert.equal(screen.rejectedLogoutBlock(), false);
@@ -818,11 +820,34 @@ test('E28 plain denial', async () => {
   assert.equal(row.amount, 600000);
 });
 
+test('a parked id leaves the outbox and loses its previous sync error', () => {
+  const applied = Status.applyFlush(['parked-id', 'kept-id'], {
+    'parked-id': Status.REJECTED,
+    'kept-id': Status.CONFLICT,
+  }, { parked: ['parked-id'], synced: [], failed: [], kept: [] });
+  assert.equal(applied.outbox.includes('parked-id'), false);
+  assert.equal(applied.errors['parked-id'], undefined);
+  assert.equal(applied.errors['kept-id'], Status.CONFLICT);
+  assert.equal(applied.outbox.includes('kept-id'), true);
+});
+
+test('a statement approval clash uses the existing conflict sentence', async () => {
+  const local = {
+    id: 'stmt-1', docType: 'statementApproval', partyId: 'party-1', projectId: 'p1',
+    periodKind: 'week', periodStart: '2026-11-01', periodEnd: '2026-11-07', createdBy: 'owner-b',
+  };
+  const server = Object.assign({}, local, { createdBy: 'owner-a', periodEnd: '2026-11-14' });
+  const { result } = await runFlush([local], { read: () => ({ status: 'found', doc: server }) });
+  assert.equal(result.synced.includes(local.id), false);
+  assert.equal(result.adopted.length, 0);
+  assert.equal(result.failed[0].message, Status.CONFLICT);
+});
+
 test('E29 project cleanup', async () => {
   const src = {
     projects: [{ id: 'p1', name: 'مدرسة', currency: 'IQD', createdAtServer: 1 }],
-    entries: [], subcontracts: [], amendments: [], outbox: ['ag-wait', 'txn-wait'],
-    syncErrors: { 'txn-no': Status.REJECTED },
+    entries: [], subcontracts: [], amendments: [],     outbox: ['ag-wait', 'txn-wait', 'st-1'],
+    syncErrors: { 'txn-no': Status.REJECTED, 'st-1': Status.REJECTED },
     agreements: [
       { id: 'ag-wait', projectId: 'p1', docType: 'agreement' },
       { id: 'ag-live', projectId: 'p1', docType: 'agreement' },
@@ -847,6 +872,11 @@ test('E29 project cleanup', async () => {
   assert.equal(kept.slotLosers[Sync.slotLoserKey('txn-live')].id, 'txn-live');
   assert.equal(kept.linkRefusals['uuid-1'].id, 'stl');
   assert.equal(kept.parties[0].id, 'party-1');
+  assert.equal(kept.outbox.includes('ag-wait'), true);
+  assert.equal(kept.outbox.includes('txn-wait'), true);
+  assert.equal(kept.outbox.includes('st-1'), true);
+  assert.equal(kept.syncErrors['txn-no'], Status.REJECTED);
+  assert.equal(kept.syncErrors['st-1'], Status.REJECTED);
   const gone = Sync.dropProjectLocal(/** @type {LocalStore} */ (src), 'p1', { dropPending: true });
   assert.equal(gone.agreements.some(row => row.projectId === 'p1'), false);
   assert.equal(gone.accountTxns.some(row => row.projectId === 'p1'), false);
@@ -855,6 +885,11 @@ test('E29 project cleanup', async () => {
   assert.equal(gone.linkRefusals['uuid-1'], undefined);
   assert.equal(gone.parties.length, 1);
   assert.equal(gone.agreements.some(row => row.id === 'ag-other'), true);
+  assert.equal(gone.outbox.includes('ag-wait'), false);
+  assert.equal(gone.outbox.includes('txn-wait'), false);
+  assert.equal(gone.outbox.includes('st-1'), false);
+  assert.equal(gone.syncErrors['txn-no'], undefined);
+  assert.equal(gone.syncErrors['st-1'], undefined);
   const pulled = await Sync.pullAccounts({
     user: { role: 'owner', active: true, uid: 'owner-a' },
     since: null,
