@@ -1,337 +1,165 @@
-# PLAN ONLY: contractor PRs G–J sketch
+# PLAN ONLY: contractor PRs G–J, the middle way
 
-No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. The four code pull requests come after the Architect reviews this sketch and Ameer says go.
+No code in this pull request. No edit to `public/`, `firestore.rules`, or `public/sw.js`. No test data. The code pull requests come after the Architect reviews this sketch and Ameer says go.
 
-Revision r10, on head `5b347d48`. Revision r9, on head `0f5f8b76`. Revision r8, on head `bd38a9af`. Revision r7, on head `33fbcadf`. Revision r6, on head `b2914047`. D citations were rechecked at main `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`. Revision r5, on main `f1c5070426906e14c2e815c288c7327387115b1a`. The contract below is unchanged from r4. r3's three rulings stay: the verify id is the action id, `buttonId` is `act-` plus that id, and `syncTab` stays F's nav helper, which G–J do not call. The answers file is `answers-EA-delegated-0034.md`, sha256 `d94eeba5447a75caf4fef37eb14fa44f75f8f2edca4ad8cb98e0c166724b7d7b`. Its 15:02, 15:35, and E N6 sections are unchanged from `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`. The 15:35 section is "Ameer answers, 2026-11-16 15:35". A person balance is one net: `مستحق له` or `مستحق عليه`. There is no `المتبقي سلفة` line, and `مستحق عليه` has no `(سلفة)`. Revision r2, against Architect NOTES on `9262d7c09040cf2597b395c352d67f17be8b0c9a` (review sha256 starts `c36dded8`). EA approved the defaults in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16.
+Revision r18, against Architect NOTES on r17 head `02f5f1ea991d8b8607b05e2341416987c2f50f3d` (blob `c14ad50e`). r17 answered the notes on r16 head `656ad3bf` (blob `6a84fb4e`). r16 answered the notes on r15 head `2c30b9d7` (blob `8f9aa388`). r15 answered the notes on r14 head `f4acad8d`. r11 was on main `a1ca326b7149203998c296352b9178ece68fb447`. It replaced the sketch merged as #79 at `818039a518a3b2f5ffbab74ee47a3a3b9298d3bf`. That file calls itself r10 and names r7 as head `33fbcadf`. This revision keeps Ameer's decision of 2026-11-20 18:16 Baghdad. Arena was not run. Ameer's gate bans it (cost).
 
-Parent plan: `plan-contractor-module-r2.28.md`, sha256 `ef1c98d08a7118ed35469d250c81605a7f17f518d949f8446b8c63bb1869c8a2`. Status note: handoff `plan-status-r2.29.md`. Strings list: `strings-contractor-module-r2.22.md`, sha256 `9d25840a01257eb76cba6ce6323d32436bd08c471e5e49a703af9d6bb10a6d3a`. PR B's types and `post` are the ones in `contractor-pr-b-sketch-r3.md`. This sketch treats that file as what B will add. It does not re-specify B.
+Citations below were read on this main. A code pull request reads line numbers again at its own base. A fact this repo does not contain is marked [OPEN] in that section. It does not block this sketch.
 
-Arena was not run. Ameer's gate bans it (cost). Two shapes are compared below. The shape that won is four flow files and twelve one-document saves.
+## What changed vs r7
 
-Base for these citations: `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. Service worker `VERSION` is `aj-p0-v64` (`public/sw.js` line 2). A code pull request reads line numbers and the unit lists from main at its own base. This sketch does not reserve a service-worker number.
+r7 put the write buttons on the «حسابات» tabs and treated a payment above approved work as one `payLabor` with a negative balance and no preview. r8 through r10 added the refused-cancellation rules. Those r8–r10 rules stay. The 2026-11-20 decision changes the six items below. r7's twelve saves, the slot id, the caps, the deduct, and the reversal ids stay.
 
-## Scope
+| Item | What the decision does                                                                                                                                                                             | Screens, files, functions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Removed or moved                                                                                                                                                                                                                                                                                            |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Two input places, «مقاول» and «عهد». «حسابات» is the read-only statement per person. New contracts use the new model. Old contracts finish on their own screens. No opening balance. No migration. | G adds `views.contractor` in `public/accounts-work.js` and the nav call beside `AccountsView.syncTab` (`public/render.js` line 1334). H, I, and J paint their save buttons on that screen. «عهد» stays `ForemenUI` (`public/foremen.js` line 23, nav `syncForemenTab` at `public/render.js` lines 988-1002). «حسابات» stays `accountHtml` (`public/accounts-view.js` lines 312-327). The file's first line already names that page read-only. Old contract detail stays `views.sub` (`public/render.js` lines 823-856).      | Write buttons move off the «حسابات» tabs. `actionHtml` (`public/accounts-view.js` lines 270-280) paints only `agreements`, `movements`, and `statement`. G–J push `tab: 'contractor'`, so those tabs stay empty of `act-` buttons. No opening-balance field. No copy from `subcontracts` into `agreements`. |
+| 2    | Cost is recognised when a measurement is approved, as in r7. The period «مستخلص» is a display of approved measurements minus advances. No new record type. No rules change.                        | G's `approveLaborDoc` still calls `Accounts.post('approveLabor')`. The cost effect is already `{ cost: 1, person: 1, cash: 0 }` (`public/accounts.js` line 71). K's `projectCost` is what puts that cost on the project figure. J paints the period «مستخلص» from `balances` (`public/accounts.js` lines 865-871) inside the period `statementLines` already returns (`public/accounts.js` line 942).                                                                                                                        | No «مستخلص» collection. No new match in `firestore.rules`. The period view does not write `statementApprovals`. That collection stays the r7 issue record (`firestore.rules` lines 1134-1181), and its button moves to «مقاول».                                                                             |
+| 3a   | Deduct advances from approved work.                                                                                                                                                                | The fold already does this: `net` at `public/accounts.js` line 865 is approved labor, minus advances, minus payments, plus cash returned, plus refunds, minus deductions. J prints that number. It does not add a second sum.                                                                                                                                                                                                                                                                                                | No new balance function.                                                                                                                                                                                                                                                                                    |
+| 3b   | One statement reads old and new contracts and shows two totals. Cost is old paid plus new approved, and that is the contractor cost in the P&L. Cash out is all payments and advances.             | J's `contractorTotals` is per `projectId`. A ledger row has `projectId` and `partyName`, and no `partyId` (`firestore.rules` line 83). Old paid is live `subcontractor` rows on that project. New approved is the full live `approveLabor` on that project. A deduct does not reduce it. Cash out's new-model half is a `rowCounts` walk of the cash purposes, checked against that walk, not against `balances()`. K's equality test lives in K's behaviour test. J names the same numbers and does not ship the assertion. | The statement does not store either total. It is not a per-person sum. «قيود بلا عقد» are their own line, outside old paid. See رأي المعماري والمحاسب.                                                                                                                                                      |
+| 3c   | Hide «+ عقد مقاول» for new contracts.                                                                                                                                                              | The hide uses the same runtime constant as K. While `CONTRACTOR_COST_START` is null (`public/accounts.js` line 11), the anchor at `public/render.js` lines 93-96 stays, and `#subnew` stays the form `tests/browser-check.js` lines 323-329 already check. When the constant is a date, G hides the anchor and `#subnew` (`public/render.js` lines 859-879) shows no create form.                                                                                                                                            | The button stays while the constant is null. The old card, «المدفوع», and `views.sub` stay either way. Payments on an existing old contract stay on the entry form (`public/render.js` lines 1458-1463).                                                                                                    |
+| 4    | A payment above approved-unpaid work defaults to «سلفة» and is shown before saving. A quantity tile on the person page, display only.                                                              | H's `paymentSplit` caps «عن عمل معتمد» at `max(0, balances().net)` for that person on that project (`public/accounts.js` line 865). `payable` (line 871) does not subtract advances, so it is not the cap. The form shows the split before `commitDoc`. J paints «الكمية» on the «حسابات» person page from live approved unit qty. The tile is not an input and not a stored field.                                                                                                                                          | r7's single `payLabor` for the excess is gone. r7's "no preview" is gone. There is still no second dialog. The split is the form.                                                                                                                                                                           |
+| 5    | Old expense rows that may be advances: a list. The owner decides each row. A correction is «ملغى» plus one corrected line. No bulk edit. No automatic recalculation.                               | L, `public/accounts-reclass.js`. The list is live `labour` rows with no `foremanId`. «ملغى» stores `Ledger.makeReversal` (`public/ledger.js` lines 295-306). The corrected line is one `advanceLabor`.                                                                                                                                                                                                                                                                                                                       | No bulk write. No rewrite of any other row. No new Firestore field. Subcontractor rows stay on the old contract (item 1, item 3b). A row with `foremanId` stays on «عهد» (item 6).                                                                                                                          |
+| 6    | Linking «عهد» is after this phase, by an entry the owner approves: «تسوية العهدة من المستحق».                                                                                                      | Out of G–J and out of L. No file in this sketch implements it.                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Not a save in the twelve. Not a rules change.                                                                                                                                                                                                                                                               |
 
-Plan r2.28 lines 929-948. Order is A, B, C, then D merged and deployed by Ameer, then E, F, K, then G–J. G–J are the write screens. Each save queues one document. F is on this main (`public/accounts-view.js`, PR #76), including the project-delete guard. K's `projectCost` is still the stub at `public/accounts.js` lines 1031-1034, which returns 0. The code pull requests start after that stub is the real cost, and they do not drop F's guard.
+Deferred, because the owner chose not to add them: half day, overtime, close-by-date on a rate change, suggested settlement, one-step owner approval, engineer entering days. They are not a screen, a type, a test, or a string in G–J or L.
 
-v1 is the smaller cut (plan section 14). In: a labor agreement (lump, unit, daily, amount milestone), a measurement, its approval, a payment, an advance, a cash return, a labor refund, a labor deduct and its approval, a settle, a reversal, a live statement, and `statementApprovals`. IQD only. Four tabs, which F owns: `نظرة عامة`, `العقود`, `الحركات`, `كشف الحساب`.
+## PR order
 
-Out of every G–J file, type, test, and string: materials, invoices, USD, attachments, the role list, milestone percent, and `otherApproved` / `آخر معتمد`. Percent stays denied (Q-percent, phase 2). `otherApproved` stays out of `PURPOSES` and off the payment form (EA Q26). The project-delete guard is F's. G–J depend on it and do not write a second one (EA Q27). Strings 86 and 87 stay F's sentences. G–J do not paint them.
+This sketch's code pull requests are five: G, H, I, J, then L.
 
-`CONTRACTOR_COST_START` stays `null` (`public/accounts.js` line 11). `projectCost` (`public/accounts.js` lines 1031-1034) returns 0 and has no date loop. An approval document is still written. The home and project figures do not move while the constant is null. Plan line 946 says G–J come after K so an approval moves the project figure. That sentence is the reason these screens follow K. It is not true on screen while the constant is null, which plan section 10 already says. The drives below assert the document and the person page. They do not assert a new home total.
+K is not one of the five. K is the real `projectCost`. On this main the function is the stub at `public/accounts.js` lines 1031-1034 and it returns 0. Item 2's recognition in the P&L, and item 3(b)'s equality with that figure, are K's runtime behaviour. The cutover date is not a merge gate. The parent plan is not in this checkout. The Architect's note on `f690075a` cites that plan's line 689: while `CONTRACTOR_COST_START` is null, K does not add the new cost. On this main the constant is null (`public/accounts.js` line 11) and the stub returns 0, which is that same runtime rule. K merges with the constant still null. An approval still writes its document. The home figure does not move until an engineer sets the constant and deploys, after Ameer says go.
 
-## The twelve saves
+What must run first: K. G, H, I, and J merge after K is merged, and only while F's project-delete guard is on main. The guard is on this main: `Ledger.personProjectDeleteBlock` (`public/ledger.js` line 1142), called from `projectDeleteBlock` (`public/render.js` lines 1111-1121) and `deleteProjectNow` (`public/render.js` line 1184). F is #76, merge `2d21ef03c8cb128ab347a35022b8505d08a417c3`. B is #81, merge `24fb839556bae41d9f721ad8f09ce61a0e0f55b5`. L merges after J. None of these five wait for the date. Item 3c uses the same constant at runtime: the old new-contract button stays while it is null, and it is hidden once the constant is a date.
 
-The plan's twelve (r2.2 onward, the Q-screens note) are the spec's nine actions plus `اعتماد`, `رفض السطر`, and `نسخة جديدة`. Three of the nine are material buttons. Section 14 removes them: `تسجيل شراء مواد`, `صرف سلفة مواد`, `تسجيل توريد مواد`. They are not in G–J.
+Inside the five, the order is G, H, I, J, L. A revert of one does not require reverting the others. They still rebase the shared files, because each of them edits that set.
 
-A single `تسجيل دفعة` button that picks among four purposes hides three documents inside one revert. Plan line 946 is the twelve actions, one document each. Plan line 73 is the shared-id rule: one deterministic id is one document. `PURPOSES` already has four labor cash rows. EA Q24 counts each cash save as its own action. That replaces the three material buttons and keeps the count at twelve. `تسجيل دفعة` stays the title of the payment form.
+## Two shapes
 
-| #   | Save                     | Document                          | Collection                  | PR  | Verify id            |
-| --- | ------------------------ | --------------------------------- | --------------------------- | --- | -------------------- |
-| 1   | `عقد عمل جديد`           | agreement                         | `agreements/{uuid}`         | G   | `new-agreement`      |
-| 2   | `تسجيل عمل منجز`         | `laborQty` body                   | `accountTxns`               | G   | `labor-qty`          |
-| 3   | `اعتماد قياس العمل`      | `approveLabor`                    | `appr_<bodyId>`             | G   | `approve-labor`      |
-| 4   | `عن عمل معتمد`           | `payLabor`                        | uuid body                   | H   | `pay-labor`          |
-| 5   | `سلفة عمل قادم`          | `advanceLabor`                    | uuid body                   | H   | `advance-labor`      |
-| 6   | `إرجاع سلفة لم تُصرف`    | `returnAdvance`                   | uuid body                   | H   | `return-advance`     |
-| 7   | `استرداد نقدي من العامل` | `refundLabor`                     | uuid body                   | H   | `refund-labor`       |
-| 8   | `نسخة جديدة`             | `sup_` of an unapproved uuid body | `sup_<oldId>`               | I   | `supersede`          |
-| 9   | `رفض السطر`              | `rej_`                            | `rej_<bodyId>`              | I   | `reject`             |
-| 10  | `اعتماد`                 | `approveDeduct`                   | `appr_<deductId>`           | I   | `approve-deduct`     |
-| 11  | `تسوية سلفة`             | `settle`                          | `stl_<bodyId>_<gen>`        | J   | `settle`             |
-| 12  | `إصدار كشف حساب`         | statement approval                | `statementApprovals/{uuid}` | J   | `statement-approval` |
+Chosen shape. «مقاول» is the only place a new contract, a measurement, an approval, a payment, a correction, or a statement issue is saved. «عهد» stays the custody screen that already exists. «حسابات» reads. It paints the balance, the quantity, the period «مستخلص», and the two totals. It appends nothing. Old contracts stay in `subcontracts` and finish there. Each piece of money has one owner: `balances` owns the person number, `projectCost` owns the project cost, `makeReversal` owns «ملغى», `post` owns the new-model document.
 
-`خصم` writes the deduct body that save 10 approves. It is a thirteenth document. EA Q25 puts it inside I, beside `اعتماد`, and not in a fifth pull request. Its verify id is `deduct`.
+Shape not chosen. r7's writes stay on the «حسابات» tabs, a payment above approved work is one `payLabor`, the excess is not shown as «سلفة», and there is no old-plus-new total. That shape fights the 2026-11-20 decision. Arena was not run.
 
-Three more writes are already decided and are not members of the twelve. H's `تدقيق` writes `revw_` (Q10 أ). I's `عكس` writes `rev_<id>` (section 14, reversal). G's `cancel-agreement` writes `agreementReversalDoc` (`rev_<agreementId>` in `agreements`). Verify ids: `review-cash`, `reverse`, `cancel-agreement`. The label reuses `عكس` and `معكوس`. No new Arabic word.
+## Domain
 
-The twelve, plus `deduct`, `review-cash`, `reverse`, and `cancel-agreement`, are the sixteen G–J action ids. The contract's seventeenth row is `statement-share`, reserved for S. G–J do not implement it.
+One person balance. It is `balances().net` (`public/accounts.js` lines 865 and 893). The line is:
 
-Second shape, not chosen. Keep one `تسجيل دفعة` action with a purpose picker, drop the three material buttons, and ship nine actions. H is then one action. A revert of the refund takes the wage payment with it. The four purposes already differ in target, cap, and sentence, so they do not belong in one revert. Arena was not run.
+`net = approvedLabor - advancesPaid - payments + cashReturned + refunds - deductions`
 
-Copied from main `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`, file `docs/plans/contractor-pr-f-sketch.md`, blob `a3703c4651c7e2928b5d13aa1a2940ef0b1a5925`. The slice from `## F to G-J contract` up to, and not including, `## Contract hash` is byte-identical. Its sha256 is `5b9524fc9875744245131be80a515fb3a8873d610647717cbb4d5d248199865f`.
+That is work value minus total paid. Work value is approved labor minus deductions. Total paid is payments, minus refunds, plus advances, minus cash returned. `settle` has effect zeros (`public/accounts.js` line 78) and is not in `net`. J does not add a second fold. The overview test already expects 480,000 from this net, not 550,000 (`tests/accounts-view.test.js` lines 200-213).
+
+The balance label is `الرصيد المستحق`, with the direction `مستحق له` or `مستحق عليه` next to the number, and no `(سلفة)`. The source is Ameer's message at 2026-11-19 12:49 Baghdad, verbatim `اقصد نستهدم الرصيد المستحق`, answering the accountant's proposal to write only `الرصيد:`. EA checked that log with Ameer. The 12:50 "final wording" has no source and is not cited. `لا شيء (مسدّد)` and `حسب الإنجاز (الكمية × سعر الوحدة)` are `بانتظار أمير`. The nav word `مقاول` is the word in the 2026-11-20 decision ("two input places «مقاول» and «عهد»"). This sketch paints that word. A different nav string would be pending Ameer. The custody nav stays `العُهد` (`public/foremen.js` line 23, `public/render.js` line 999).
+
+The balance line, X always positive, no U+2212, never «(سلفة)»:
+
+- `net > 0`: `الرصيد المستحق` then `مستحق له` then `X د.ع`
+- `net < 0`: `الرصيد المستحق` then `مستحق عليه` then `X د.ع`, with X = `-net`
+- `net === 0`: `الرصيد المستحق` then `0 د.ع`. `لا شيء (مسدّد)` is `بانتظار أمير` and is not painted.
+
+`money` (`public/render.js` line 56) calls `Ledger.fmt` (`public/ledger.js` line 484), which prefixes a negative with U+2212. The balance line passes the absolute value. The project-delete sentences stay F's. `personProjectDeleteBlock` still says `مستحق له` and `مستحق عليه` (`public/ledger.js` lines 1160-1161). Those are strings 86 and 87. G–J do not paint them.
+
+The period «مستخلص» is a display for one project and the open period. `statementLines` already folds a period (`public/accounts.js` lines 960-968). J reads it and writes nothing. رأي المعماري والمحاسب: the block shows three lines, in this order. Approved work value (`approvedLabor`). Then the deduction line (`deductions`, the existing label `الخصومات ومرتجعات المواد` at `public/accounts.js` line 543). Then the net due, which is that work value minus the deductions minus the period's advances (`advancesPaid - cashReturned`). Cost is the approved work value alone. A deduction repays a debt and does not reduce cost. `PURPOSES.deduct` still has `cost: -1` (`public/accounts.js` line 76). That is B's table. K's new cost half does not apply that effect, so K disagrees with B's row. The person effect on the deduct stays. `settle` stays the explicit r7 link, with effect zeros (line 78), and its button is on «مقاول».
+
+`contractorTotals(projectId)` is a display for one project. It does not take a person. A ledger row cannot be summed per person: `shapeOk` allows `partyName` and does not allow `partyId` (`firestore.rules` line 83). `oldPaid` is the signed sum of live `subcontractor` rows on that project that have a `subcontractId` (`sign` is `public/ledger.js` line 24, `countedEntries` drops a `syncErrors` id at line 340). A row with no `subcontractId` is «قيود بلا عقد» (`public/render.js` lines 838-839). The card says it does not enter «المدفوع» or «المتبقي» (line 856). رأي المعماري والمحاسب: those rows stay out of every contractor's `oldPaid`, and the reconciliation shows them as their own line. They are listed so Ameer can link one to a contractor when he knows which. `newApproved` is the full live `approveLabor` amount on that project. It is not reduced by deducts. The reconciliation cost is `oldPaid + unlinked + newApproved`.
+
+Cash out is not defined as "the payment entries", and it is not checked by calling `balances()` twice. The new-model half is a walk of its own. `rowIndex` (`public/accounts.js` line 586) and `rowCounts` (line 746) keep a live `payLabor` or `advanceLabor` as plus the amount, and a live `returnAdvance` or `refundLabor` as minus the amount, for that `projectId`. J paints that sum. The test's expected number is the arithmetic of the fixture's constants. It is not a second call of the walk, and it does not read `balances().payments`. Person sums of those same constants equal the project total. `cashOut` on the screen is the old paid cash (the `oldPaid` rows) plus that walk. A still-owed L advance is inside the walk, so this contractor cash out rises by that amount. Company-wide cash does not: the reversed labour expense and the new advance are the same amount. The screen shows that rise on its own line. Until Ameer confirms `أُعيد تصنيفها`, the line shows `سلفة`. That interim label is `بانتظار أمير`. `أُعيد تصنيفها` is also `بانتظار أمير`. The amount is the still-owed advances. K does not compute cash out.
+
+`paymentSplit(amount, approvedUnpaid)` returns `{ payLabor, advanceLabor }`. رأي المعماري والمحاسب: the «سلفة» cap is per project. `approvedUnpaid` is filtered by that project and that person. `approvedUnpaid` is `max(0, balances(txns, { partyId, projectId, syncErrors }).net)` (`public/accounts.js` line 865). A payment above that figure defaults to «سلفة». The «حسابات» scope flag (`public/accounts-view.js` lines 142-148) is a different filter and is not this cap. `payable` (line 871) does not subtract advances, so it is not this cap. `payLabor` is `min(amount, approvedUnpaid)`. `advanceLabor` is the rest. Both are integers and neither is negative. One purpose cannot carry both effects (`public/accounts.js` lines 72-73), so a positive part is its own document. The form shows both parts before the save. One tap then calls `commitDoc` once per positive part. Each builder still returns one document. The two ids are not linked. `parentPointers` (`public/sync.js` lines 820-828) holds a queued record back only when it has `targetId`, `reversesId`, `supersedesId`, or `settlesId`. `cashBodyCreate` forbids those keys (`firestore.rules` lines 882-885). A refusal is known when the flush returns, not before the form clears. The accepted document stays. The refused id shows `رُفض الإرسال` (`public/sync-status.js` line 12) and is included in the refused export the phone already makes. That new-id rule is for H's cash body only. A `payLabor` or `advanceLabor` cannot store the link: `cashBodyCreate` forbids `targetId`, `settlesId`, `supersedesId`, and `reversesId` (`firestore.rules` lines 882-885). The link is local. H adds `refusedLinks: 'refusedLinks'` on the `K` object (`public/session.js` line 5). `set` stores `{ refusedId, nextId }` in the IndexedDB `meta` store (`public/session.js` lines 73-78). The owner re-enters the refused cash as a new id. The card reads `refusedLinks` and shows the new id next to the refused id. The refused id is not sent again. `refusedLinks` is wiped on logout (`public/session.js` line 419). That is harmless: the refused cash document is already in the export, and the new id is entered on the phone that still shows that row. After logout the refused row is gone, so the link is not needed. No re-send exists in `public/`. E's rule is fail once and re-enter. The parent plan is not in this checkout. The Architect's note cites that plan's lines 149 and 943 for that rule. This sketch does not reopen N6. L's ledger reversal cannot use a new id. `firestore.rules` line 134 and `public/ledger.js` line 250 require `rev_` plus the original id, and `public/ledger.js` line 253 blocks a second reversal while the refused `rev_` is still local. Nothing discards that `rev_` until export plus logout. There is no automatic `rev_`. This sketch does not edit `public/sync.js`.
+
+The server has no cap. `cashBodyCreate` reads the user, the project, and the party (`firestore.rules` lines 867-869) and checks `moneyOk` (line 881). It does not read another `accountTxns` row and it does not compare `amount` to approved work. Two phones can each preview the same `approvedUnpaid` and each save a `payLabor` for it. Both creates are accepted. The next open of the form shows the new `net`. G–J do not add a server cap. That would be a rules change.
+
+The unit method stays `بسعر الوحدة` (`public/accounts-view.js` line 388) while `حسب الإنجاز (الكمية × سعر الوحدة)` is `بانتظار أمير`. Lump, daily, and milestone keep `مبلغ مقطوع`, `باليوم`, and `مرحلة`.
+
+The quantity tile sums `qty` on live `approveLabor` rows whose agreement `method` is `unit`, for that person. Display only.
+
+«ملغى» is not a string in `public/` or `firestore.rules` on this main. The stored row is the reversal that already exists: id `rev_` plus the original id (`public/ledger.js` line 289), `isReversal: true` (`firestore.rules` lines 131-136). The entry screen already says `معكوس` (`public/render.js` line 580) and the existing button says `عكس` (`public/render.js` line 582). L uses the owner's word `ملغى` on its own button. It does not add a status field.
+
+## Scope that r7 already fixed
+
+v1 stays the smaller cut. In: a labor agreement (lump, unit, daily, amount milestone), a measurement, its approval, a payment, an advance, a cash return, a labor refund, a labor deduct and its approval, a settle, a reversal, a live statement, and `statementApprovals`. IQD only. «حسابات» keeps F's four tabs: `نظرة عامة`, `العقود`, `الحركات`, `كشف الحساب` (`public/accounts-view.js` line 319). Those tabs read. They do not save.
+
+Out of every G–J and L file, type, test, and string: materials, invoices, USD, attachments, the role list, milestone percent, and `otherApproved` / `آخر معتمد`. Percent stays denied. `otherApproved` stays out of `PURPOSES` (`public/accounts.js` lines 69-79) and off the payment form. The project-delete guard is F's. These pull requests depend on it and do not write a second one. Strings 86 and 87 stay F's sentences.
+
+`CONTRACTOR_COST_START` stays `null` on this main. Setting it is a later deploy, not a merge gate. An approval document is still written. The drives run with the constant null. They assert the document and the person page. They do not assert a new home total. That matches K's runtime rule, and it does not wait on the date.
+
+The twelve saves stay one document each, except H's split, which is one tap that names two existing document kinds before saving. L is two taps in order. The first writes only the `ملغى` reversal. The `سلفة` is a later tap, and only after that reversal is accepted. Each builder still returns one document. `commitDoc` (`public/accounts-view.js` lines 131-135) still appends one id.
+
+| #   | Save                     | Document           | Collection                  | PR  | Verify id            | Screen |
+| --- | ------------------------ | ------------------ | --------------------------- | --- | -------------------- | ------ |
+| 1   | `عقد عمل جديد`           | agreement          | `agreements/{uuid}`         | G   | `new-agreement`      | مقاول  |
+| 2   | `تسجيل عمل منجز`         | `laborQty` body    | `accountTxns`               | G   | `labor-qty`          | مقاول  |
+| 3   | `اعتماد قياس العمل`      | `approveLabor`     | `appr_<bodyId>`             | G   | `approve-labor`      | مقاول  |
+| 4   | `عن عمل معتمد`           | `payLabor`         | uuid body                   | H   | `pay-labor`          | مقاول  |
+| 5   | `سلفة عمل قادم`          | `advanceLabor`     | uuid body                   | H   | `advance-labor`      | مقاول  |
+| 6   | `إرجاع سلفة لم تُصرف`    | `returnAdvance`    | uuid body                   | H   | `return-advance`     | مقاول  |
+| 7   | `استرداد نقدي من العامل` | `refundLabor`      | uuid body                   | H   | `refund-labor`       | مقاول  |
+| 8   | `نسخة جديدة`             | `sup_`             | `sup_<oldId>`               | I   | `supersede`          | مقاول  |
+| 9   | `رفض السطر`              | `rej_`             | `rej_<bodyId>`              | I   | `reject`             | مقاول  |
+| 10  | `اعتماد`                 | `approveDeduct`    | `appr_<deductId>`           | I   | `approve-deduct`     | مقاول  |
+| 11  | `تسوية سلفة`             | `settle`           | `stl_<bodyId>_<gen>`        | J   | `settle`             | مقاول  |
+| 12  | `إصدار كشف حساب`         | statement approval | `statementApprovals/{uuid}` | J   | `statement-approval` | مقاول  |
+
+`خصم` writes the deduct body that save 10 approves. It is a thirteenth document, inside I. Verify id `deduct`.
+
+Three more writes stay outside the twelve. H's `تدقيق` writes `revw_`. I's `عكس` writes `rev_<id>` in `accountTxns`. G's `cancel-agreement` writes `agreementReversalDoc` (`rev_<agreementId>` in `agreements`). Verify ids: `review-cash`, `reverse`, `cancel-agreement`. The label reuses `عكس` and `معكوس`.
+
+The plan's twelve (r2.2 onward, the Q-screens note) are the spec's nine actions plus `اعتماد`, `رفض السطر`, and `نسخة جديدة`. Three of the nine are material buttons and stay out: `تسجيل شراء مواد`, `صرف سلفة مواد`, `تسجيل توريد مواد`. H's `تدقيق` writes `revw_` (Q10 أ). Ameer's recorded Q9 for `cancel-agreement` is the same fields plus `reversesId`. The reason length is D's, `firestore.rules` lines 639-641. Q13 leaves a refused body in `syncErrors`. The picker does not offer it (`walkLive` marks that id dead at `public/accounts.js` line 668), so the next write is not a dependent the server refuses again.
+
+The twelve, plus `deduct`, `review-cash`, `reverse`, and `cancel-agreement`, are the sixteen G–J action ids. L adds `reclass`. It is not one of the sixteen. `statement-share` stays reserved for S. G–J and L do not implement it.
 
 ## F to G-J contract
 
-G–J r4 copies this section as it stands, after this r4, and records the hash below. S cites that same hash and does not edit this section. Names here do not change. F owns the registry, the module flag, and the guarded install list. G, H, I, and J do not edit `public/render.js`. S does not edit this text.
+The contract lives in `docs/plans/contractor-pr-f-sketch.md`. The slice from `## F to G-J contract` up to, and not including, `## Contract hash` is lines 102-255 of that file. Its sha256 is `5b9524fc9875744245131be80a515fb3a8873d610647717cbb4d5d248199865f`. This sketch does not recopy that slice. The line in it that says G, H, I, and J do not edit `public/render.js` (that file, line 104) has two named exceptions here. G edits `public/render.js` at lines 93-96, 859-879, and the `syncTab` call beside line 1334. L adds `AccountReclass` to the install list at lines 1653-1658.
 
-Script order: `accounts.js`, `accounts-view.js`, then `accounts-work.js`, `accounts-payment.js`, `accounts-correct.js`, `accounts-statement.js`, then the reserved `accounts-share.js`, then `render.js`. F's code PR adds only the `accounts-view.js` tag. The other new tags belong to G, H, I, J, and S. `accounts-view.js` creates the registry at load. An action script pushes only inside its `install`.
+`ActionTab` on this main is `'agreements' | 'movements' | 'statement'` (`types/checkjs.d.ts` line 861). G widens it with `'contractor'`. Until that edit, a strict check of an action whose `tab` is `contractor` fails. G does not extend `RenderApi` (lines 832-844). `buttonId` stays `act-` plus the id. Write actions use `tab: 'contractor'`, so `actionHtml` (`public/accounts-view.js` lines 270-280) paints none of them on «حسابات».
 
-`render.js` builds `api` once. `AccountsView.install(api)` and the install list below sit outside `if (window.ForemenUI)` (`public/render.js` line 1435 at `24fb8395`). `ForemenUI.install(api)` stays inside that `if`. The accounts tab does not depend on `foremen.js`.
+`buttonId` is `act-` plus the id. `syncTab` (`public/accounts-view.js` line 506) stays F's nav helper for «حسابات». G–J do not call it. G calls its own `syncTab` for «مقاول».
 
-The list already contains `AccountShare`, so S needs no further edit of this contract to be installed. A missing global is skipped. F does not ship `AccountShare`.
+Script order on this main: `accounts.js` then `accounts-view.js` then `render.js` (`public/index.html` lines 71-73). G inserts `accounts-work.js` after `accounts-view.js`. H, I, J, and L insert their scripts in that order, before `render.js`. `render.js` already installs `AccountWork`, `AccountPayment`, `AccountCorrect`, `AccountStatement`, and `AccountShare` (`public/render.js` lines 1653-1658). A missing global is skipped. L adds `AccountReclass` to that list.
 
-```javascript
-const accountInstalls = ['AccountWork', 'AccountPayment', 'AccountCorrect', 'AccountStatement', 'AccountShare'];
-accountInstalls.forEach(name => {
-  const mod = window[name];
-  if (mod && mod.install) mod.install(api);
-});
-```
+`commitDoc`, `readAccountScope`, `writeAccountScope`, `accountPeriod`, `modelFor`, `accountHtml`, and `statementFor` stay F's exports. J reads the scope helpers. It does not keep a second toggle and it does not compute a week or a month. A null `accountPeriod` means the statement dates are not shown and `statement-approval` does not save. The «مستخلص» block is hidden with them.
 
-`api` is the object built at `public/render.js` lines 1437-1442 at `24fb8395` and passed to `ForemenUI.install`. At that SHA its members are `views`, `titles`, `state`, `render`, `esc`, `money`, `queueDoc`, `confirmShell`, `lastSyncAt`, `formatSyncTime`, and `saveCsvFiles` (`public/render.js` line 1441). `RenderApi.saveCsvFiles?` is `types/checkjs.d.ts` line 738. Two optional members are named here so S does not change this contract to receive them: `saveFiles?` and `lastSyncMillis?`. They are not on the object at `24fb8395`. `lastSyncMillis` is a function at `public/render.js` line 1048 and is not on `api` yet. F does not add those two and does not extend `RenderApi` for them. S adds them. `get`, `set`, `uuid`, `me`, and `today` stay the existing globals. F does not add them to `api`. G–J and S call those globals.
-
-```javascript
-/**
- * @typedef {'agreements'|'movements'|'statement'} ActionTab
- * F's screen tab `الحركات` is `movements`. It is not `moves`.
- */
-
-/**
- * @typedef {{
- *   id: string,
- *   tab: ActionTab,
- *   label: string,
- *   buttonId: string,
- *   renderForm: () => string,
- *   onClick: (button: HTMLButtonElement) => boolean,
- *   save: (input: object) => { doc: object | null, errors: string[] }
- * }} AccountAction
- * renderForm returns '' when that action's form is closed.
- * onClick returns true when this action handled the button.
- * save does not call Firestore, does not append, and does not call queueDoc.
- * AccountsView.commitDoc is the one append for every save, including
- * create-person and every action. It appends the doc only when that id is
- * absent, then calls the global queueDoc once. The button is disabled from
- * the tap until save returns. The id is minted when the form opens and kept
- * until success. On errors the same id stays.
- */
-
-/** @type {AccountAction[]} */
-globalThis.AccountActions = [];
-```
-
-Each `install` pushes its own actions onto `globalThis.AccountActions` and does not replace the array. A second push of the same `id` is a no-op. Reverting one script removes its buttons. The other installs stay.
-
-Stable action ids and tabs. The label is that PR's approved string. `buttonId` is `act-` plus the id. `statement-share` is reserved for S. F does not implement it and does not paint its label.
-
-| id                   | tab          | module             |
-| -------------------- | ------------ | ------------------ |
-| `new-agreement`      | `agreements` | `AccountWork`      |
-| `cancel-agreement`   | `agreements` | `AccountWork`      |
-| `labor-qty`          | `movements`  | `AccountWork`      |
-| `approve-labor`      | `movements`  | `AccountWork`      |
-| `pay-labor`          | `movements`  | `AccountPayment`   |
-| `advance-labor`      | `movements`  | `AccountPayment`   |
-| `return-advance`     | `movements`  | `AccountPayment`   |
-| `refund-labor`       | `movements`  | `AccountPayment`   |
-| `review-cash`        | `movements`  | `AccountPayment`   |
-| `supersede`          | `movements`  | `AccountCorrect`   |
-| `reject`             | `movements`  | `AccountCorrect`   |
-| `deduct`             | `movements`  | `AccountCorrect`   |
-| `approve-deduct`     | `movements`  | `AccountCorrect`   |
-| `reverse`            | `movements`  | `AccountCorrect`   |
-| `settle`             | `statement`  | `AccountStatement` |
-| `statement-approval` | `statement`  | `AccountStatement` |
-| `statement-share`    | `statement`  | `AccountShare`     |
-
-`accountHtml` paints, inside the open tab only, one `<button type="button" class="btn" id="...">` per action whose `tab` equals that tab, then that action's `renderForm()`. The overview tab has no action and paints no `act-` button. F does not hardcode these labels. An empty registry paints no write button.
-
-`AccountsView.onClick` walks `AccountActions` in order and returns on the first `onClick` that returns true. Party-create handling runs only when none of them returns true.
-
-`AccountsView.commitDoc` is the only append. `save` does not append. Every save, including create-person and every action above, calls `commitDoc`. The button is disabled from the tap until `save` returns, so a second tap does not call `save`. `commitDoc` appends the document only when that id is absent, then calls `queueDoc` once. `queueDoc` itself is append-if-absent (`public/render.js` line 91). The id is minted when the form opens and kept until success. On errors the same id stays. Two taps store one document and one outbox id. G, H, I, J, and S do not write a second guard.
-
-```javascript
-/**
- * @param {string} id
- * @param {object} doc
- * @param {readonly object[]} rows
- * @param {(next: object[]) => void} write
- * One owner. Appends only when no row has this id, then calls queueDoc once.
- */
-function commitDoc(id, doc, rows, write)
-```
-
-Scope is not view state and not a field of `AccountScreen`. One module flag, written by the project pills and the week/month pills, read by J:
-
-```javascript
-/**
- * @typedef {{
- *   scope: 'project' | 'all',
- *   projectId: string,
- *   periodKind: 'week' | 'month',
- *   anchorDate: string
- * }} AccountScopeFlag
- * projectId is '' when scope is 'all'. anchorDate is YYYY-MM-DD.
- * Default: { scope: 'all', projectId: '', periodKind: 'week', anchorDate: today() }.
- */
-
-/**
- * @returns {AccountScopeFlag}
- */
-function readAccountScope()
-
-/**
- * @param {AccountScopeFlag} next
- */
-function writeAccountScope(next)
-
-/**
- * @returns {{ periodStart: string, periodEnd: string } | null}
- * Accounts.periodBounds(readAccountScope().periodKind, readAccountScope().anchorDate).
- * anchorDate defaults to today(). C's function (`contractor-pr-c-sketch.md` line 239 at `604d734`).
- * accounts-view.js does not define periodBounds. There is no statementPeriod.
- * The statement من input writes anchorDate, so last week is the same flag J reads.
- */
-function accountPeriod()
-```
-
-`AccountsView` exports `readAccountScope`, `writeAccountScope`, `accountPeriod`, `modelFor`, `accountHtml`, `statementFor`, and `commitDoc`. J reads the first three. It does not keep a second toggle and it does not compute a week or a month. A null `accountPeriod` means the statement dates are not shown and `statement-approval` does not save.
-
-`modelFor(user)` does not select a party. The caller passes `partyId` into `accountHtml(model, partyId)` or into `statementFor(user, partyId)`. Both reads are built from the full `K.accountTxns` list and `get(K.syncErrors, {})`. F does not drop rows that lack `partyId` before C's call. `accountHtml` is exported because S renders a synthetic model through it. `statementFor` returns C's `statementLines` result for that party and is the narrower read S may call. S does not call `statementLines` itself.
-
-```javascript
-/**
- * @param {{ role?: string, uid?: string }|null} user
- * @param {string} partyId
- * @returns {object}
- * C's statementLines result. Same full list and syncErrors as modelFor.
- */
-function statementFor(user, partyId)
-```
-
-Create-person, once E can route a party, uses the same `commitDoc`. The id is kept on the screen until success.
-
-```javascript
-const id = screen.formId || uuid();
-screen.formId = id;
-const row = { id, docType: 'party', name, createdBy: user.uid, createdAtServer: null, deviceId };
-commitDoc(id, row, parties, next => set(K.parties, next));
-```
-
-`queueDoc` appends the outbox before it decides whether to flush (`public/render.js` lines 89-92). The demo path never reaches `commitDoc`. A build whose `collectionFor` does not return `parties` never reaches it either.
-
-Second design considered: put the four tabs inside `views` in `public/render.js` (1,450 lines at `24fb8395`). Rejected. The Baghdad-date fix (#82) and the foreman-export PR (#84) are already on that commit. A page the size of `foremen.js` (519 lines) inside `views` would still collide with the next lane that edits `render.js`. The foremen module already hides a screen behind `install` and `onClick`.
-
-Third design considered: sum the overview in the view. Rejected. C's `balances` is the one fold. C replaces `personBalance`'s body with `balances(...).net`. F does not call `personBalance` and does not add a second sum. A second sum will drift from the statement, which is the 520,000 bug the plan already names (closing must stay 480,000 when a 40,000 settle is added).
+`queueDoc` (`public/render.js` lines 113-119) appends the id and skips the flush in the demo. These screens call that function. They do not add a second demo gate and they do not call `flushRemote`.
 
 ## Files each code PR edits
 
-Each code PR adds one flow script before `render.js`, the same pattern as `public/foremen.js` lines 1-25, and edits this shared set:
+Each code PR adds one flow script before `render.js` and edits this shared set:
 
-1. `public/sw.js` (`ASSETS`, `SHELL`, `VERSION`)
-2. `public/index.html` (one script tag)
-3. `public/session.js` (`SHELL_FILES` only, line 316)
-4. `tests/shell-cache.test.js` (pins at lines 44, 67, and 98, and the script order at lines 71-82)
-5. `tests/webkit-upgrade.test.js` (`MARK`, line 19)
-6. `package.json` (`"test"` and `"typecheck"`)
-7. `.github/workflows/ci.yml` (the unit-test list, kept identical to `"test"`)
-8. `docs/PSTACK_INVENTORY.md` (evidence link only; the status word stays)
-9. `scripts/verify-aj.js` (dispatch only)
+1. `public/sw.js` (`ASSETS`, `SHELL`, `VERSION`). On this main `VERSION` is `aj-p0-v67` (line 2).
+2. `public/index.html` (one script tag).
+3. `public/session.js` (`SHELL_FILES` only, line 351). Not `today()` (line 172), not `uuid()` (line 120), not `closeSession` (line 399).
+4. `tests/shell-cache.test.js` (pins at lines 44, 67, and 98, and the script order at lines 71-82).
+5. `tests/webkit-upgrade.test.js` (`MARK`, line 19).
+6. `package.json` (`"test"` line 5 and `"typecheck"` line 10).
+7. `.github/workflows/ci.yml` (the unit-test list, line 68, kept identical to `"test"`).
+8. `docs/PSTACK_INVENTORY.md` (evidence link only, on the code PR; the status word stays). This docs PR does not edit it.
+9. `scripts/verify-aj.js` (dispatch only).
 10. `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`
 11. `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`
-12. `types/checkjs.d.ts` (that PR's `Window` global: `AccountWork`, `AccountPayment`, `AccountCorrect`, or `AccountStatement`). `RenderApi` is `types/checkjs.d.ts` lines 734-746. The contract says G–J do not extend it. `saveFiles?` and `lastSyncMillis?` are S's.
+12. `types/checkjs.d.ts` (that PR's `Window` global). `RenderApi` is lines 832-844. G–J and L do not extend it.
 
-That is the shared edit. The flow file, its two tests, its tsconfig, its verify-drive file, and its feature recipes are the only paths unique to that PR. This is not a new-files-only lane, and it is not parallel with B.
+At this main both unit lists are 39 files and they match. A code PR reads both lists at its own base and adds its behaviour test and its strict test to both. It does not copy 39 forward. `"typecheck"` gains `tsc --noEmit -p tsconfig.strict-accounts-<flow>.json`. The lint job runs that script. It is not a fifth CI job.
 
-`VERSION` is the next free value at merge time (EA Q5). This sketch reserves no number. The date-fix answer that names v59 is the date fix's own merge, not a number G–J claim.
-
-At main `6f4bb1ec` both unit lists are 39 files and they match (`package.json` line 5 and `.github/workflows/ci.yml` line 68). The 35 in L2 was the count after #83, before C, B's code, F, and the later test files. A code PR reads both lists at its own base and adds its behaviour test and its strict test to both. It does not copy 39 forward. `"typecheck"` (`package.json` line 10) gains `tsc --noEmit -p tsconfig.strict-accounts-<flow>.json`. The lint job runs that script. It is not a fifth CI job. The tsconfig includes the new script and `types/checkjs.d.ts`, the same shape as F's `tsconfig.strict-accounts-view.json`.
-
-F adds the `accounts-view.js` script tag in `index.html` (line 72). G rebases onto that tag. `render.js` calls `AccountsView.install` at line 1466, which the contract names. `render.js` line 1164 calls `AccountsView.syncTab(user)`. `syncTab` (`public/accounts-view.js` line 506) only adds or removes the `حسابات` nav link, the same idea as `syncPeopleTab` (`public/render.js` line 867). It is not in the contract. G–J do not call `syncTab`.
+`VERSION` is the next free value at merge time. This sketch reserves no number.
 
 ### G
 
-| File                                                                          | Change                                                                                                              |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `public/accounts-work.js`                                                     | New. Agreement, `cancel-agreement`, `laborQty`, `approveLabor`.                                                     |
-| `public/index.html`                                                           | One script tag after `accounts-view.js` (line 72) and before `render.js` (line 73).                                 |
-| `public/sw.js`                                                                | `ASSETS`, `SHELL`, `VERSION`.                                                                                       |
-| `public/session.js`                                                           | One key in `SHELL_FILES` (line 316). Nothing else in this file.                                                     |
-| `tests/accounts-work.test.js`                                                 | Behaviour tests below.                                                                                              |
-| `tests/strict-accounts-work.test.js`                                          | New. Same shape as `tests/strict-accounts.test.js`.                                                                 |
-| `tsconfig.strict-accounts-work.json`                                          | New. Include `public/accounts-work.js` and `types/checkjs.d.ts`.                                                    |
-| `types/checkjs.d.ts`                                                          | `Window.AccountWork` only. `RenderApi` is not extended.                                                             |
-| `package.json` `"typecheck"`                                                  | Append `tsc --noEmit -p tsconfig.strict-accounts-work.json`.                                                        |
-| `tests/shell-cache.test.js`                                                   | Version pins and the script-order assertion (lines 71-82).                                                          |
-| `tests/webkit-upgrade.test.js`                                                | `MARK`.                                                                                                             |
-| `package.json`, `.github/workflows/ci.yml`                                    | The two new test paths, both lists.                                                                                 |
-| `docs/PSTACK_INVENTORY.md`                                                    | Evidence on `feature`, `maintain-verification-skill`, `opening-a-pr`.                                               |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/SKILL.md`                     | `drive` accepts `new-agreement`, `cancel-agreement`, `labor-qty`, and `approve-labor`. An unknown id still exits 3. |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/README.md`           | One line per id.                                                                                                    |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/new-agreement.md`    | New recipe.                                                                                                         |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/cancel-agreement.md` | New recipe.                                                                                                         |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/labor-qty.md`        | New recipe.                                                                                                         |
-| `.cursor/skills/verify-ahl-aljazeera-accounting/features/approve-labor.md`    | New recipe.                                                                                                         |
-| `scripts/verify-aj.js`                                                        | Dispatch only. The steps live in `scripts/verify-drives/accounts-work.js`.                                          |
-
-### H
-
-Same shell, inventory, skill, and list files as G, with these names instead: `public/accounts-payment.js`, `tests/accounts-payment.test.js`, `tests/strict-accounts-payment.test.js`, `tsconfig.strict-accounts-payment.json`, `scripts/verify-drives/accounts-payment.js`, and feature files `pay-labor.md`, `advance-labor.md`, `return-advance.md`, `refund-labor.md`, `review-cash.md`.
-
-### I
-
-Same pattern: `public/accounts-correct.js`, `tests/accounts-correct.test.js`, `tests/strict-accounts-correct.test.js`, `tsconfig.strict-accounts-correct.json`, `scripts/verify-drives/accounts-correct.js`, and feature files `supersede.md`, `reject.md`, `approve-deduct.md`, `deduct.md`, `reverse.md`.
-
-### J
-
-Same pattern: `public/accounts-statement.js`, `tests/accounts-statement.test.js`, `tests/strict-accounts-statement.test.js`, `tsconfig.strict-accounts-statement.json`, `scripts/verify-drives/accounts-statement.js`, and feature files `settle.md`, `statement-approval.md`.
-
-### Files the code PRs do not edit
-
-`public/accounts.js` (B, then C, then K). `public/render.js` (F, K, the Baghdad-date fix, the foreman export). `public/ledger.js` (the foreman export and F's `personProjectDeleteBlock` at line 1109). `public/sync.js` (E). `public/foremen.js`, `public/app.js`, `public/firebase-client.js`. `firestore.rules`. `public/session.js` except the one `SHELL_FILES` key: not `today()` (line 137), not `uuid()` (line 85), not `closeSession` (line 364).
-
-No new test assertion reads a helper's source text.
-
-## Sequencing
-
-These four run last. They depend on B, C, D deployed by Ameer, E, F, K, and the Baghdad-date fix. Plan lines 946-948 are that order. No G–J code pull request merges before F's project-delete guard is on main. On this main the guard is `Ledger.personProjectDeleteBlock` (`public/ledger.js` line 1109), reached from `projectDeleteBlock` (`public/render.js` line 944) and `deleteProjectNow` (line 1016). A later base that lacks that function is not a base these four merge onto. A code branch may be opened only as a draft stacked on B. It does not merge. Real G–J lanes start after K is merged and this contract is in both sketches. F is already on this main.
-
-Inside the four, the order is G, then H, then I, then J. A revert of one does not require reverting the others. They still rebase the shared files, because each of them edits that set:
-
-- `public/sw.js` and the two pin tests, also shared with B, F, K, the date fix, and the foreman export whenever those change `public/`.
-- `public/index.html`, after F's `accounts-view.js` tag.
-- `public/session.js` line 316 only. The date fix already edited `today()` (line 137). E adds the K keys. Different lines, same file.
-- `scripts/verify-aj.js`, `package.json`, `.github/workflows/ci.yml`, the skill files, and `types/checkjs.d.ts`.
-
-They do not edit `public/render.js`, `public/accounts.js`, or `public/ledger.js`. That does not make them parallel with B. B shares `sw.js`, both pin tests, and the inventory, and G's tests call codes that are on this main (`cumulative`, amount `milestone`, `approveDeduct`, and `agreement` at `public/accounts.js` line 370).
-
-`queueDoc` (`public/render.js` lines 89-92) appends the id and skips the flush in the demo. These screens call that function. They do not add a second demo gate. G–J never call `flushRemote`. `queueDoc` passes `{ fromOutside: true }` (`public/render.js` line 92). A direct call would need that flag.
-
-## Usage
-
-The owner opens `#account/<partyId>` on `العقود`, `الحركات`, or `كشف الحساب`. F has painted the tab and the registry. F's `accountHtml` paints one button and that action's `renderForm()` inside the open tab. G–J never paint their own buttons. The button id is `buttonId`, which is `act-` plus the action id. `new-agreement` is the button `act-new-agreement`. `review-cash` is `act-review-cash`. `cancel-agreement` is `act-cancel-agreement`.
-
-The form mints `id` with the global `uuid()` when it opens and keeps that id until success. `uuid` is not a member of `api`. On errors the same id stays. The button is disabled from the tap until `save` returns, so a second tap does not call `save`. That is the same idea as `#save` (`public/render.js` line 1269). `save` does not append and does not call `queueDoc`. `AccountsView.commitDoc` is the only append. It appends the document only when that id is absent, then calls `queueDoc` once. `queueDoc` is on `api` (`public/render.js` lines 1460-1465) and is append-if-absent (`public/render.js` lines 89-92). G–J do not write a second guard.
-
-A deterministic id (`appr_`, `rej_`, `stl_`, `rev_`, `revw_`, and a slot id) is one document because `commitDoc` skips an id that is already stored. A uuid save is one document because the button stays disabled until `save` returns, and a later tap on the cleared form fails validation instead of writing a second row. A failed `post` does not append and does not mint a new id.
-
-`install` receives the `RenderApi` at `types/checkjs.d.ts` lines 734-746. `get`, `set`, `uuid`, `me`, and `today` stay the session globals. `createdAtServer` is left null. `withServerTime` (`public/sync.js` line 262, called from `public/firebase-client.js` lines 253, 267, and 270) sets it at flush. A site user sees `هذه الشاشة للمالك.` (`public/render.js` line 672).
-
-`today()` is the Baghdad civil date (`public/session.js` line 137). H's `txnDate` uses it. J calls `AccountsView.accountPeriod()`, which calls `Accounts.periodBounds` (`public/accounts.js` line 987). Neither calls `toISOString`.
-
-## Types and signatures
-
-On this main, `Accounts` exports `LaborAgreement`, `AccountDoc`, `PostInput`, `post`, `personBalance`, `rowIndex`, `rowLive`, `rowCounts`, `balances`, `statementLines`, and `periodBounds`. `milestone` is a method inside `workPosition` (`public/accounts.js` line 167). `personBalance` (line 902) returns `balances(...).net`. `rowIndex` (line 586) and `rowCounts` (line 746) are the liveness fold. A row whose id is in `syncErrors` is dead (`walkLive`, line 668). These screens call those functions. They do not declare a second fold, a second period function, or a second meaning of live.
-
-`AccountAction` is the contract type above: `id`, `tab`, `label`, `buttonId`, `renderForm`, `onClick`, and `save`. `buttonId` is `act-` plus the id.
-
-```javascript
-/**
- * @typedef {{
- *   kind: 'body'|'appr'|'rej'|'sup'|'stl'|'rev'|'revw',
- *   projectId: string,
- *   partyId: string,
- *   createdBy: string,
- *   createdByName?: string,
- *   deviceId: string,
- *   txnDate: string,
- *   currency: 'IQD',
- *   fxRate: 1
- * }} AccountHeader
- * The screen sets currency and fxRate. The form has no عملة field (section 14).
- * That sentence is not agreementReversalDoc. Its output has no fxRate and no txnDate.
- * createdByName is set when the display name is 1 to 80 characters.
- * No createdAtDevice. Each builder also sets docType.
- * The other keys, minus docType, are a subset of D's allowlist for that kind.
- * D is docs/plans/contractor-pr-d-sketch.md on main d7dc8e9b.
- * AccountTxn is lines 147-171. StatementApproval is lines 176-187.
- * AgreementReversal is lines 113-137. Those three ranges were rechecked at that SHA.
- * The 1-500 reversalReason bound is firestore.rules lines 639-641, and D sketch line 232.
- */
-```
-
-### G, `public/accounts-work.js`
+| File                                                        | Change                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public/accounts-work.js`                                   | New. «مقاول» screen, agreement, `cancel-agreement`, `laborQty`, `approveLabor`.                                                                                                                                                                                |
+| `public/render.js`                                          | Three sites only, and only when `CONTRACTOR_COST_START` is a date. Hide the anchor (lines 93-96). `#subnew` (lines 859-879) shows no create form. Call `AccountWork.syncTab` beside line 1334. While the constant is null, these two screens stay as they are. |
+| `public/index.html`                                         | One script tag after `accounts-view.js` and before `render.js`.                                                                                                                                                                                                |
+| `public/sw.js`                                              | `ASSETS`, `SHELL`, `VERSION`.                                                                                                                                                                                                                                  |
+| `public/session.js`                                         | One key in `SHELL_FILES`.                                                                                                                                                                                                                                      |
+| `tests/accounts-work.test.js`                               | Behaviour tests below.                                                                                                                                                                                                                                         |
+| `tests/strict-accounts-work.test.js`                        | New. Same shape as `tests/strict-accounts.test.js`.                                                                                                                                                                                                            |
+| `tsconfig.strict-accounts-work.json`                        | New. Include `public/accounts-work.js` and `types/checkjs.d.ts`.                                                                                                                                                                                               |
+| `types/checkjs.d.ts`                                        | `Window.AccountWork`, and `ActionTab` gains `'contractor'` (line 861). `RenderApi` is not extended.                                                                                                                                                            |
+| `package.json`, `.github/workflows/ci.yml`                  | The two new test paths, both lists, and the typecheck script.                                                                                                                                                                                                  |
+| `tests/shell-cache.test.js`, `tests/webkit-upgrade.test.js` | Pins and script order.                                                                                                                                                                                                                                         |
+| `tests/browser-check.js`                                    | Line 268 stays while `CONTRACTOR_COST_START` is null. It still expects `+ عقد مقاول`. G does not change that line on the null build.                                                                                                                           |
+| `docs/PSTACK_INVENTORY.md`                                  | Evidence on `feature`, `maintain-verification-skill`, `opening-a-pr`. Status word stays.                                                                                                                                                                       |
+| Skill files                                                 | `drive` accepts `new-agreement`, `cancel-agreement`, `labor-qty`, `approve-labor`. An unknown id still exits 3 (`scripts/verify-aj.js` line 1310, skill line 67).                                                                                              |
+| `scripts/verify-drives/accounts-work.js`                    | The steps. `scripts/verify-aj.js` dispatches.                                                                                                                                                                                                                  |
 
 ```javascript
 /**
@@ -340,12 +168,15 @@ On this main, `Accounts` exports `LaborAgreement`, `AccountDoc`, `PostInput`, `p
 function install(api)
 
 /**
+ * Adds or removes the «مقاول» nav link. Does not call AccountsView.syncTab.
+ * @param {{ role?: string } | null | undefined} user
+ */
+function syncTab(user)
+
+/**
  * '000' + agreementId with every hyphen removed + one generation character.
- * The strip is replaceAll('-', '') or replace(/-/g, ''). replace('-', '') is wrong:
- * it removes only the first hyphen. 36 characters. Generation is '1' through '9'.
- * Unit and daily bodies use uuid() instead.
- * Lock: agreementId aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee and gen '1'
- * returns 000aaaaaaaabbbbccccddddeeeeeeeeeeee1.
+ * replaceAll('-', '') or replace(/-/g, ''). replace('-', '') removes one hyphen.
+ * 36 characters. Generation is '1' through '9'. Unit and daily bodies use uuid().
  * @param {string} agreementId
  * @param {string} gen
  * @returns {string}
@@ -367,14 +198,8 @@ function slotBodyId(agreementId, gen)
  *   milestoneAmount?: number
  * }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * milestoneMode is stored as 'amount'. A percent field is not on the form.
- * Codes this function emits, and post does not:
- * `method` when the method is outside the four or more than one method group is set.
- * `percent` when milestoneMode is percent.
- * `range` when an amount is not an integer from 1 to 1e10, or unitQty is outside 1 to 1000000.
- * `description` when description is empty or longer than 500. The button stays off. No new sentence.
- * The code `agreement` is not one of these. post emits it (public/accounts.js line 370)
- * when laborQty or approveLabor is called with no agreement object.
+ * milestoneMode is stored as 'amount'. The unit method's label stays بسعر الوحدة.
+ * حسب الإنجاز (الكمية × سعر الوحدة) is بانتظار أمير and is not painted.
  */
 function agreementDoc(input)
 
@@ -387,161 +212,194 @@ function agreementDoc(input)
  *   description: string,
  *   currency: 'IQD'
  * }} StoredAgreement
- * LaborAgreement is public/accounts.js lines 19-28. Its method is optional.
- * StoredAgreement requires method. It also adds id, partyId, projectId, description, and currency.
+ * LaborAgreement is public/accounts.js lines 19-28.
  */
 
 /**
- * Action id cancel-agreement. Tab agreements. Module AccountWork.
+ * id is 'rev_' + the agreement id, stored in agreements.
+ * reversalReason is 1 to 500 characters (firestore.rules lines 639-641).
+ * The label reuses سبب التصحيح (public/render.js line 801, public/ledger.js line 258).
  * @param {{ agreement: StoredAgreement, reversalReason: string, createdBy: string, deviceId: string }} input
- * createdBy and deviceId are the reverser's. The output has no fxRate and no txnDate.
  * @returns {{ doc: object | null, errors: string[] }}
- * id is 'rev_' + the agreement id. The row is written to agreements, not accountTxns.
- * docType is 'agreement'. Copies the original's values, not only its keys.
- * An original whose id already starts with rev_ is errors ['kind']. Nothing is queued.
- * reversalReason is 1 to 500 characters (firestore.rules lines 639-641 at d7dc8e9b,
- * agreementReversalCreate; D sketch line 232 states the same bound).
- * Lines 129 and 135 of that sketch name the key and the hasOnly rule, not the length.
- * The label reuses سبب التصحيح. No new sentence.
- * Ameer's recorded Q9 is the same fields plus reversesId. The reason is D's engineering note.
- * The agreement row is not edited and not deleted. The button label reuses عكس.
- * projectActive (firestore.rules line 626 at main 29ada0bc) also covers this create.
- * It is status == 'active' (line 375).
- * (a) The phone already knows the project is not active, including one
- * forgetGoneProjects has dropped. The button is off. Nothing is queued. No sentence is shown.
- * The agreement row is unchanged.
- * (b) The phone still shows the project as active, and the server has closed or deleted it.
- * The cancel is queued. The server refuses it. The row leaves the pending count.
- * The phone shows رُفض الإرسال (public/sync-status.js line 12 at 29ada0bc),
- * or رُفض الإرسال لأن المشروع محذوف (line 15) once E's probe covers agreements.
- * The agreement row is unchanged. That rev_ is in syncErrors, so it is not live.
- * While a refused rev_ of this agreement exists, its id in syncErrors, cancel-agreement
- * is off on this phone. Measurement and approval stay on. Nothing is appended or queued.
- * The refusal text stays on the row. On main 29ada0bc, rejectedLogoutBlock
- * (public/render.js lines 547-551, called at line 1247; the alert is
- * public/session.js line 371) covers only ledger rows refused with
- * رُفض الإرسال لأن المشروع محذوف. A refused cancel carries the plain رُفض الإرسال
- * and lives in agreements, so main does not block logout for it and does not
- * put it in the CSV (the export records ids at public/render.js line 1324).
- * Logout and that CSV come from E's E26, which extends those two and must
- * include agreements ids in syncErrors (E sketch lines 393 and 532).
- * EA decided (i) at 05:59 Baghdad on 2026-11-17.
- * There is no re-cancel in v1. The record is under For EA/Ameer.
  */
 function agreementReversalDoc(input)
 
 /**
  * @param {PostInput & AccountHeader & { agreement: LaborAgreement, gen?: string }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * Calls Accounts.post('laborQty', input). Lump and amount-milestone ids are slotBodyId.
- * A uuid body on a lump or amount-milestone agreement is errors ['method'].
- * A live rev_ of this agreement, one whose id is not in syncErrors, is errors ['cancelled'].
- * rowIndex and rowCounts are the check. approveLaborDoc does the same. EA س٢-ب: the server also refuses.
- * The two buttons are hidden only for that live rev_. A refused rev_ does not hide them.
- * Nothing is queued on cancelled. No new sentence.
  */
 function laborQtyDoc(input)
 
 /**
+ * Calls Accounts.post('approveLabor', input). Stores the earned amount.
  * @param {PostInput & AccountHeader} input
  * @returns {{ doc: object | null, errors: string[] }}
- * id is 'appr_' + the body id. Calls Accounts.post('approveLabor', input).
- * Stores the earned amount. A partial lump or a partial amount milestone is refused by post.
- * A non-slot target on lump or amount-milestone is errors ['method'].
- * A slot target on unit or daily is errors ['method'].
  */
 function approveLaborDoc(input)
 ```
 
-### H, `public/accounts-payment.js`
+`AccountHeader` stays r7's header: `kind`, `projectId`, `partyId`, `createdBy`, `createdByName?`, `deviceId`, `txnDate`, `currency: 'IQD'`, `fxRate: 1`. The form has no `عملة` field. `agreementReversalDoc` has no `fxRate` and no `txnDate`.
+
+r7's cancel rules stay. A live `rev_` of the agreement returns `cancelled` from `laborQtyDoc` and `approveLaborDoc`. A refused `rev_` whose id is in `syncErrors` does not. `cancel-agreement` stays off on that phone while the refused id is in `syncErrors`. Measurement and approval stay on. Logout and the rejected CSV for an `agreements` id come from E. On this main `rejectedLogoutBlock` (`public/render.js` lines 603-608) lists ledger rows refused with `رُفض الإرسال لأن المشروع محذوف` (`public/sync-status.js` line 15) plus `refusalDocs`. G does not widen it.
+
+`projectActive` (`firestore.rules` lines 374-376) is `status == 'active'`. (a) The phone already knows the project is not active: the button is off, nothing is queued. (b) The phone still shows it active and the server has closed or deleted it: the cancel is queued, the server refuses it, the agreement row is unchanged.
+
+Strings, new, on G: `مقاول`, `عقد عمل جديد`, `تسجيل عمل منجز`, `اعتماد قياس العمل`, `طريقة الدفع`, `مبلغ مقطوع`, `باليوم`, `مرحلة`, `سعر الوحدة`, `لكل كم`, `اسم الوحدة`, `أجرة اليوم`, `قيمة المرحلة`, `مبلغ`, `بعد الحفظ لا يتغير الاتفاق إلا بقيد عكس.`, `الكمية`, `الوحدة`, `كمية منجزة`, `أيام معتمدة`, `اعتماد المرحلة`, `منجز`, `بانتظار الاعتماد`, `معتمد`, `مرفوض`, `الاتفاق غير موجود`, `طريقة الدفع لا تطابق القياس`, `المبلغ ليس عدداً صحيحاً`, `لا اعتماد بلا قياس`, `القياس معتمد مسبقاً`, `بعد الحفظ تصبح الحالة:`, `المحاولة <n> من 9`.
+
+`بانتظار أمير`, on G: `العقد الجديد من شاشة مقاول`, and `حسب الإنجاز (الكمية × سعر الوحدة)`. The first is the sentence `#subnew` shows once `CONTRACTOR_COST_START` is a date. Neither is treated as approved.
+
+Reused on G: `حفظ`, `رجوع`, `هذه الشاشة للمالك.`, `الوصف`, `عكس`, `معكوس`, `سبب التصحيح`. `الكمية` on G is the measurement field. The person-page tile of the same word is J's display.
+
+Tests in `tests/accounts-work.test.js` assert behaviour:
+
+- Unit rate 300,000 per 4,000, approved qty 8,000. The approval amount is 600,000. The body id is a uuid. The returned document's effect is cost +1 and person +1.
+- A lump of 600,000 approves 600,000. `slotBodyId('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', '1')` is `000aaaaaaaabbbbccccddddeeeeeeeeeeee1`. A second body at generation 1 is the same id.
+- Daily rate 50,000 and 3 days earns 150,000.
+- Amount milestone 250,000 earns 250,000. The stored `milestoneMode` is `amount`. The document has no percent field.
+- Generation 9 is the last slot. The screen text is `المحاولة 9 من 9`.
+- A uuid body on a lump agreement is `method`. `unitQty` 1000001, a product above 1e16, a negative qty, and a fractional qty are `range` or `overflow`.
+- `approveLabor` with earned 0 is `earned`. Two method groups are `method`. `milestoneMode: 'percent'` is `percent`. An empty description leaves the save off.
+- `post('approveLabor')` with no agreement object is `agreement` (`public/accounts.js` line 370).
+- Two taps of the agreement save append one `agreements` row and one outbox id. The button is disabled until `save` returns.
+- Two taps of `approve-labor` append one `appr_` and one outbox id.
+- `agreementReversalDoc` copies the original's values. An original that is itself `rev_` is `kind`. An empty reason is refused. After a live `rev_`, measurement and approval return `cancelled`. A refused `rev_` in `syncErrors` does not.
+- While `CONTRACTOR_COST_START` is null, the project page HTML contains `+ عقد مقاول`. That is the check `tests/browser-check.js` line 268 already makes. `#subnew` is the form at lines 323-329: the name is `مقاول السباكة`, the amount is `1,500,000`, the work is `تمديد شبكة الماء للمجمع المدرسي`, and the text includes `حفظ العقد` and `لا يتغير المبلغ إلا بملحق` (line 329). Line 330 checks rtl, 390px, and no overflow. G does not change those checks.
+- When the constant is a date, the same project HTML contains the contractor's name and `المدفوع` and does not contain `+ عقد مقاول`. `#subnew` does not paint `#sub-name`, `#sub-amount`, `#sub-work`, or `حفظ العقد`. It shows the project name and `العقد الجديد من شاشة مقاول`, and it does not save. Opening the old contract still shows `المتفق عليه` and `الدفعات` (`public/render.js` lines 848-855).
+- (a) The local project is not `active`. `cancel-agreement` is off. Nothing is queued. The agreement row is unchanged.
+- (b) Emulator. The owner phone is online and still shows the project as active. An admin sets the project to `closed` with rules disabled. The cancel is queued and refused. `syncErrors` has `رُفض الإرسال` (`public/sync-status.js` line 12). A deleted project uses `رُفض الإرسال لأن المشروع محذوف` (line 15). There is no live `rev_`. The agreement row is unchanged.
+- A body whose id is in `syncErrors` is not offered to `approve-labor`.
+- The «حسابات» HTML for that person contains no `act-new-agreement` button.
+- The builder's keys, minus `docType`, are a subset of D's allowlist. `createdAtDevice` is absent.
+
+`approve-labor` drive: sign in, open «مقاول», save the brick agreement, save the measurement, approve it. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. The person page shows `عمل معتمد` 600,000. Home `المصروف` is unchanged. The agreement form says `بسعر الوحدة`. The quantity tile is J's.
+
+### H
+
+Same shell, inventory, skill, and list files as G, with `public/accounts-payment.js`, `tests/accounts-payment.test.js`, `tests/strict-accounts-payment.test.js`, `tsconfig.strict-accounts-payment.json`, `scripts/verify-drives/accounts-payment.js`, and feature files `pay-labor.md`, `advance-labor.md`, `return-advance.md`, `refund-labor.md`, `review-cash.md`. H does not edit `public/render.js`.
 
 ```javascript
+/**
+ * @param {number} amount
+ * @param {number} approvedUnpaid
+ * @returns {{ payLabor: number, advanceLabor: number }}
+ * approvedUnpaid is max(0, balances().net). payLabor is min(amount, approvedUnpaid).
+ * advanceLabor is amount - payLabor. payable (public/accounts.js line 871) is not this cap.
+ */
+function paymentSplit(amount, approvedUnpaid)
+
 /**
  * @param {'payLabor'|'advanceLabor'|'returnAdvance'|'refundLabor'} purpose
  * @param {PostInput & AccountHeader} input
  * @returns {{ doc: object | null, errors: string[] }}
- * payLabor and advanceLabor call Accounts.post('payment', { paidAs: purpose, ... }).
- * returnAdvance and refundLabor call Accounts.post with that action name.
- * One call writes one document. The form shows one purpose at a time.
+ * One call writes one document.
  */
 function cashDoc(purpose, input)
 
 /**
+ * id is 'revw_' + the cash id, or that plus a generation after a reversal of the mark.
+ * No amount. Effect zeros. Does not call post.
  * @param {AccountHeader & { targetId: string, generation?: string }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * kind 'revw', no amount, effect zeros. id is 'revw_' + the cash id, or that id plus '_'
- * and a generation character after rev_ of the previous mark. Does not call post.
- * The cash row's person and cash effects stay as they are.
  */
 function reviewDoc(input)
 ```
 
-The payment form shows `قبل هذه الدفعة` and the person balance from `balances().net` before save. `عن عمل معتمد` is a label. It is not a `targetId`. `payLabor` does not point at approved work. A `payLabor` larger than earned work is a successful save. The person balance goes negative. The screen shows `مستحق عليه` and the absolute value, with no `(سلفة)` and no `المتبقي سلفة`. It does not write an `advanceLabor` to hold the excess. There is no confirm step. Ameer, 2026-11-16 15:02 and 15:35, `answers-EA-delegated-0034.md` sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`, section "Ameer answers, 2026-11-16 15:35".
+The payment form shows `قبل هذه الدفعة` and the split before save. When the typed amount is above `approvedUnpaid`, the preview contains `عن عمل معتمد` for that part and `سلفة` for the rest, and the document list is still unchanged. The save then appends a `payLabor` for a positive work part and an `advanceLabor` for a positive rest. Each id is minted when the form opens. A second tap does not call `save`. When the typed amount is within `approvedUnpaid`, the preview has no `سلفة` and the save appends one `payLabor`.
 
-`returnAdvance` names an `advanceLabor`. `refundLabor` names a `payLabor`. Every target picker, every button-hide rule, and `hasUnreviewedCash` call `Accounts.rowIndex(allDocs, syncErrors)` and `Accounts.rowCounts`. `allDocs` is the whole unfiltered list. `syncErrors` is `get(K.syncErrors, {})`. A row in `syncErrors` is never offered. Q13's cap leaves a refused body in `syncErrors`. The picker does not offer it, so the next write is not a dependent the server refuses again. The screen shows the existing `رُفض الإرسال` and, when E's code defines one, E's reason string. G–J add no sentence of their own. `post` still refuses a missing or wrong-purpose target with `targetId`. The save button stays disabled while no row is chosen, so that refusal has no new sentence.
+This replaces r7's rule that a `payLabor` larger than earned work is a successful `payLabor` and that the screen writes no `advanceLabor`. The balance line still has no `(سلفة)` and no `المتبقي سلفة`. There is no second dialog.
 
-### I, `public/accounts-correct.js`
+`returnAdvance` names an `advanceLabor`. `refundLabor` names a `payLabor`. Every target picker uses `Accounts.rowIndex` and `Accounts.rowCounts`. A row in `syncErrors` is not offered (`walkLive` treats that id as dead at `public/accounts.js` line 668).
+
+Strings, new, on H: `تسجيل دفعة`, `الغرض`, `عن عمل معتمد`, `سلفة عمل قادم`, `سلفة`, `إرجاع سلفة لم تُصرف`, `استرداد نقدي من العامل`, `المُرجَع أكبر من الدفعة`, `سلفة، ليست مصروفاً.`, `السلفة ليست مصروفاً`, `قبل هذه الدفعة`, `تظهر الدفعة في الكشف`, `حتى يدقّقها المالك.`, `تدقيق`, `غير مدقّق`.
+
+The balance sentences are J's. H's preview uses `سلفة` and `عن عمل معتمد`. It does not paint `الرصيد:`.
+
+Tests:
+
+- Two `payLabor` documents, 400,000 then 200,000, after a 600,000 approval, while each amount is within the remaining approved-unpaid work. Two ids. Person effect of each is −1.
+- Typed 700,000 after approved-unpaid 600,000. Before save, the HTML contains `عن عمل معتمد`, `سلفة`, 600,000, and 100,000, and the txn list has no new id. After the tap, one `payLabor` of 600,000 and one `advanceLabor` of 100,000. The balance sentence for that net is J's.
+- Approval 600,000 and an existing advance of 100,000 leave approved-unpaid at 500,000. Typed 600,000 previews `عن عمل معتمد` 500,000 and `سلفة` 100,000.
+- Typed amount equal to approved-unpaid work. One `payLabor`. The preview has no `سلفة`.
+- Approved-unpaid work is 0. The whole amount is `سلفة` in the preview, then one `advanceLabor`.
+- `returnAdvance` 30,000 against an advance of 100,000 has person +1 and cash −1. 100,001 is `cap`.
+- `refundLabor` 50,000 against `payLabor` 600,000. 600,001 is `cap`. A second refund that crosses the payment is `cumulative`.
+- `reviewDoc` has no amount and effect zeros. A second live `revw_` of the same cash id is refused. After `rev_` of the mark, the next id carries the generation.
+- A `payLabor` whose id is in `syncErrors` is not offered to `refund-labor`.
+- Emulator, one half refused. Both documents name the same party, so a missing party cannot refuse only one. The `payLabor` is created while the project is active. An admin then sets the project to `closed` with rules disabled. The `advanceLabor` is denied because `projectActive` fails (`firestore.rules` line 872). The `payLabor` remains. No `rev_` is written. The advance id shows `رُفض الإرسال` and is in the refused export. After the project is active again, the owner re-enters a new advance id. The card shows that new id next to the refused id. The refused id is not written again. The screen shows both ids on one card while the advance is refused.
+
+`pay-labor` drive: the preview is on screen before the Firestore write. After save, the two documents match the preview. The drive runs with `CONTRACTOR_COST_START` null, so home `المصروف` is unchanged.
+
+### I
+
+Same pattern: `public/accounts-correct.js`, `tests/accounts-correct.test.js`, `tests/strict-accounts-correct.test.js`, `tsconfig.strict-accounts-correct.json`, `scripts/verify-drives/accounts-correct.js`, and feature files `supersede.md`, `reject.md`, `approve-deduct.md`, `deduct.md`, `reverse.md`. I does not edit `public/render.js`. Buttons are on «مقاول».
 
 ```javascript
 /**
  * @param {PostInput & AccountHeader} input
  * @returns {{ doc: object | null, errors: string[] }}
- * Calls Accounts.post('deduct', input). targetId is an approveLabor that rowCounts says is live.
+ * Calls Accounts.post('deduct', input).
  */
 function deductDoc(input)
 
 /**
+ * id is 'appr_' + the deduct id. The queued document has no amount.
  * @param {PostInput & AccountHeader} input
  * @returns {{ doc: object | null, errors: string[] }}
- * id is 'appr_' + the deduct id. Calls Accounts.post('approveDeduct', input).
- * The queued document has no amount.
  */
 function approveDeductDoc(input)
 
 /**
+ * id is 'rej_' + the body id. Cash cannot be rejected.
  * @param {AccountHeader & { targetId: string }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * id is 'rej_' + the body id. The body has needsApproval, and rowCounts finds no live appr_.
- * Slot bodies and uuid measurements and deducts can be rejected. Cash cannot.
  */
 function rejectDoc(input)
 
 /**
+ * id is 'sup_' + the old id. A slot, a cash row, a row that already has appr_, and depth 5 are 'method'.
  * @param {AccountHeader & { supersedesId: string }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * id is 'sup_' + the old id. The old row is an unapproved uuid laborQty or an unapproved deduct.
- * Copies purpose, ledger, partyId, projectId, agreementId, currency, and fxRate unchanged.
- * A sup_ cannot switch agreement. A slot body, a cash row, and a row that already has appr_ are refused with 'method'.
- * Depth 5 is refused with 'method'. The button is hidden at depth 4. No new sentence.
  */
 function supersedeDoc(input)
 
 /**
+ * id is 'rev_' + reversesId, kind 'rev', collection accountTxns.
+ * A rev_ of a rev_ is 'kind'. reversalReason is 1 to 500 characters.
  * @param {AccountHeader & { reversesId: string, reversalReason: string }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * id is 'rev_' + reversesId. kind 'rev', collection accountTxns.
- * The original kind must be body, sup, appr, stl, or revw. A rev_ of a rev_ is errors ['kind'].
- * Copies purpose, ledger, currency, fxRate, projectId, and partyId.
- * Copies amount only when the original has amount. Copies agreementId only when the original has agreementId.
- * approveDeduct has no amount, so the reversal omits amount.
- * reversalReason is 1 to 500 characters. Does not call post.
  */
 function reversalDoc(input)
 ```
 
-Agreement reversal is `agreementReversalDoc` in G, stored in `agreements`. I's `reversalDoc` is only an `accountTxns` reversal.
+Agreement reversal stays in G, stored in `agreements`. I's `reversalDoc` is only an `accountTxns` reversal.
 
-`نسخة جديدة` is hidden on a slot. The slot's next try is the next generation, and the screen shows `المحاولة <n> من 9` with n from 1 to 9. That string is string 88. Generation n+1 is offered only when slot n is reversed or rejected under `rowCounts`, so the screen never offers a generation the server denies. A generation that is only in `syncErrors` is not treated as reversed or rejected. Generation 9 reversed or rejected ends the slot. The button to measure again is hidden. No new sentence.
+`نسخة جديدة` is hidden on a slot. The slot's next try is the next generation, and the screen shows `المحاولة <n> من 9`. Generation n+1 is offered only when slot n is reversed or rejected under `rowCounts`. A generation that is only in `syncErrors` is not treated as reversed or rejected. Generation 9 reversed or rejected ends the slot.
 
-### J, `public/accounts-statement.js`
+Strings, new, on I: `نسخة جديدة`, `رفض السطر`, `اعتماد`, `خصم`, `الخصم أكبر من العمل المعتمد`. `عكس`, `سبب التصحيح`, and `معكوس` are reused.
+
+Tests:
+
+- `deduct` 50,000 against the 600,000 approval. `approveDeduct` stores no amount. Its id is `appr_` plus the deduct id.
+- A deduct of 600,001 is `cap`. A second live deduct that crosses the approval is `cumulative`.
+- A body whose id is in `syncErrors` is not offered to `reject` or `deduct`.
+- `rejectDoc` id is `rej_` plus the body id. A cash id is `method`.
+- `supersedeDoc` of a uuid measurement copies `purpose`, `ledger`, `partyId`, `projectId`, `agreementId`, `currency`, and `fxRate`. Depth 5 is `method`. A slot id is `method`. A `payLabor` id is `method`.
+- `reversalDoc` of a `payLabor` copies `amount`. `reversalDoc` of an `approveDeduct` omits `amount`. A `rev_` of a `rev_` is `kind`. An empty reason is refused.
+- Two taps of a deduct save append one document and one outbox id.
+- The «حسابات» page contains no `act-deduct` button.
+
+The 600,000 / 50,000 / 100,000 / 30,000 fixture's closing number is C's. I's test checks the two documents, not the closing number.
+
+### J
+
+Same pattern: `public/accounts-statement.js`, `tests/accounts-statement.test.js`, `tests/strict-accounts-statement.test.js`, `tsconfig.strict-accounts-statement.json`, `scripts/verify-drives/accounts-statement.js`, and feature files `settle.md`, `statement-approval.md`. J also edits `public/accounts-view.js` for the four displays, and only these: the balance line in `overviewHtml` (lines 366-380), the unit method label (line 388), the quantity tile, the period «مستخلص» block, and the two totals. J does not edit `commitDoc`, `syncTab`, or `actionHtml`'s tab filter.
 
 ```javascript
 /**
  * @param {PostInput & AccountHeader & { measurementId: string, gen: string }} input
  * @returns {{ doc: object | null, errors: string[] }}
  * id is 'stl_' + measurementId + '_' + gen. gen is '1' through '9'.
- * Calls Accounts.post('settle', input). settlesId is the advanceLabor.
- * The measurement is the body whose approveLabor rowCounts says is live.
+ * Calls Accounts.post('settle', input).
  */
 function settleDoc(input)
 
@@ -550,14 +408,11 @@ function settleDoc(input)
  * @param {Readonly<Record<string, unknown>>} syncErrors
  * @param {{ periodStart: string, periodEnd: string }} period
  * @returns {boolean}
- * Builds rowIndex(docs, syncErrors) from the whole list. True when a payLabor,
- * advanceLabor, returnAdvance, or refundLabor that rowCounts says is live, in the period,
- * has no revw_ that rowCounts says is live. A row in syncErrors is not live.
- * The issue button stays hidden. The live fold still paints.
  */
 function hasUnreviewedCash(docs, syncErrors, period)
 
 /**
+ * No reviewGen, no includedIds, no figures.
  * @param {{
  *   id: string,
  *   partyId: string,
@@ -568,180 +423,304 @@ function hasUnreviewedCash(docs, syncErrors, period)
  *   createdBy: string
  * }} input
  * @returns {{ doc: object | null, errors: string[] }}
- * No reviewGen, no includedIds, no figures. projectId is omitted when readAccountScope().scope is 'all'.
- * periodStart and periodEnd come from AccountsView.accountPeriod(). This file does not store a second toggle.
  */
 function statementApprovalDoc(input)
+
+/**
+ * Period approved labor minus period advances. Display only. Writes nothing.
+ * @param {ReturnType<AccountsApi['statementLines']>} statement
+ * @returns {number}
+ */
+function mustakhlas(statement)
+
+/**
+ * @param {readonly object[]} entries
+ * @param {readonly object[]} txns
+ * @param {Readonly<Record<string, unknown>>} syncErrors
+ * @param {{ partyId?: string, projectId?: string }} filter
+ * @returns {{ cost: number, cashOut: number, oldPaid: number, newApproved: number }}
+ */
+function contractorTotals(entries, txns, syncErrors, filter)
+
+/**
+ * Sum of qty on live unit approveLabor rows for this person. Display only.
+ * @param {readonly object[]} txns
+ * @param {readonly object[]} agreements
+ * @param {string} partyId
+ * @param {object} index
+ * @returns {number}
+ */
+function approvedUnitQty(txns, agreements, partyId, index)
+
+/**
+ * The one balance sentence. X is a positive integer with thousands separators, or the zero sentence.
+ * @param {number} net
+ * @returns {string}
+ */
+function balanceSentence(net)
 ```
 
-The statement lines and the closing number come from C's `statementLines` and `balances().net`. J does not add a second arithmetic.
+`mustakhlas` paints three lines from the period fold and does not walk the rows again. Approved work value, then the deduction line, then the net due. Opening the period view appends nothing and does not add a `statementApprovals` row. Cost on that block is the approved work value, not the net due.
+
+`balanceSentence` is the only painter of `الرصيد المستحق` plus the direction. `tests/accounts-view.test.js` currently expects the old words: line 144 (`مستحق له` 400,000), line 213 (480,000), line 228 (`مستحق عليه` 100,000), line 244 (a net of 0 shows `مستحق له` 0), and line 259 (overpayment). J updates those assertions. A net of 0 paints `الرصيد المستحق` and `0 د.ع`. It does not paint `لا شيء (مسدّد)`.
+
+Strings, new, on J: `تسوية سلفة`, `إصدار كشف حساب`, `السلفة`, `حفظ التسوية`, `أسبوعي`, `شهري`, `من`, `إلى`, `رصيد أول المدة`, `الخصومات ومرتجعات المواد`, `رصيد آخر المدة`, `الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.`, `السلف المصروفة له`, `المُرجَع من السلف نقداً`, `صافي السلف`, `سلف قائمة عليه`, `الصافي`, `المُرجَع من الدفعة نقداً`, `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`, `مستخلص`, `تكلفة المقاول`, `النقد الخارج`, `الرصيد المستحق`, `الكمية`. `لا شيء (مسدّد)`, `حسب الإنجاز (الكمية × سعر الوحدة)`, `أُعيد تصنيفها`, and the interim line label `سلفة` for that 80,000 are `بانتظار أمير`. The first two are not painted. Until Ameer confirms `أُعيد تصنيفها`, the 80,000 line shows `سلفة`. The test asserts the number 80,000. `مستحق له` and `مستحق عليه` are the direction words next to the number.
+
+The agreement card keeps `بسعر الوحدة` (`public/accounts-view.js` line 388). `حسب الإنجاز (الكمية × سعر الوحدة)` is `بانتظار أمير` and is not painted.
+
+Tests:
+
+- J calls `AccountsView.accountPeriod()`. It does not define `statementPeriod` and it does not call `Accounts.periodBounds` itself. A null return does not save `statement-approval`, and the «مستخلص» block is not shown.
+- `settle` of 40,000 against an advance has effect zeros. A settle above the named advance is `cap`. `returnAdvance` plus `settle` over the advance is `cumulative`.
+- `statementApprovalDoc` has no `includedIds`, no figures, no `createdAtDevice`, and no `deviceId`. With `hasUnreviewedCash` true, the save returns `errors: ['review']` and no document. The screen sentence is `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`.
+- Opening the week view with approved work 600,000, a deduction of 50,000, and advances of 100,000 shows three lines: work value 600,000, deduction 50,000, net due 450,000. The `statementApprovals` list length is unchanged. The cost figure on that block is 600,000.
+- `balanceSentence(480000)` contains `الرصيد المستحق`, `مستحق له`, and `480,000 د.ع`. `balanceSentence(-100000)` contains `الرصيد المستحق`, `مستحق عليه`, and `100,000 د.ع`, and contains no `(سلفة)` and no U+2212. `balanceSentence(0)` contains `الرصيد المستحق` and `0 د.ع`, and does not contain `لا شيء (مسدّد)`. The H fixture, approval 600,000 plus `payLabor` 600,000 plus `advanceLabor` 100,000, paints `مستحق عليه` and `100,000 د.ع`.
+- Approved unit qty 8,000 paints `الكمية` and `8,000` on the person page. The party row gains no `qty` field.
+- On the «حسابات» statement tab for one project, old paid 200,000, unlinked 40,000, and new approved 600,000 show `تكلفة المقاول` 840,000. The 40,000 is its own `قيود بلا عقد` line and is not inside the 200,000. New `payLabor` is 400,000, an ordinary `advanceLabor` is 100,000, and one still-owed L advance is 80,000. The expected new-model cash is 400,000 + 100,000 + 80,000 = 580,000. The expected contractor cash out is 200,000 + 580,000 = 780,000. The reclassified line is 80,000 and shows `سلفة` until Ameer confirms `أُعيد تصنيفها`. That labour row of 80,000 and its `rev_` of 80,000 are in the fixture. Both are `labour`, not `subcontractor`, so they stay outside the 200,000 old paid. One person holds all of the new cash, so that person's sum is 580,000. The test asserts those constants. It does not compute the expected number by calling the walk, and it does not call `balances()`.
+- K's equality test lives in K's behaviour test. J does not add it to `tests/accounts-statement.test.js`. The fixture is named here so both sides use the same numbers. `legacySpent` 100,000 and `approveLabor` 600,000 with `start` null: `projectCost` returns 100,000. The same rows with `start` on or before the approval's date: `projectCost` returns 700,000. A deduct of 50,000 against that approval does not change either result, which disagrees with B's `deduct` cost of −1 (`public/accounts.js` line 76). A materials row of 50,000 inside `legacySpent` makes `projectCost` 150,000 when `start` is null and 750,000 when `start` is set. The statement cost `oldPaid + unlinked + newApproved` equals `projectCost` minus the non-contractor legacy. While `start` is null, the «حسابات» statement still shows `newApproved` and does not expect it inside home `المصروف`.
+- The «مستخلص» and the two totals are on the «حسابات» statement tab. The `إصدار كشف حساب` button is on «مقاول» and is absent from «حسابات».
+- Two taps of `إصدار كشف حساب` append one `statementApprovals` row and one outbox id.
+
+### L
+
+`public/accounts-reclass.js`, `tests/accounts-reclass.test.js`, `tests/strict-accounts-reclass.test.js`, `tsconfig.strict-accounts-reclass.json`, `scripts/verify-drives/accounts-reclass.js`, and `features/reclass.md`. L adds `AccountReclass` to the install list (`public/render.js` lines 1653-1658) and one script tag. L does not edit `firestore.rules`.
+
+The first list shows a live ledger row whose `entryType` is `labour`, whose `direction` is `expense`, which is not a reversal, which has no live reversal, which is not in `syncErrors`, and which has no `foremanId`. `labour`'s label is `عمالة/سلفة` and its direction is still `expense` (`public/ledger.js` line 12). A `subcontractor` row is not on the list. A row with `foremanId` is not on the list. The list does not say the row is an advance. The heading is `قيود مصروف قد تكون سلفاً`. A live `rev_` drops that expense off this list.
+
+The second list is the window after that `rev_` is accepted and before one covering `سلفة` exists. A covering advance is an `advanceLabor` whose description contains the token `L:` plus the expense id plus `;`, and which is either live or queued and not in `syncErrors`. `walkLive` treats an id in `syncErrors` as dead (`public/accounts.js` line 668). A live `rev_` of that advance (`killerIds`, lines 629-636) also makes it dead, so a refused advance and a reversed advance both return the row to this list. The token ends with `;` because an expense id matches `idOk` (`firestore.rules` line 19) and `L:e1` would also match `L:e10`. `cashBodyCreate` does not allow a pointer (`firestore.rules` line 880), so the token is in both descriptions. The `سلفة` button is on this list. The list reads `entries` and `accountTxns`, including a body `commitDoc` has already stored (`public/accounts-view.js` lines 131-135) and `queueDoc` has queued (`public/render.js` lines 113-119). It survives logout and a phone change. A local `K` key would not. The heading `سلفة لم تُكتب بعد` is `بانتظار أمير`.
+
+The server does not make that advance unique. `cashBodyCreate` requires `uuidOk(id)` (`firestore.rules` line 874; `uuidOk` is line 377). It does not read another `accountTxns` row. Two phones, or two owners, can each see the button before either advance has synced, and each save is accepted. On one phone the queued, unrejected advance counts as covering, so the button turns off and a second tap writes nothing. This revision does not add a server cap. That would be a rules change. A fixed advance id, which would refuse the second create, is [OPEN].
+
+When two live advances carry the same token, `balances().net` counts both (`public/accounts.js` line 865). Two advances of 80,000 make the net −160,000, because each `advanceLabor` has person effect −1 (line 72), against an expense of 80,000. The row shows `سلفة مكررة`. That word is `بانتظار أمير`. The first advance is the one with the lowest `createdAtServer`. A lower `id` breaks a tie. `createdAtServer` is a cash-body field (`firestore.rules` line 880). `headerOk` requires it to equal `request.time` (line 480), and `cashBodyCreate` calls `headerOk` (line 871). After sync the phone stores that value as milliseconds (`public/sync.js` lines 337-339). `withServerTime` writes the server sentinel (lines 328-330). A queued body has no server time: null `createdAtServer` is still offline (`public/sync.js` line 414). The reversal is offered only when every advance carrying the token has a `createdAtServer`. It is not offered while one is still queued, so two phones cannot each reverse a different copy. Both phones then offer the same later ids. The offered reversal is the existing `revCreate` (`firestore.rules` lines 1050-1076), id `rev_` plus that advance id (line 1060). L does not add a reversal kind.
+
+```javascript
+/**
+ * @param {readonly object[]} entries
+ * @param {Readonly<Record<string, unknown>>} syncErrors
+ * @returns {readonly object[]}
+ * Display only.
+ */
+function misbookedCandidates(entries, syncErrors)
+
+/**
+ * The reversal only. Its id is minted when this form opens: 'rev_' + entry.id.
+ * It calls Ledger.makeReversal (public/ledger.js lines 295-306) and replaces only description.
+ * The call is in public/accounts-reclass.js. public/ledger.js is not edited.
+ * The reversal is not built by hand.
+ * There is no partyId. The person is chosen later, on the advance form.
+ * The replacement description starts with 'L:' + entry.id + ';'. The rest is 'تصحيح: ' plus the
+ * original description (public/ledger.js line 298), truncated so the whole string
+ * is at most 500 characters (firestore.rules line 100). The token is not truncated.
+ * There is no advanceId here.
+ * @param {{
+ *   entry: object,
+ *   reversalReason: string,
+ *   user: object,
+ *   deviceId: string,
+ *   entryDate: string
+ * }} input
+ * @returns {{ doc: object | null, errors: string[] }}
+ */
+function stillOwedReversal(input)
+
+/**
+ * The advance only. Its id is a uuid minted when this form opens, which is after the rev_ is accepted.
+ * partyId is chosen on this form. The description starts with the same 'L:' + expenseId + ';' token.
+ * amount equals the reversed expense. The description is at most 500 characters (firestore.rules line 503).
+ * @param {{
+ *   expenseId: string,
+ *   partyId: string,
+ *   projectId: string,
+ *   amount: number,
+ *   advanceId: string,
+ *   user: object,
+ *   deviceId: string,
+ *   txnDate: string
+ * }} input
+ * @returns {{ doc: object | null, errors: string[] }}
+ */
+function advanceAfterReversal(input)
+
+/**
+ * Live L reversals with no covering advanceLabor for that expense id.
+ * A covering advance carries 'L:' + expenseId + ';' and is live, or queued and not in syncErrors.
+ * A refused advance and a reversed advance do not cover.
+ * @param {readonly object[]} entries
+ * @param {readonly object[]} txns
+ * @param {Readonly<Record<string, unknown>>} syncErrors
+ * @returns {readonly object[]}
+ */
+function advanceStillOwed(entries, txns, syncErrors)
+```
+
+رأي المعماري والمحاسب. This is not an Ameer decision. Ameer answers each row. The question is [OPEN] and does not block the plan. There is no «تسوية سلفة» on L and no settlement against an old advance. `laborStlCreate` (`firestore.rules` lines 818-858) needs a live new-model `laborQty` and an `appr_`, so an old expense is not a settle target.
+
+Already deducted from the contractor's work: L writes no ledger record and no `advanceLabor`. In the old ledger the expense plus the reduced payment already equal the work value. The row is marked `روجع` with the review date and the decision. The marker is local only, for this phase. L adds `laborReviews: 'laborReviews'` on the `K` object (`public/session.js` line 5). `set` stores that value in the IndexedDB `meta` store (`public/session.js` lines 73-78), the same path as `syncErrors`. The value is a list of `{ entryId, reviewedOn, decision: 'deducted' }`. It is not queued and it is not a Firestore document. Logout deletes that database (`public/session.js` line 419, `deleteDb`), so the mark is wiped on logout and on a new phone. A row that comes back onto the list can be answered "still owed", and that answer writes money. No existing rule can carry the mark. `shapeOk` (`firestore.rules` line 83) has no review key. An entry amount must be a positive integer (lines 90-91). `typeOk` (lines 117-119) allows only the expense types and `clientPayment`. `entries` has create at line 156 and delete at line 157 and no update. A `revw_` may name only a cash purpose (lines 1094-1095). A project (line 175), a user (line 202), project finance (line 219), and a party (lines 565-580) have no review field, and a party cannot be updated (line 580). Storing `روجع` on any of those documents needs a new rule. This revision does not edit `firestore.rules`. The word `روجع` is `بانتظار أمير`.
+
+Still owed, option (a): write the `rev_` first. Its id is `rev_` plus the expense id (`firestore.rules` line 134, `public/ledger.js` line 250). `entryDate` is `today()` (`public/session.js` line 172), the same date the existing `عكس` button stores (`public/render.js` line 1489). The `سلفة` control stays off until that `rev_` is accepted. `stillOwedReversal` has no `partyId`. The person is picked on the later `سلفة` form, not on the `ملغى` tap. Only then does L write one `advanceLabor` for the same amount. Its id is a uuid (`firestore.rules` line 874). The description starts with `L:` plus the expense id plus `;`, then the original date and id. `stillOwedReversal` calls `Ledger.makeReversal` (`public/ledger.js` lines 295-306) and replaces only `description`. The call is in `public/accounts-reclass.js`. `public/ledger.js` is not edited, and the reversal is not built by hand. The replacement starts with that same token, then `تصحيح: ` plus the original description (line 298), and the tail is cut so the string is at most 500 characters (`firestore.rules` line 100). If the `rev_` is refused, nothing else is written. The row stays on the first list. Still owed can be retried only after export plus logout. `public/ledger.js` line 253 blocks a second reversal while that refused `rev_` is still local, and nothing discards it until export plus logout, so L does not mint a new reversal id. While the `rev_` is accepted and the `سلفة` is not yet written, cost and company cash out are 80,000 too low on an 80,000 row, and the person owes nothing. The second list, built from the synced `rev_` and the absence of a covering advance, keeps the `سلفة` button through that window, including after reload, logout, and a phone change. A queued, unrejected advance on this phone turns the button off. Two phones can still each write one before either advance has synced. Two live advances with the same token show `سلفة مكررة`. The first is the lowest `createdAtServer`, and a lower `id` breaks a tie. `revCreate` is offered for every other advance only when each advance carrying the token has a `createdAtServer`. The person does not owe the advance while the old cost still counts. Company-wide cash out is unchanged once both exist, because the reversal and the advance are the same amount. The contractor reconciliation's cash out, `oldPaid` plus the new walk, rises by that amount. Until Ameer confirms `أُعيد تصنيفها`, that line shows `سلفة`. Cost goes down once the `rev_` counts, because the old expense no longer counts. The amount becomes a debt on the person only after the advance is accepted (`advanceLabor` person effect −1, `public/accounts.js` line 72). The warning shows the original entry's date and id. حفظ for the `rev_` stays off until the owner confirms that card. There is no bulk edit.
+
+The `سلفة` is a separate create. It is not queued with the `rev_`. A refusal of the advance arrives at flush time. The accepted `rev_` stays. The refused advance shows `رُفض الإرسال` and is exported. A refused advance does not cover, so the row returns to the second list, and that `سلفة` tap is the re-entry. The owner re-enters that advance as a new id. The card reads `K.refusedLinks` and shows the new id next to the refused id. The refused advance id is not sent again. There is no automatic `rev_` of the reversal.
+
+The form shows `ملغى` and the corrected amount before the `rev_` save. That tap appends the reversal only. Every other ledger row keeps its amount. The screen does not loop the list.
+
+Strings, new, on L: `قيود مصروف قد تكون سلفاً`, `ملغى`, `سطر مصحّح`, `سلفة`, `سلفة مكررة`. `سبب التصحيح` is reused. `ملغى` is the button. The stored reversal is still `isReversal: true`. The warning uses the clause `تنبيه فقط، ولا يمنع تسجيل دفعة` from `public/render.js` line 831. It does not reuse the «المدفوع أكبر من المتفق عليه» sentence on that same line.
+
+`بانتظار أمير`: the marker word `روجع`, the second-list heading `سلفة لم تُكتب بعد`, and `سلفة مكررة`. The question text `هل خُصم هذا المبلغ من عمل المقاول؟` is [OPEN]. L does not paint `تسوية سلفة`. J's existing `تسوية سلفة` on the settle form stays J's.
+
+Tests:
+
+- Two live `labour` rows, 80,000 and 30,000, neither with `foremanId`. The list shows both amounts, each original date and id, and the warning. A `subcontractor` row of 200,000 is absent. A `labour` row with `foremanId` is absent.
+- The owner answers "still owed" on the 80,000 row. That tap does not ask for a person. It appends one `rev_` whose `entryDate` is today and whose id is `rev_` plus the expense id. The description starts with `L:` plus that id plus `;`. No `advanceLabor` is written on that tap. The `سلفة` control stays off. After that `rev_` is accepted, the `سلفة` form asks for the person. The next tap, with a person, appends one `advanceLabor` of 80,000 whose description starts with the same token. The reversal text cites the original id and date after the token. The 30,000 row's amount is unchanged. No `settle` document is written.
+- The owner answers "already deducted" on the 30,000 row. The entries list and `accountTxns` are unchanged. `K.laborReviews` gains one local object for that id, with `decision: 'deducted'` and `reviewedOn` equal to `today()`. Nothing is queued.
+- Before the tap, neither document is stored.
+- An empty person on the `سلفة` form leaves that save off and appends no advance. The `ملغى` tap does not ask for a person, and an empty person does not block it.
+- Two taps of `ملغى` append one reversal and no advance. The `سلفة` tap is off until that reversal is accepted.
+- The `rev_` of 80,000 is accepted. Reload. The expense is off the first list. The second list still offers `سلفة` for that expense id, because the `rev_` description starts with `L:` plus that id plus `;` and no covering advance description contains that token.
+- An original description of 500 characters. The reversal description has length 500, starts with `L:` plus the expense id plus `;`, and the tail after the token is cut. `تصحيح: ` is `public/ledger.js` line 298. The cap is `firestore.rules` line 100.
+- The expense id is `e1`. A live advance whose description contains `L:e10;` and not `L:e1;` does not cover `e1`. The second list still offers `سلفة` for `e1`.
+- The `rev_` is accepted and the `سلفة` is queued. That advance is in local `accountTxns` and its id is not in `syncErrors`. The button is off. A second tap appends nothing.
+- Two live `advanceLabor` rows of 80,000 carry `L:` plus the same expense id plus `;`. One has `createdAtServer` 1,000 and id `b`. The other has `createdAtServer` 2,000 and id `a`. The row shows `سلفة مكررة`. The offered reversal id is `rev_a`, the later server time (`firestore.rules` line 1060). Id `b` is not offered. After that reversal is accepted, one advance remains, the label is gone, and `balances().net` is −80,000. Equal server times offer the higher id: `createdAtServer` 1,000 on ids `a` and `b` offers `rev_b`. One of the two has `createdAtServer` null. No reversal is offered.
+- The only advance that carries the token is in `syncErrors`. It does not cover. The row returns to the second list and `سلفة` is offered again.
+- The only advance that carries the token has a live `rev_` (`public/accounts.js` lines 629-636). It does not cover. The row returns to the second list and `سلفة` is offered again.
+- Emulator. A `rev_` with an empty `reversalReason` is denied (`firestore.rules` lines 142-144). No `advanceLabor` is written. The row stays on the first list. Still owed can be retried only after export plus logout. The refused `rev_` stays local, so a second reversal of that expense is blocked (`public/ledger.js` line 253) until export plus logout.
+- Emulator. The `rev_` is accepted. The project is then set to `closed` with rules disabled, and the `advanceLabor` is denied because `projectActive` fails (`firestore.rules` line 872). The `rev_` remains. The refused advance shows `رُفض الإرسال` and is exported. The owner re-enters a new advance id. `K.refusedLinks` stores `{ refusedId, nextId }`. The card shows the new id next to the refused id. The refused advance id is not written again.
+- The «حسابات» page does not gain an `act-reclass` button. «عهد» HTML is unchanged.
+
+### Files the code PRs do not edit
+
+`public/accounts.js` (B, then C, then K). `public/ledger.js`. `public/foremen.js`. `public/sync.js`. `public/app.js`. `public/firebase-client.js`. `firestore.rules`. `public/session.js` except the one `SHELL_FILES` key and two names on the `K` object (line 5): L's `laborReviews` and H's `refusedLinks`.
+
+G edits `public/render.js` at the three sites named above. L adds `AccountReclass` to the install list in that file. H, I, and J do not edit `public/render.js`. J edits the four displays in `public/accounts-view.js` and nothing else in that file.
+
+No new test assertion reads a helper's source text.
+
+## Rules, items 2 and 5
+
+Item 2 needs no rules change. Cost on approval is the `approveLabor` create that `accountTxnCreate` already allows (`firestore.rules` line 1119). The period «مستخلص» writes no document, so it needs no match. There is no `مستخلص` match in `firestore.rules`. `statementApprovals` (lines 1134-1181) stays the r7 issue record. Its keys are still `id`, `partyId`, optional `projectId`, `periodKind`, `periodStart`, `periodEnd`, `createdBy`, `createdAtServer`. J does not add a figure field, so the `hasOnly` lists at lines 1160 and 1173 stay.
+
+The still-owed path needs no rules change. A ledger reversal is already `reversalOk` (`firestore.rules` lines 131-147) and the create is line 156. `allow delete` is only when the project is gone (line 157). There is no update. The corrected line is an `advanceLabor` body, already `cashBodyCreate` (line 1123). `accountTxns` update and delete are false (line 1131). The already-deducted path also writes no Firestore document. Putting `روجع` on the ledger row would need a rules change, because `shapeOk` (line 83) has no review key and `entries` has no update. L does not make that change. The marker stays in local `K.laborReviews`.
 
 ## Error sentences
 
-`post` returns the English codes from B. The screen maps a code to an Arabic sentence it already has. Each flow file holds the rows it can show. There is no shared mapper, so reverting G does not blank H.
+`post` returns the English codes from B. Each flow file maps a code to an Arabic sentence it already has. There is no shared mapper.
 
-| Code                                               | Sentence                                                                               | Where                                                                       |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `method` from `agreementDoc`                       | `طريقة الدفع لا تطابق القياس`                                                          | G. More than one method group, or a method outside the four.                |
-| `percent` from `agreementDoc` or `post`            | `طريقة الدفع لا تطابق القياس`                                                          | G. The form does not offer `نسبة`.                                          |
-| `lump` from `post` / `workPosition`                | `المبلغ ليس عدداً صحيحاً`                                                              | G. A typed amount is not `lumpAmount`. The form has no second box.          |
-| `milestone` from `post`                            | `المبلغ ليس عدداً صحيحاً`                                                              | G. A typed amount is not `milestoneAmount`.                                 |
-| `earned`                                           | `لا اعتماد بلا قياس`                                                                   | G                                                                           |
-| `agreement` from `post`                            | `الاتفاق غير موجود`                                                                    | G. `public/accounts.js` line 370. `agreementDoc` does not emit it.          |
-| `description` from `agreementDoc`                  | no new sentence. The save stays off while the description is empty or longer than 500. | G                                                                           |
-| `range`, `amount`, `overflow`, `inexact`           | `المبلغ ليس عدداً صحيحاً`                                                              | G, H, I, J. `inexact` is EA Q29.                                            |
-| `paidAs`                                           | the purpose control stays on `عن عمل معتمد` or `سلفة عمل قادم`                         | H                                                                           |
-| `cap`, `cumulative` on a `refundLabor`             | `المُرجَع أكبر من الدفعة`                                                              | H                                                                           |
-| `cap`, `cumulative` on a `deduct`                  | `الخصم أكبر من العمل المعتمد`                                                          | I. Approved 2026-11-15. Outside the 88.                                     |
-| `cap`, `cumulative` on `returnAdvance` or `settle` | `المُرجَع والتسوية أكبر من السلفة`                                                     | H and J. EA Q19. Outside the 88.                                            |
-| `targetId`, `settlesId`                            | no new sentence. The button stays off until a live row is chosen.                      | H, I, J                                                                     |
-| `cancelled`                                        | no new sentence. The work buttons stay hidden.                                         | G, after a live `rev_<agreementId>`, not one whose id is in `syncErrors`.   |
-| `kind`                                             | no new sentence. `عكس` stays hidden on a `rev_` row.                                   | I                                                                           |
-| `review`                                           | `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`                                                  | J. `hasUnreviewedCash` is true. The save returns this code and no document. |
-| `ledger`                                           | the form does not send both a ledger and an explicit target                            | not shown                                                                   |
+| Code                                               | Sentence                                                          | Where                                                                           |
+| -------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `method` from `agreementDoc`                       | `طريقة الدفع لا تطابق القياس`                                     | G                                                                               |
+| `percent`                                          | `طريقة الدفع لا تطابق القياس`                                     | G. The form does not offer `نسبة`.                                              |
+| `lump`, `milestone`                                | `المبلغ ليس عدداً صحيحاً`                                         | G                                                                               |
+| `earned`                                           | `لا اعتماد بلا قياس`                                              | G                                                                               |
+| `agreement` from `post`                            | `الاتفاق غير موجود`                                               | G. `public/accounts.js` line 370.                                               |
+| `description`                                      | no new sentence. The save stays off.                              | G                                                                               |
+| `range`, `amount`, `overflow`, `inexact`           | `المبلغ ليس عدداً صحيحاً`                                         | G, H, I, J, L                                                                   |
+| `paidAs`                                           | the purpose control stays on `عن عمل معتمد` or `سلفة عمل قادم`    | H                                                                               |
+| `cap`, `cumulative` on a `refundLabor`             | `المُرجَع أكبر من الدفعة`                                         | H                                                                               |
+| `cap`, `cumulative` on a `deduct`                  | `الخصم أكبر من العمل المعتمد`                                     | I                                                                               |
+| `cap`, `cumulative` on `returnAdvance` or `settle` | `المُرجَع والتسوية أكبر من السلفة`                                | H and J. Pending Ameer. Those two do not merge this sentence before his answer. |
+| `targetId`, `settlesId`                            | no new sentence. The button stays off until a live row is chosen. | H, I, J                                                                         |
+| `cancelled`                                        | no new sentence. The work buttons stay hidden.                    | G, after a live `rev_<agreementId>`                                             |
+| `kind`                                             | no new sentence. `عكس` stays hidden on a `rev_` row.              | I                                                                               |
+| `review`                                           | `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`                             | J                                                                               |
+| `ledger`                                           | the form does not send both a ledger and an explicit target       | not shown                                                                       |
 
-A lump or an amount milestone has no amount box on the measurement, so a partial amount is not something the owner can type. `post` still refuses it.
+A lump or an amount milestone has no amount box on the measurement. `post` still refuses a partial amount.
 
-## Strings
+## Deferred
 
-The 88 in the strings file are approved (status r2.29, 2026-11-10). The tab name `حسابات` is approved. This list is only the sentences these four pull requests put on screen. F's list and overview sentences are F's. `new` means the sentence is not in `public/` at this base. `reused` means it is already on screen.
+The owner chose not to add these. They are not in G, H, I, J, or L:
 
-Kept, reused, not in the 88: `حفظ` (`public/render.js` line 614), `رجوع` (line 663), `هذه الشاشة للمالك.` (line 672), `لا يمكن تعديل القيد أو حذفه بعد الحفظ.` (line 615), `لم يُرسل` (line 375), `د.ع` (line 46), `عكس` (`public/render.js` line 526), `رُفض الإرسال`, `سبب التصحيح` (`public/ledger.js` line 225), `معكوس` (`public/render.js` line 524 and `public/accounts-view.js` line 247), `الوصف` (`public/render.js` line 722), `المبلغ المتفق عليه` (`public/render.js` line 785). `cancel-agreement` reuses `عكس` and `معكوس`. It adds no word.
+- half day
+- overtime
+- close-by-date on a rate change
+- suggested settlement
+- one-step owner approval
+- engineer entering days
 
-### G, new
+## Later, not this phase
 
-`عقد عمل جديد`, `تسجيل عمل منجز`, `اعتماد قياس العمل`, `طريقة الدفع`, `مبلغ مقطوع`, `بسعر الوحدة`, `باليوم`, `مرحلة`, `سعر الوحدة`, `لكل كم`, `اسم الوحدة`, `أجرة اليوم`, `قيمة المرحلة`, `مبلغ`, `بعد الحفظ لا يتغير الاتفاق إلا بقيد عكس.`, `الكمية`, `الوحدة`, `كمية منجزة`, `أيام معتمدة`, `اعتماد المرحلة`, `منجز`, `بانتظار الاعتماد`, `معتمد`, `مرفوض`, `الاتفاق غير موجود`, `طريقة الدفع لا تطابق القياس`, `المبلغ ليس عدداً صحيحاً`, `لا اعتماد بلا قياس`, `القياس معتمد مسبقاً`, `بعد الحفظ تصبح الحالة:` (string 80), `المحاولة <n> من 9` (string 88).
+Linking «عهد» waits until after G–J and L. The entry is `تسوية العهدة من المستحق`, and the owner approves each one. No file, type, test, or string in this sketch implements it. `public/foremen.js` stays as it is, including the custody badges `مستحق له` at lines 148 and 181. Those badges are not the person balance line.
 
-`الوصف` and `المبلغ المتفق عليه` are reused on the agreement form.
+## رأي المعماري والمحاسب
 
-### H, new
+This is agreed advice from the AgentLab Architect and the accountant. It is not an Ameer decision. The four points are in the plan. They are not [OPEN].
 
-`تسجيل دفعة`, `الغرض`, `عن عمل معتمد`, `سلفة عمل قادم`, `إرجاع سلفة لم تُصرف`, `استرداد نقدي من العامل`, `المُرجَع أكبر من الدفعة`, `سلفة، ليست مصروفاً.`, `السلفة ليست مصروفاً`, `قبل هذه الدفعة` (string 81), `تظهر الدفعة في الكشف` (string 82), `حتى يدقّقها المالك.` (string 83), `تدقيق` (string 84), `غير مدقّق` (string 71). `مستحق عليه` (string 16) and the reused `مستحق له` (inside string 87, not a string of its own) are the labels. H shows one of them from `balances().net`. A negative net is `مستحق عليه` only. `المتبقي سلفة` is not painted.
+1. The «سلفة» cap is per project. `approvedUnpaid` is filtered by project and person. A payment above approved-unpaid work for that person on that project defaults to «سلفة».
+2. The period «مستخلص» shows the approved work value, then a deduction line, then the net due. Cost stays the full work value. A deduction repays a debt and does not reduce cost.
+3. «قيود بلا عقد» rows are a separate list, outside any contractor's old paid. They appear as their own line in the project-level cost reconciliation. They are listed for Ameer to link to a contractor if he knows which.
+4. Already deducted from the contractor's work: write no ledger record. Mark the row `روجع` with the review date and the decision. In the old ledger the expense plus the reduced payment already equal the work value. Still owed: write `ملغى` first, id `rev_` plus the expense id. The `سلفة` is written only after that `rev_` is accepted, for the same amount, dated today, citing the original date and id. If the `rev_` is refused, nothing else is written. The row stays on the first list. Still owed can be retried only after export plus logout. While the `rev_` is accepted and the `سلفة` is not, cost and company cash out are too low by that amount, and the person owes nothing. The second list keeps the `سلفة` offered until a covering advance exists. A queued, unrejected advance turns the button off on that phone. Two phones can still each write one, because the id is a uuid and this revision does not change the rules. Two live advances with the same token show `سلفة مكررة`, which is `بانتظار أمير`. The first is the lowest `createdAtServer`, and a lower id breaks a tie. The reversal of every later advance is offered only when each advance carrying the token has a `createdAtServer`. Company-wide cash out stays the same once both exist. The contractor reconciliation rises by that amount. Until Ameer confirms `أُعيد تصنيفها`, that line shows `سلفة`. Both words are `بانتظار أمير`. Cost goes down once the `rev_` counts, and the amount becomes a debt on the person only after the advance is accepted. The still-owed warning shows the original date and id, and حفظ stays off until the owner confirms. There is no `تسوية سلفة` on L. Ameer decides each row. The per-row question is [OPEN] and does not block the plan.
 
-### I, new
+## [OPEN]
 
-`نسخة جديدة`, `رفض السطر`, `اعتماد`, `خصم` (string 85), `الخصم أكبر من العمل المعتمد` (the 89th, approved, not in the 88-file yet). `عكس`, `سبب التصحيح`, and `معكوس` are reused.
+These do not block this sketch. No pull request here decides them.
 
-### J, new
+- Whether Jabbar (جبار) is a contractor at 75 IQD per brick. The name is not in this repo. `unitPrice` says "300000 per 4000 is 75" (`public/accounts.js` lines 121-125). That is the arithmetic example. It does not say Jabbar is a contractor. His custody entries stay as they are.
+- Retention. No retention field is in `PURPOSES` or `firestore.rules`.
+- Contractor-supplied bricks. No such agreement field is on `LaborAgreement` (`public/accounts.js` lines 19-28).
+- The cutover date. `CONTRACTOR_COST_START` is `null` at `public/accounts.js` line 11. It is a runtime gate. K merges while it is null. Setting it is a later deploy.
+- The per-row L question, whether an old «سلفة» on the list was already deducted from the contractor's work. Ameer answers each row. It does not block this plan.
+- If more than one phone or more than one owner will decide L rows, Ameer approves a small create-only `laborReviews/{entryId}` rule first. Until that approval the mark stays local and is wiped on logout (`public/session.js` line 419).
+- A fixed id for the still-owed `advanceLabor`. `cashBodyCreate` requires `uuidOk` (`firestore.rules` line 874; `uuidOk` is line 377), so the second create is a different document. A fixed id would refuse that second create and needs a rules change. This revision does not make that change. Until Ameer approves it, the L section states the two-phone race, a queued advance turns the button off on that phone, and two live advances with the same token show `سلفة مكررة`.
 
-`تسوية سلفة`, `إصدار كشف حساب`, `السلفة`, `حفظ التسوية`, `أسبوعي`, `شهري`, `من`, `إلى`, `رصيد أول المدة`, `الخصومات ومرتجعات المواد`, `رصيد آخر المدة`, `الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.`, `السلف المصروفة له`, `المُرجَع من السلف نقداً`, `صافي السلف`, `سلف قائمة عليه`, `الصافي`, `المُرجَع من الدفعة نقداً`, `لا يُعتمد الكشف وفيه مبلغ غير مدقّق` (string 72). The settle form uses `سلف قائمة عليه` and `صافي السلف` from C's fold. It does not add a remaining-advance sentence. Any other wording is a question for Ameer via EA, not a default.
+## Citations rechecked at main a1ca326b
 
-Not in these four: the two delete sentences (strings 86 and 87). F paints them. EA Q27 is that dependence, not a second copy. Not in these four: `نسبة`, `آخر معتمد`, `عملة`, and every material sentence. `المُرجَع والتسوية أكبر من السلفة` is on H and J. It is outside the 88 and the approved 89th (`الخصم أكبر من العمل المعتمد`). It stays pending Ameer (`STRINGS-PENDING-AMEER` row 3). H and J do not merge that sentence before his answer. No other new Arabic is added.
+| What                        | On this main                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Service worker              | `public/sw.js` line 2 is `aj-p0-v67`. Pins: `tests/shell-cache.test.js` lines 44, 67, and 98. `tests/webkit-upgrade.test.js` line 19. |
+| Script order                | `public/index.html` lines 71-73. The assertion is `tests/shell-cache.test.js` lines 71-82.                                            |
+| `SHELL_FILES`               | `public/session.js` line 351. It lists `accounts.js` and `accounts-view.js`.                                                          |
+| `uuid`, `today`             | `public/session.js` lines 120 and 172.                                                                                                |
+| `queueDoc`                  | `public/render.js` lines 113-119.                                                                                                     |
+| Install loop                | `public/render.js` lines 1644-1658.                                                                                                   |
+| `AccountsView.syncTab` call | `public/render.js` line 1334. The function is `public/accounts-view.js` line 506.                                                     |
+| Click walk                  | `public/render.js` line 1393 calls `AccountsView.onClick`. The walk is `public/accounts-view.js` lines 528-532.                       |
+| `commitDoc`                 | `public/accounts-view.js` lines 131-135.                                                                                              |
+| Balance fold                | `public/accounts.js` lines 865-871. `balances` is line 893. `statementLines` is line 942. `periodBounds` is line 987.                 |
+| `projectCost`               | `public/accounts.js` lines 1031-1034 return 0.                                                                                        |
+| Old contract button         | `public/render.js` lines 93-96. Detail is lines 823-856.                                                                              |
+| Ledger reversal             | `public/ledger.js` lines 289 and 295-306. Rules: `firestore.rules` lines 131-147 and 156.                                             |
+| `labour` is an expense      | `public/ledger.js` line 12. `subcontractor` is line 13.                                                                               |
+| Delete guard                | `public/ledger.js` line 1142, reached from `public/render.js` lines 1111-1121 and 1184.                                               |
+| Unit lists                  | `package.json` line 5 and `.github/workflows/ci.yml` line 68. Both are 39 files and they match.                                       |
+| Unknown verify id           | `scripts/verify-aj.js` line 1310 exits 3. The skill says the same at line 67.                                                         |
+| B and F                     | #81 merged at `24fb839556bae41d9f721ad8f09ce61a0e0f55b5`. #76 merged at `2d21ef03c8cb128ab347a35022b8505d08a417c3`.                   |
 
-## Tests
+`withServerTime` is `public/sync.js` line 328. `flushOutbox` starts at line 862. `applyFlush` deletes a `syncErrors` key for `synced` and `kept` (`public/sync-status.js` lines 280-281). `outboxEmpty` is `public/session.js` lines 336-348. The logout alerts are lines 406 and 411. `isOwner` is `firestore.rules` line 11. `idOk` is line 19. `MAX_AMOUNT_IQD` in the ledger is `public/ledger.js` line 151. `مستخدم غير مسموح` is line 208. `المشروع غير موجود` is line 212.
 
-Node tests assert a purpose, an id, an effect, or an error code. Verify drives assert the Arabic sentence, the button, and the Firestore document. `drive` of an id this helper does not know exits 3 (`scripts/verify-aj.js` line 1310). The skill file says the same at its line 67. Each builder test asserts that its keys, minus `docType`, are a subset of D's allowlist for that kind.
+## Sequencing
 
-### G, `tests/accounts-work.test.js`
+K first. The date does not gate the merge. Then G, H, I, J, L. G–J merge after K is merged, and only while F's guard is on main. The guard is on this main. L merges after J.
 
-- Spec 1. Unit rate 300,000 per 4,000. Approved qty 8,000. `approveLaborDoc` amount is 600,000, effect cost +1 and person +1. The body id is a uuid.
-- Spec 6. A lump of 600,000 approves 600,000. `slotBodyId('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', '1')` is `000aaaaaaaabbbbccccddddeeeeeeeeeeee1`. A `replace` that strips one hyphen fails this. A second body at generation 1 is the same id.
-- Spec 7. Daily rate 50,000 and 3 days earns 150,000.
-- Spec 8. Amount milestone 250,000 earns 250,000. The stored `milestoneMode` is `amount`. The returned document has no percent field.
-- Generation 9 is the last slot id. `المحاولة 9 من 9` is the label text the screen function returns.
-- A uuid body on a lump agreement is `method`.
-- `unitQty` 1000001, a product above 1e16, a negative qty, and a fractional qty are `range` or `overflow`.
-- `approveLabor` with earned 0 is `earned`.
-- `agreementDoc` with two method groups is `method`. `agreementDoc` with `milestoneMode: 'percent'` is `percent`. An empty description is `description`.
-- `post('approveLabor')` with no agreement object is `agreement`. That is `public/accounts.js` line 370, not `agreementDoc`.
-- Two taps of the agreement save append one `agreements` row and one outbox id. The button is disabled until `save` returns.
-- Two taps of `approve-labor` append one `appr_` and one outbox id.
-- `agreementReversalDoc` id is `rev_` plus the agreement id, collection `agreements`, `docType` is `agreement`, and the body copies the original's values. An original that is itself `rev_` is `kind`. `reversalReason` is 1 to 500 characters and the label is the reused `سبب التصحيح`. An empty reason is refused. After a live `rev_`, `laborQtyDoc` and `approveLaborDoc` return `cancelled`.
-- Two taps of `cancel-agreement` append one live `rev_<agreementId>` row in `agreements` and one outbox id.
-- A refused `rev_` whose id is in `syncErrors` does not hide the measurement or approval buttons. `laborQtyDoc` does not return `cancelled`.
-- While that refused `rev_<agreementId>` is in `agreements` and its id is in `syncErrors`, `cancel-agreement` is off. A tap and a direct `commitDoc` append nothing and queue nothing. Measurement and approval stay on. The refusal text stays on the row. Logout and the rejected CSV for that id come from E's E26, which extends `rejectedLogoutBlock` and the rejected CSV (E sketch lines 393 and 532) and must include `agreements` ids in `syncErrors`. The test runs with E present. On main `29ada0bc`, `rejectedLogoutBlock` (`public/render.js` lines 547-551) covers only ledger rows refused with `رُفض الإرسال لأن المشروع محذوف`, so this row is not in that check and not in the CSV (`public/render.js` line 1324). E's E26 test must include a refused `rev_<agreementId>`.
-- The same agreements list with an empty `syncErrors` leaves `cancel-agreement` on, and `agreementReversalDoc` may return that same `rev_` id. `syncErrors` is per phone, so another owner phone that does not hold the refused row can still cancel.
-- (a) The local project is not `active`, or `forgetGoneProjects` has dropped it. `cancel-agreement` is off. Nothing is queued. No sentence is shown. The agreement row is unchanged.
-- (b) Emulator. The owner phone is online and still shows the project as active. An admin sets the project to `closed` with rules disabled. The cancel is queued and refused. `syncErrors` has `رُفض الإرسال` (`public/sync-status.js` line 12 at `29ada0bc`). A deleted project uses `رُفض الإرسال لأن المشروع محذوف` (line 15) once E's probe covers `agreements`. There is no live `rev_`. The agreement row is unchanged.
-- A body whose id is in `syncErrors` is not offered to `approve-labor`.
-- `approveLaborDoc` refuses a non-slot target on a lump agreement and a slot target on a unit agreement.
-- The builder's keys, minus `docType`, are a subset of D's allowlist. `createdAtDevice` is absent.
+They are not parallel with B. B's `post` is what G and H call. C's `balances` is what J reads. D's rules are what the writes already match. E's `collectionFor` is what flushes `agreements`, `accountTxns`, and `statementApprovals`. F's screen is what J paints on.
 
-`approve-labor` drive: sign in, open the person, save the brick agreement, save the measurement, approve it. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. The person page shows `عمل معتمد` 600,000. Home المصروف is unchanged. Screenshot and `firestore.json` under that id.
-
-`cancel-agreement` drive: cancel that agreement, then the measurement and approval buttons are hidden only because the `rev_` is live, and a new `laborQty` is refused. Firestore has `rev_<agreementId>` in `agreements`. The label on screen is `عكس`.
-
-### H, `tests/accounts-payment.test.js`
-
-- Spec 11. Two `payLabor` documents, 400,000 then 200,000, after the 600,000 approval. Two ids. Person effect of each is −1.
-- Spec 12. `payLabor` 700,000 after `approveLabor` 600,000. The document purpose is `payLabor`. No `advanceLabor` is created. The screen shows `مستحق عليه` 100,000. The HTML contains neither `المتبقي سلفة` nor `(سلفة)`. The 100,000 line contains no U+2212.
-- `advanceLabor` 100,000. `returnAdvance` 30,000 has person +1 and cash −1. 100,001 is `cap`.
-- `refundLabor` 50,000 against `payLabor` 600,000. 600,001 is `cap`. A second refund that crosses the payment is `cumulative`.
-- `reviewDoc` has no amount and effect zeros. A second `revw_` that `rowCounts` says is live, of the same cash id, is refused. After `rev_` of the mark, the next id carries the generation character.
-- Two taps of a `payLabor` save append one document and one outbox id. The second tap does not call `save`.
-- A `payLabor` whose id is in `syncErrors` is not offered to `refund-labor`.
-
-`pay-labor` drive: the brick payment 600,000. Firestore one `payLabor`. The person net on the page is 0. A second payment of 100,000 shows `مستحق عليه` 100,000, with no `المتبقي سلفة`, no `(سلفة)`, and no U+2212. `refund-labor` checks the sentence `المُرجَع أكبر من الدفعة` and that no second document was queued.
-
-### I, `tests/accounts-correct.test.js`
-
-- `deduct` 50,000 against the 600,000 approval. `approveDeduct` stores no amount. Its id is `appr_` plus the deduct id.
-- A deduct of 600,001 is `cap`. A second deduct that `rowCounts` says is live and that crosses the approval is `cumulative`.
-- A body whose id is in `syncErrors` is not offered to `reject` or `deduct`.
-- `rejectDoc` id is `rej_` plus the body id. A cash id is `method`.
-- `supersedeDoc` of a uuid measurement copies `purpose`, `ledger`, `partyId`, `projectId`, `agreementId`, `currency`, and `fxRate` unchanged. Depth 5 is `method`. A slot id is `method`. A `payLabor` id is `method`.
-- `reversalDoc` of a `payLabor` copies `amount` and omits nothing that row has. `reversalDoc` of an `approveDeduct` omits `amount`. `reversalDoc` copies `agreementId` only when the original has it. `reversalDoc` of a `rev_` is `kind`. `reversalReason` empty is refused.
-- Two taps of a deduct save append one document and one outbox id.
-
-The 600,000 / 50,000 / 100,000 / 30,000 fixture with its `approveDeduct` is C's. I's test checks the two documents, not the closing number.
-
-### J, `tests/accounts-statement.test.js`
-
-- Spec 13. J calls `AccountsView.accountPeriod()`. It does not define `statementPeriod` and it does not call `Accounts.periodBounds` itself. `accountPeriod` is F's wrapper around C's `periodBounds`. A null return does not save `statement-approval`.
-- `settle` of 40,000 against an advance has effect zeros. A settle above the named advance is `cap`. `returnAdvance` plus `settle` over the advance is `cumulative`.
-- `statementApprovalDoc` has no `includedIds`, no figures, no `createdAtDevice`, and no `deviceId`. With `hasUnreviewedCash` true, the save returns `errors: ['review']` and no document. The screen sentence is `لا يُعتمد الكشف وفيه مبلغ غير مدقّق`.
-- Spec 15. The drive reads the closing on `كشف الحساب` and the Firestore `statementApprovals` row. The closing number is C's `balances().net` for that scope. This test does not reimplement the fold.
-- Two taps of `إصدار كشف حساب` append one `statementApprovals` row and one outbox id.
-
-## Citations rechecked at main 6f4bb1ec
-
-Every file:line in this sketch was read at `6f4bb1ec91660cc3b54d2db0159457d5fa0a0962`. A code pull request reads them again at its own base. The contract slice keeps F's own cites, including `24fb8395`, and this section does not edit that slice.
-
-| What the older sketch cited                       | At main `6f4bb1ec`                                                                                                                                                                                                         |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Service worker version and the pin tests          | `public/sw.js` line 2 is `aj-p0-v64`. Shell pins are `tests/shell-cache.test.js` lines 44, 67, and 98. WebKit `MARK` is `tests/webkit-upgrade.test.js` line 19. `README.md` line 22 still says `aj-p0-v41`.                |
-| `uuid()` and the demo uid                         | `uuid` is `public/session.js` line 85. `u-ameer` is `public/app.js` line 34 and `public/session.js` line 146.                                                                                                              |
-| `SHELL_FILES`                                     | Line 316. It lists `accounts.js` and `accounts-view.js`. It still omits `foremen.js`, `people-dir.js`, and `print.css`, which `public/sw.js` lines 3 and 5 list. These PRs add their own file. They do not close that gap. |
-| Form id                                           | The field is `public/render.js` line 40. `#save` disables the button at line 1269 and mints the next id at line 1292.                                                                                                      |
-| `renderScreen` home fallback                      | Line 1139.                                                                                                                                                                                                                 |
-| In-page `.pills`                                  | Lines 556, 607, 609, 610, and 622.                                                                                                                                                                                         |
-| `#person` and the owner gate                      | `#person` is the people screen. `هذه الشاشة للمالك.` is line 672. It is still not a contractor page.                                                                                                                       |
-| `الدفعات`, `المبلغ المتفق عليه`, `الوصف`, `معكوس` | Lines 766, 785, 722, and 524.                                                                                                                                                                                              |
-| `قيد العكس يجب أن ينسخ المبلغ`                    | The ledger copy is `public/ledger.js` line 266. The sentence is the foreman reversal at line 700.                                                                                                                          |
-| `سبب التصحيح`                                     | Lines 225, 539, and 544.                                                                                                                                                                                                   |
-| `countedEntries`                                  | The function starts at line 307.                                                                                                                                                                                           |
-| `shapeOk`                                         | `firestore.rules` line 82.                                                                                                                                                                                                 |
-| `flushOutbox` keeps an unknown id                 | `public/sync.js` line 611, inside `flushOutbox` at line 594.                                                                                                                                                               |
-| Logout                                            | `outboxEmpty` is `public/session.js` lines 301-309. The rejected-entries alert is lines 370-372. The outbox alert is lines 375-377. A queued account id still blocks logout.                                               |
-| `projectCost`                                     | Lines 1031-1034 return 0. There is no date loop. `CONTRACTOR_COST_START` is line 11.                                                                                                                                       |
-
-These still match this main: `queueDoc` at `public/render.js` lines 89-92, `isOwner` at `firestore.rules` line 11, `idOk` line 19, `idListOk` lines 21-24, ledger create line 156, foreman create-only lines 316-317 and 363-364, `MAX_AMOUNT_IQD` at `public/ledger.js` lines 117-118, `مستخدم غير مسموح` line 175, `المشروع غير موجود` line 179, and `مستحق له` at `public/foremen.js` lines 148 and 181. `Accounts.rowIndex` is `public/accounts.js` line 586. `rowCounts` is line 746. A `syncErrors` id is dead at line 668. `balances` is line 893. `statementLines` is line 942. `periodBounds` is line 987. `withServerTime` is `public/sync.js` line 262. `personProjectDeleteBlock` is `public/ledger.js` line 1109.
-
-`PURPOSES` is `public/accounts.js` lines 69-79. `approveLabor` already points at `laborQty` (line 71). These screens call `post`. They do not edit the table. `otherApproved` is absent.
+`today()` is the Baghdad civil date (`public/session.js` line 172). H and L use it for `txnDate` and `entryDate`. J calls `AccountsView.accountPeriod()`. None of them call `toISOString`.
 
 ## Revert
 
-`git revert` of one code pull request removes that script, its tests, and its verify ids. Firestore documents already written stay. A phone that queued an id keeps it. `collectionFor` is E's. While E is still on the phone, the queued id can still flush. `outboxEmpty` stays false until it does (`public/session.js` lines 301-309 and 375-377). This sketch does not drop queued ids. Reverting the screen does not delete the service-worker bump; the revert pull request takes the next free version again if `public/` changes.
+`git revert` of one code pull request removes that script, its tests, and its verify ids. Firestore documents already written stay. A phone that queued an id keeps it until `outboxEmpty` (`public/session.js` lines 336-348 and 410-412). Reverting the screen does not delete the service-worker bump. The revert pull request takes the next free version again if `public/` changes.
+
+Reverting G puts the «+ عقد مقاول» anchor back, because that edit lives in G. Old contracts that already exist are untouched either way.
 
 ## Dependencies
 
-- B: `post`, the caps, `cumulative`, amount milestones, `approveDeduct` with no amount, and the `agreement` code at `public/accounts.js` line 370. B's code is on this main. G–J do not merge before it.
-- C: `balances`, `statementLines`, `periodBounds`, `rowIndex`, and `rowCounts`. Closing equals `net`. A row in `syncErrors` is not live. C's code is on this main.
-- D: deployed rules, including `rev_<agreementId>` in `agreements` and the refusal of new work on a cancelled agreement. These screens do not change rules. A write before D is deployed becomes `syncErrors`, and the pickers do not offer that row.
-- E: `collectionFor` for `agreements`, `accountTxns`, and `statementApprovals`; the K keys; the adopt path. These screens do not paint `slotLosers`. `withServerTime` is `public/sync.js` line 262. G–J show `رُفض الإرسال` and do not invent E's reason sentence. E26 extends `rejectedLogoutBlock` and the rejected CSV (E sketch lines 393 and 532) so an `agreements` id in `syncErrors`, including a refused `rev_<agreementId>`, blocks logout until export and is in that CSV. On main `29ada0bc` that check covers only ledger rows refused with `رُفض الإرسال لأن المشروع محذوف` (`public/render.js` lines 547-551). E's E26 test must include a refused `rev_<agreementId>`.
-- F: `#accounts`, `#account/<id>`, the four tabs, `AccountActions`, `commitDoc`, `accountHtml`, and `readAccountScope` / `accountPeriod`. The contract section is the list. F also owns the project-delete guard. No G–J code pull request merges before that guard is on main. On this main it is `public/ledger.js` line 1109.
-- K: `projectCost` on home and the project screen. The function on this main still returns 0. G and I do not add cost themselves.
-- The Baghdad-date fix: `today()` is already a Baghdad date (`public/session.js` line 137). H and J use it for `txnDate`.
+- B: `post`, the caps, `cumulative`, amount milestones, `approveDeduct` with no amount, and the `agreement` code at `public/accounts.js` line 370. B is merged (#81).
+- C: `balances`, `statementLines`, `periodBounds`, `rowIndex`, and `rowCounts`. C is on this main (#75, `d5cdec4452749e16b131e773fe6cb9f97e7349d5`).
+- D: the rules cited above. These screens do not change rules. A write the server refuses becomes `syncErrors`, and the pickers do not offer that row. D is on this main (#88, `d7dc8e9b437a3bb8fc20c0bebe784d2c01f3b5c6`).
+- E: `collectionFor` for the three account collections. E is on this main (#93, `a1ca326`). G–J show `رُفض الإرسال` (`public/sync-status.js` line 12) and do not invent a new refusal sentence.
+- F: `#accounts`, `#account/<id>`, the four tabs, `commitDoc`, and the delete guard. F is #76. No G–J code pull request merges before that guard is on main.
+- K: `projectCost`. The stub returns 0. K merges while `CONTRACTOR_COST_START` is null and adds no new cost until that constant is a date. G and I do not add cost themselves. J's totals are a display. K's equality test lives in K's behaviour test. J names the fixture and does not ship the assertion. K does not apply B's `deduct` cost of −1 (`public/accounts.js` line 76).
+- L depends on H's `cashDoc` and on `Ledger.makeReversal`. It does not depend on a new rule.
 
 ## Risks
 
-An agent that only opens `public/render.js` will add the form next to the subcontract warning at line 742. That warning does not block a payment. The person screens live in the new files and call `post`, which does block a cap. The subcontract sentence stays on the subcontract card.
+An agent that only opens `public/render.js` will add the new form next to the subcontract warning at line 831. That warning does not block a payment. New-model saves live in the flow files and call `post`. L uses only the non-blocking clause from that line.
 
-An agent that edits `public/accounts.js` to build a slot id will collide with B, C, and K. `slotBodyId` lives in `public/accounts-work.js`.
+An agent that edits `public/accounts.js` to build a slot id or a second balance will collide with B, C, and K. `slotBodyId` lives in `public/accounts-work.js`. `balanceSentence` reads `net`. It does not recompute it.
 
-Two owners can each queue a cash uuid. Both land. A lump slot is one id. The second create is denied, and E adopts the winner. These screens do not add a second conflict pill.
+An agent that hides `views.sub` as well as the new-contract button will take the old contract's details away. Item 1 says those details stay.
 
-While `CONTRACTOR_COST_START` is null, a green `approve-labor` drive that expected home المصروف to become 600,000 would be wrong. The drive asserts the document and an unchanged home total.
+An agent that bulk-writes the labour list will break item 5. The test with two rows is the check.
+
+While `CONTRACTOR_COST_START` is null, a drive that expected home `المصروف` to become 600,000 would be wrong. The drive asserts the document and an unchanged home total.
 
 `public-canon-diff.sh` fails when the set of files under `public/` changes. CI runs `tests/public-canon-diff.test.js`, which uses a temp repo. The code PRs do not point that script at their own base and head.
 
@@ -749,46 +728,46 @@ While `CONTRACTOR_COST_START` is null, a green `approve-labor` drive that expect
 
 The app is not claimed to be pstack-compliant. Arena was not run.
 
-Plan section 16 names the inventory rows for the code pull requests. Each of G, H, I, and J updates `feature`, `maintain-verification-skill`, and `opening-a-pr`. Evidence links only. The status word stays. This docs pull request does not edit the inventory.
+This sketch uses `architect`: the files, the types, the signatures, the tests, and the strings are above, and the two shapes are named. `principle-subtract-before-you-add` is the cut: no opening balance, no migration, no «مستخلص» document, no second balance fold, no bulk rewrite, no daily-worker extras, no «عهد» link, and the old new-contract button goes away before the new screen is the way in. `principle-sequence-verifiable-units` is K, then G, then H, then I, then J, then L, each ending in the behaviour tests above. `principle-model-the-domain` is one `net`, one `projectCost`, one reversal row, and one purpose per saved document. `principle-make-operations-idempotent` is `commitDoc` plus the disabled button, with one two-tap test in each pull request.
 
-This sketch uses `architect` (files, types, signatures, tests, and strings before code). `principle-subtract-before-you-add` is the v1 cut in section 14, already decided. `principle-sequence-verifiable-units` is one flow file and one verify id per save, after B, C, D, E, F, K, and the date fix. `principle-make-operations-idempotent` is the append-if-absent save plus the disabled button, with one test in each of G, H, I, and J. The code PRs are what make that test pass. This docs PR does not claim the app already does it.
+These screens add no listener. The verify drives stay on the emulator and refuse a production host. Cost of this sketch is zero.
 
-Plan section 16 covers Spark. A v1 create is at most 9 rule reads. These screens add no listener. The verify drives stay on the emulator and refuse a production host (`scripts/verify-aj.js` line 1310 is the unknown-id exit; the allowlist is the skill's network rule). Cost of this sketch is zero.
+Each code PR updates `feature`, `maintain-verification-skill`, and `opening-a-pr` in `docs/PSTACK_INVENTORY.md`. Evidence links only. The status word stays. This docs pull request does not edit the inventory. The inventory sentence that says #76 does not implement the 16 G–J save ids is still true, so it stays.
 
 ## Accounting advisor
 
-Opinion only. The advisor's earlier note stands: a payment above approved work is one `payLabor` and a negative person balance, and an amount milestone is earned in full. The label is `مستحق عليه` from `balances().net`, with no `(سلفة)` and no `المتبقي سلفة`. There is no confirm step. Ameer, 2026-11-16 15:35, section "Ameer answers, 2026-11-16 15:35" of `answers-EA-delegated-0034.md` sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`.
+This revision does not re-ask محاسب أهل الجزيرة. Ameer, 2026-11-20 18:16 Baghdad, adopted the architect and accountant middle way and stated the six items. That statement is the ruling this sketch follows. A verbatim advisor message dated 2026-11-20 is not in this repo.
 
-The advisor's advance layout stays the one in plan section 3: advances paid minus, cash returned plus, net advances that difference. J paints that from C. It does not put a cash return under `الخصومات ومرتجعات المواد`.
+The earlier opinion that a payment above approved work is one `payLabor` and a negative balance is replaced by item 4: the excess defaults to «سلفة» and is shown before saving. The ban on `(سلفة)` in the balance line stays, and the line is now the three approved sentences. Work value minus total paid is `net`.
+
+The advisor's advance layout stays the one C already folds: advances paid minus, cash returned plus, net advances that difference (`public/accounts.js` lines 867-874). J paints that from C. It does not put a cash return under `الخصومات ومرتجعات المواد`.
 
 ## EA, closed
 
-EA approved every default in `QUESTIONS-FOR-EA-r1` at 00:46 Baghdad on 2026-11-16, including Q24–Q29. The answers file to cite is `answers-EA-delegated-0034.md`, sha256 `d94eeba5447a75caf4fef37eb14fa44f75f8f2edca4ad8cb98e0c166724b7d7b`. Its 15:02, 15:35, and E N6 sections are unchanged from `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`. Where that file differs from `QUESTIONS-FOR-EA-r1`, the answers file wins. Ameer's 15:02 and 15:35 answers in it are the person-balance label. One string is still pending Ameer, below.
+EA's earlier answers stay where this decision does not replace them. The 2026-11-16 15:35 path that saved an overpayment as one `payLabor` with no preview is replaced by item 4. The 15:35 ban on `(سلفة)` and on `المتبقي سلفة` in the balance line stays. The label is `الرصيد المستحق` with the direction next to the number. `لا شيء (مسدّد)` is `بانتظار أمير`.
 
-- Q24. The three cash saves replace the three material buttons.
+- Q24. The cash saves stay separate documents. H's preview can name two of them, and each builder still returns one.
 - Q25. `خصم` ships inside I.
-- Q19, which was this sketch's sentence question. `المُرجَع والتسوية أكبر من السلفة` is the advance-line sentence. It stays outside the 88 and outside the approved 89th. It is pending Ameer. H and J do not merge it before his answer.
-- Q18. The overpayment label is `مستحق عليه` only, from `balances().net`, with no `(سلفة)` and no `المتبقي سلفة`. Open advances stay in `سلف قائمة عليه`. No confirm step. Ameer, 2026-11-16 15:35, section "Ameer answers, 2026-11-16 15:35".
+- Q19. `المُرجَع والتسوية أكبر من السلفة` stays pending Ameer. H and J do not merge it before his answer.
 - Q26. `آخر معتمد` stays out of `PURPOSES` and off the payment form.
-- Q27. The guard is F's. G–J depend on it. Strings 86 and 87 stay F's. G–J do not paint them and do not write a second guard. No G–J code pull request merges before that guard is on main.
-- Q28 follows Q9 and D. `rev_<agreementId>` is a row in `agreements`, reached by `cancel-agreement`. Ameer's recorded words are the same fields plus `reversesId`. On main `d7dc8e9b`, `firestore.rules` lines 639-641 require `reversalReason` of 1 to 500 characters. The D sketch states that bound at line 232. Lines 129 and 135 name the key and the hasOnly rule. The screen reuses `سبب التصحيح`. The old agreement row is not edited. س٢-ب: after that reversal, new work and a new approval on that agreement are refused. This sketch drops the old question that put the same id in `accountTxns`.
-- Q29. An inexact unit split shows `المبلغ ليس عدداً صحيحاً`. No new sentence.
+- Q27. The guard is F's. Strings 86 and 87 stay F's. No G–J code pull request merges before that guard is on main.
+- Q28. `rev_<agreementId>` is a row in `agreements`. The screen reuses `سبب التصحيح`. The old agreement row is not edited.
+- Q29. An inexact unit split shows `المبلغ ليس عدداً صحيحاً`.
 - Q5. The service-worker number is the next free one at merge time. This sketch reserves none.
 
-## For EA/Ameer
-
-Decided. `answers-EA-delegated-0034.md`, sha256 `d94eeba5447a75caf4fef37eb14fa44f75f8f2edca4ad8cb98e0c166724b7d7b`, section "G-J refused cancellation (عكس) on a closed project, EA 05:59 (2026-11-17), under Ameer's delegation". Review `REVIEW-pr79-r8-0f5f8b76.md`, sha256 `3bd8c479`. Choice: (i). No re-cancel in v1.
-
-The refused cancellation stays visible with `رُفض الإرسال` and must be exported before logout, like other refused lines. That export and the logout block come from E's E26, which extends `rejectedLogoutBlock` and the rejected CSV (E sketch lines 393 and 532) and must include `agreements` ids in `syncErrors`. On main `29ada0bc`, `rejectedLogoutBlock` (`public/render.js` lines 547-551) covers only ledger rows refused with `رُفض الإرسال لأن المشروع محذوف`, so this row is not in that check. Measurement and approval stay available. The cancel button stays off for that agreement on this phone. Nothing is deleted, no new text, no rules change. Another owner phone can still cancel, because `syncErrors` is stored on that phone only.
-
-(ii) rejected (rules change). A new cancel id is impossible under the current rules. `agreementReversalCreate` (`firestore.rules` lines 620-642 at `29ada0bc`) requires the id to be `rev_` plus the agreement id.
-
-(iii) deferred to a later version. Re-sending the same id would clear the refusal mark. `SyncStatus.applyFlush` deletes a `syncErrors` key only when that id is synced or kept (`public/sync-status.js` lines 174-175). That conflicts with answers-file option أ, section "E plan N6", which is unchanged from `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`.
+The refused-cancellation choice stays (i): no re-cancel in v1. Measurement and approval stay available. The cancel button stays off for that agreement on the phone that holds the refused id. Nothing is deleted, no new text, no rules change. Another owner phone can still cancel, because `syncErrors` is stored on that phone only.
 
 ## Decisions this sketch does not make
 
-Percent milestones stay out. The 88 strings and the tab name `حسابات` stay as approved. `المُرجَع والتسوية أكبر من السلفة` stays pending Ameer. The rules change stays D's, and Ameer deploys it. The start date stays null. Q2 stays «بعدين». Merge of each code pull request waits for his go, after the Architect's review of that SHA and CI 4/4, and only while F's project-delete guard is on that main. Each code pull request deploys only on Ameer's go, or on EA's delegated go, and only when nobody is entering data. No migration, no edit, and no delete of existing Firestore documents. This sketch does not merge itself. A draft stacked on B is the furthest a code branch goes before K is merged. F is already on this main.
+The four [OPEN] items above. Percent milestones. The pending sentence `المُرجَع والتسوية أكبر من السلفة`. The «عهد» settlement. The six deferred daily-worker extras. Linked `subcontractor` rows stay in `oldPaid`. Unlinked rows are the separate `قيود بلا عقد` line. Merge of each code pull request waits for Ameer's go, after the Architect's review of that SHA and CI 4/4, and only while K is merged and F's guard is on that main. The cutover date does not gate those merges. No migration, no edit, and no delete of existing Firestore documents. This sketch does not merge itself.
 
 ## Review checklist
 
-- Net only. A person balance is one number from `balances().net`. `مستحق له` when net is above 0. `مستحق عليه` when net is below 0, printing `-net` in Western digits, with no U+2212, no `(سلفة)`, and no `المتبقي سلفة`. Open advances stay in `سلف قائمة عليه`. This is Ameer, 2026-11-16 15:02 and 15:35, `answers-EA-delegated-0034.md` sha256 `5ba855cff8b3a72b07fc4bb645a88697b1c2a869f391d7489d84134f946fe8f8`, section "Ameer answers, 2026-11-16 15:35". It closes the FU-1 follow-up for G–J.
+- «حسابات» appends nothing. «مقاول» is where the sixteen saves and L's correction are painted. «عهد» is unchanged.
+- The balance line is `الرصيد المستحق` plus `مستحق له` or `مستحق عليه`. X is positive. The line has no `(سلفة)` and no U+2212. `لا شيء (مسدّد)` is not painted.
+- The period «مستخلص» is approved measurements minus advances, and opening it writes nothing.
+- The two totals are on the «حسابات» statement tab for one project. K's equality test lives in K's behaviour test. While the constant is null, K adds no new cost.
+- While the constant is null, «+ عقد مقاول» stays and `#subnew` stays the form at `tests/browser-check.js` lines 323-329. When the constant is a date, the button is hidden and `#subnew` shows `العقد الجديد من شاشة مقاول` with no save.
+- A payment above approved-unpaid work for that person on that project shows «سلفة» before save. If one half is refused, the accepted half stays, the refused id shows `رُفض الإرسال`, and the owner re-enters a new id shown next to it.
+- L lists, the owner decides one row, and the other rows keep their amounts.
+- `firestore.rules` is not in the diff of any of these five.
