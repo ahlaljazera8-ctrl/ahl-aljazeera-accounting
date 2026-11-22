@@ -1023,15 +1023,33 @@
   }
 
   /**
-   * PR K owns the real function.
+   * Owner project cost. Owned by public/accounts.js.
+   * legacySpent is the ledger spent for this project. The screen passes
+   * Ledger.totals(counted entries for the project).spent.
+   * start is CONTRACTOR_COST_START on the screen. Tests pass a date or null.
+   * When start is not YYYY-MM-DD, the return is legacySpent and the new half is 0.
+   * When start is a date, the return is legacySpent plus live approveLabor
+   * amounts on this project whose txnDate is YYYY-MM-DD and on or after start.
+   * Which row is live is rowCounts(row, rowIndex(txns, syncErrors)).
+   * A deduct does not reduce the sum. effect.cost is not applied.
+   * Does not read entryDate. Does not write. Does not read slotLosers or linkRefusals.
    * @param {string} projectId
-   * @param {readonly unknown[]} txns
+   * @param {number} legacySpent
+   * @param {readonly FoldDoc[] | null | undefined} txns
+   * @param {Readonly<Record<string, unknown>> | null | undefined} syncErrors
+   * @param {string | null} start
    * @returns {number}
    */
-  function projectCost(projectId, txns) {
-    void projectId;
-    void txns;
-    return 0;
+  function projectCost(projectId, legacySpent, txns, syncErrors, start) {
+    if (typeof start !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return legacySpent;
+    const index = rowIndex(txns, syncErrors);
+    let added = 0;
+    for (const row of Object.values(index.byId)) {
+      if (row.projectId !== projectId || row.purpose !== 'approveLabor' || !rowCounts(row, index)) continue;
+      if (typeof row.txnDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(row.txnDate) || row.txnDate < start) continue;
+      added += countedAmount(row.amount);
+    }
+    return legacySpent + added;
   }
 
   return {

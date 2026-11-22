@@ -635,6 +635,23 @@ function rejectedExportText(u) {
   });
   return L.rejectedEntriesToCSV(ledgerRows.concat(shaped), get(K.projects, []), get(K.goneProjectNames, {}) || {}, errors);
 }
+/**
+ * Owner spent for one project. Owned by public/render.js. Not exported.
+ * legacy is Ledger.totals of the counted entries for this project.
+ * The last argument is Accounts.CONTRACTOR_COST_START.
+ * While that constant is null, the return is legacy.
+ * @param {string} projectId
+ * @param {readonly object[]} entries
+ * @returns {number}
+ */
+function ownerSpent(projectId, entries) {
+  const errs = get(K.syncErrors, {}) || {};
+  const counted = L.countedEntries(/** @type {readonly LedgerEntry[]} */ (entries), errs).filter(e => e.projectId === projectId);
+  const legacy = L.totals(counted).spent;
+  if (!window.Accounts || typeof Accounts.projectCost !== 'function') return legacy;
+  const txns = get(K.accountTxns, []);
+  return Accounts.projectCost(projectId, legacy, txns, errs, Accounts.CONTRACTOR_COST_START);
+}
 const views = {
   home() {
     const { u, projects, entries } = data();
@@ -642,10 +659,12 @@ const views = {
     const ex = (demoRole() || get(K.entries, []).some(/** @param {any} e */ e => e.isExample)) ? '<div class="example">⚠️ بيانات مثال وليست حقيقية</div>' : '';
     if (L.can(u, 'owner')) {
       const t = L.totals(counts(entries));
+      const spent = projects.reduce((sum, p) => sum + (typeof p.id === 'string' ? ownerSpent(p.id, entries) : 0), 0);
+      const profit = /** @type {number} */ (t.received) - spent;
       return ex + sync + `<div class="card"><h2>ملخص كل المشاريع</h2>
         <div class="kv"><span>إجمالي المقبوض</span>${money(t.received)}</div>
-        <div class="kv"><span>إجمالي المصروف</span>${money(t.spent)}</div>
-        <div class="kv"><span>صافي الربح</span><span class="${/** @type {number} */ (t.profit) < 0 ? 'bad' : 'ok'}">${money(/** @type {number} */ (t.profit))}</span></div></div>
+        <div class="kv"><span>إجمالي المصروف</span>${money(spent)}</div>
+        <div class="kv"><span>صافي الربح</span><span class="${profit < 0 ? 'bad' : 'ok'}">${money(profit)}</span></div></div>
         ${rejectedHomeLink(u)}
         <a class="btn" href="#entry">+ قيد جديد</a><button class="btn ghost" id="csv">تصدير نسخة (CSV)</button>`;
     }
@@ -717,9 +736,11 @@ const views = {
       }).join('') || '<div class="note">لا توجد مشاريع مؤرشفة</div>')
       : projects.map(p => {
         const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
-        const line = L.can(u, 'owner')
-          ? `<div class="kv"><span>${/** @type {number} */ (s.profit) < 0 ? 'خسارة' : 'ربح'}</span><span class="${/** @type {number} */ (s.profit) < 0 ? 'bad' : 'ok'}">${money(Math.abs(/** @type {number} */ (s.profit)))}</span></div>`
-          : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
+        let line = `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
+        if (L.can(u, 'owner')) {
+          const profit = /** @type {number} */ (s.received) - ownerSpent(/** @type {string} */ (p.id), entries);
+          line = `<div class="kv"><span>${profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(profit))}</span></div>`;
+        }
         return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
       }).join('');
     const tail = list === 'archived' ? '' : (L.can(u, 'owner') ? `<div class="note">الأرقام تشمل ما على هذا الجهاز فقط.</div><button class="btn ghost" id="newproj">+ مشروع جديد</button>` : '<div class="note">ترى فقط المشاريع المعيّنة لك.</div>');
@@ -730,10 +751,13 @@ const views = {
     const { u, projects, entries } = data();
     const p = projects.find(x => x.id === id); if (!p) return '<div class="card">المشروع غير متاح</div>';
     const es = entries.filter(e => e.projectId === id); const s = L.projectSummary(u, counts(es));
-    const card = L.can(u, 'owner')
-      ? `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(s.spent)}</div>
-         <div class="kv"><span>الربح</span><span class="${/** @type {number} */ (s.profit) < 0 ? 'bad' : 'ok'}">${money(/** @type {number} */ (s.profit))}</span></div><div class="note">الربح = المقبوض − المصروف</div>`
-      : `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
+    let card = `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
+    if (L.can(u, 'owner')) {
+      const spent = ownerSpent(id, entries);
+      const profit = /** @type {number} */ (s.received) - spent;
+      card = `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(spent)}</div>
+         <div class="kv"><span>الربح</span><span class="${profit < 0 ? 'bad' : 'ok'}">${money(profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`;
+    }
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
     const subs = L.can(u, 'owner') ? subcontractSection(p, counts(es)) : '';
     const deleteNote = state.deleteMsg ? `<p class="delete-msg">${esc(state.deleteMsg)}</p>` : '';
