@@ -171,7 +171,16 @@ test('the nine purposes are labor, and a cash pointer targets only an effective 
 
 test('while the start date is null, approved work does not change project cost', () => {
   assert.equal(Accounts.CONTRACTOR_COST_START, null);
-  assert.equal(Accounts.projectCost('p', [{ projectId: 'p', purpose: 'approveLabor', amount: 600000, txnDate: '2026-12-01' }]), 0);
+  assert.equal(
+    Accounts.projectCost(
+      'p',
+      0,
+      [{ id: 'appr', projectId: 'p', purpose: 'approveLabor', amount: 600000, txnDate: '2026-12-01' }],
+      null,
+      null,
+    ),
+    0,
+  );
 });
 
 function measure(id) {
@@ -196,7 +205,7 @@ test('payLabor 600000 after approveLabor 600000 leaves the person at 0 and proje
   const payment = posted(Accounts.post('payment', { id: 'pay-brick', paidAs: 'payLabor', amount: 600000 }));
   assert.equal(payment.purpose, 'payLabor');
   assert.equal(Accounts.personBalance([approval, payment]), 0);
-  assert.equal(Accounts.projectCost('p-brick', [approval, payment]), 0);
+  assert.equal(Accounts.projectCost('p-brick', 0, [approval, payment], null, null), 0);
 });
 
 test('payLabor 700000 after that approval is a negative balance and stays payLabor', () => {
@@ -246,7 +255,104 @@ test('a deduct changes the person balance only after approveDeduct, and that app
   assert.equal(Object.prototype.hasOwnProperty.call(approved, 'amount'), false);
   assert.equal(approved.purpose, 'approveDeduct');
   assert.equal(Accounts.personBalance([approval, deduct, approved]), 550000);
-  assert.equal(Accounts.projectCost('p-ded', [approval, deduct, approved]), 0);
+  assert.equal(Accounts.projectCost('p-ded', 0, [approval, deduct, approved], null, null), 0);
+});
+
+function kApproval(fields) {
+  return doc(Object.assign({
+    id: 'appr',
+    purpose: 'approveLabor',
+    amount: 600000,
+    projectId: 'p',
+    txnDate: '2026-12-01',
+  }, fields));
+}
+
+test('k equality: legacySpent 100000 and approveLabor 600000 with start null is 100000', () => {
+  assert.equal(Accounts.CONTRACTOR_COST_START, null);
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval()], null, Accounts.CONTRACTOR_COST_START), 100000);
+});
+
+test('k equality: the same rows with start on or before the approval date is 700000', () => {
+  const rows = [
+    kApproval(),
+    doc({ id: 'pay', purpose: 'payLabor', amount: 600000, projectId: 'p', txnDate: '2026-12-01' }),
+  ];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 700000);
+});
+
+test('k equality: a deduct of 50000 does not change 100000 or 700000', () => {
+  const rows = [
+    kApproval(),
+    doc({ id: 'ded', purpose: 'deduct', amount: 50000, targetId: 'appr', projectId: 'p', txnDate: '2026-12-01' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'ded' }),
+  ];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, null), 100000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 700000);
+});
+
+test('k equality: a materials row of 50000 inside legacySpent is 150000 when start is null and 750000 when start is set', () => {
+  assert.equal(Accounts.projectCost('p', 150000, [kApproval()], null, null), 150000);
+  assert.equal(Accounts.projectCost('p', 150000, [kApproval()], null, '2026-12-01'), 750000);
+});
+
+test('k equality: approval id in syncErrors stays 100000', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval()], { appr: 'رُفض الإرسال' }, '2026-12-01'), 100000);
+});
+
+test('k equality: a live reversal of the approval stays 100000', () => {
+  const rows = [kApproval(), doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' })];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 100000);
+});
+
+test('k equality: one approval id counted once is 700000', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval(), kApproval()], null, '2026-12-01'), 700000);
+});
+
+test('k equality: txnDate before the start stays 100000', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval({ txnDate: '2026-11-30' })], null, '2026-12-01'), 100000);
+});
+
+test('k equality: a non-date start stays 100000', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval()], null, 'soon'), 100000);
+});
+
+test('k equality: an empty start and a year-only start stay 100000', () => {
+  const rows = [kApproval()];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, ''), 100000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026'), 100000);
+});
+
+test('k equality: a non-date txnDate and a missing txnDate add nothing', () => {
+  // Rules allow an approveLabor with no txnDate. K skips it once start is set, so G must write the approval date.
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval({ txnDate: 'soon' })], null, '2026-12-01'), 100000);
+  const bare = kApproval();
+  delete bare.txnDate;
+  assert.equal(Accounts.projectCost('p', 100000, [bare], null, '2026-12-01'), 100000);
+});
+
+test('k equality: an approval on another project stays 100000', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval({ projectId: 'q' })], null, '2026-12-01'), 100000);
+});
+
+test('k equality: a rejected approval (rej_) stays 100000', () => {
+  const rows = [
+    doc({ id: 'm', purpose: 'laborQty', projectId: 'p', txnDate: '2026-12-01' }),
+    kApproval({ targetId: 'm' }),
+    doc({ id: 'rej_m', kind: 'rej', targetId: 'm' }),
+  ];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 100000);
+});
+
+test('k equality: an approval reversed after a deduct stays 100000', () => {
+  const rows = [
+    kApproval(),
+    doc({ id: 'ded', purpose: 'deduct', amount: 50000, targetId: 'appr', projectId: 'p', txnDate: '2026-12-01' }),
+    doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'ded' }),
+    doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' }),
+  ];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, null), 100000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 100000);
 });
 
 test('settle has a zero effect and cannot pass the named advance', () => {

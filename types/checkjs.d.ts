@@ -1121,7 +1121,13 @@ interface AccountsApi {
       >
     >,
   ): string[];
-  projectCost(projectId: string, txns: readonly unknown[]): number;
+  projectCost(
+    projectId: string,
+    legacySpent: number,
+    txns: readonly FoldDoc[] | null | undefined,
+    syncErrors: Readonly<Record<string, unknown>> | null | undefined,
+    start: string | null,
+  ): number;
   rowIndex(docs: readonly FoldDoc[], syncErrors?: Readonly<Record<string, unknown>> | null): RowIndex;
   rowLive(row: FoldDoc | null | undefined, index: RowIndex): boolean;
   rowCounts(row: FoldDoc | null | undefined, index: RowIndex): boolean;

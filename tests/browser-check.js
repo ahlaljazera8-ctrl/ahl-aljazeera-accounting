@@ -1082,6 +1082,26 @@ let chrome;
   await sleep(200);
   const archived = await ev(`(()=>{const p=(AJ.get('projects')||[]).find(x=>x.id==='p-market');const text=document.querySelector('#main').innerText||'';return {status:p&&p.status,hash:location.hash,text,entries:(AJ.get('entries')||[]).length}})()`);
   check('archive keeps every ledger row and hides the project', archived && archived.status === 'archived' && archived.hash === '#projects' && !archived.text.includes('بناية السوق') && archived.text.includes('مشروع المدرسة') && archived.entries === ledgerBefore);
+  const archivedHome = await ev(`(()=>{
+    location.hash = '#home';
+    dispatchEvent(new HashChangeEvent('hashchange'));
+    const projects = AJ.get('projects') || [];
+    const entries = AJ.get('entries') || [];
+    const errs = AJ.get('syncErrors') || {};
+    const spentOf = (list) => list.reduce((sum, p) => {
+      if (!p || typeof p.id !== 'string') return sum;
+      const counted = L.countedEntries(entries, errs).filter(e => e.projectId === p.id);
+      return sum + L.totals(counted).spent;
+    }, 0);
+    const spent = spentOf(projects);
+    const openOnly = spentOf(projects.filter(p => p && p.status !== 'archived'));
+    const row = [...document.querySelectorAll('#main .kv')].find(el => (el.innerText || '').includes('إجمالي المصروف'));
+    const market = projects.find(p => p && p.id === 'p-market');
+    return { archived: !!(market && market.status === 'archived'), shown: !!(row && row.innerText.includes(L.fmt(spent))), counted: spent > openOnly };
+  })()`);
+  check('owner home still counts an archived project', archivedHome && archivedHome.archived && archivedHome.counted && archivedHome.shown);
+  await ev(`location.hash='#projects'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(150);
   await ev(`document.querySelector('[data-list="archived"]').click(); 1`);
   await sleep(200);
   await shotView('archive-list.png');
