@@ -658,7 +658,7 @@ These do not block this sketch. No pull request here decides them.
 - Contractor-supplied bricks. No such agreement field is on `LaborAgreement` (`public/accounts.js` lines 19-28).
 - The cutover date. `CONTRACTOR_COST_START` is `null` at `public/accounts.js` line 11. It is a runtime gate. K merges while it is null. Setting it is a later deploy.
 - The per-row L question, whether an old «سلفة» on the list was already deducted from the contractor's work. Ameer answers each row. It does not block this plan.
-- If more than one phone or more than one owner will decide L rows, Ameer approves a small create-only `laborReviews/{entryId}` rule first. Until that approval the mark stays local and is wiped on logout (`public/session.js` line 419).
+- Ameer, 2026-11-20 20:05, «حاليا فقط اني فاتح البرنامج» (right now only I have the app open). The «روجع» mark in local IndexedDB `laborReviews` is single-phone for now. The local mark does not follow to another phone, and logout still wipes it (`public/session.js` line 419). This revision does not add a `laborReviews/{entryId}` rule.
 - A fixed id for the still-owed `advanceLabor`. `cashBodyCreate` requires `uuidOk` (`firestore.rules` line 874; `uuidOk` is line 377), so the second create is a different document. A fixed id would refuse that second create and needs a rules change. This revision does not make that change. Until Ameer approves it, the L section states the two-phone race, a queued advance turns the button off on that phone, and two live advances with the same token show `سلفة مكررة`.
 
 ## Citations rechecked at main a1ca326b
