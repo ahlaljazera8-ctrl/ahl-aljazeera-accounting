@@ -354,7 +354,7 @@ test('unit approval is 600,000 and the body id is a uuid', () => {
 
 test('approveLabor txnDate is today() even when the input date differs', () => {
   reset();
-  const cases = ['1999-01-01', '', 'not-a-date', undefined];
+  const cases = ['1999-01-01', '2026-11-01', '', 'not-a-date', undefined];
   for (const txnDate of cases) {
     const expected = g.today();
     const built = approve({ txnDate });
@@ -362,19 +362,27 @@ test('approveLabor txnDate is today() even when the input date differs', () => {
     assert.match(doc.txnDate, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal(doc.txnDate, expected);
     assert.equal(doc.txnDate, g.today());
+    if (txnDate === '2026-11-01') assert.notEqual(doc.txnDate, txnDate);
   }
   const at = Date.parse('2026-11-21T21:30:00.000Z');
-  const realNow = Date.now;
-  Date.now = () => at;
+  const RealDate = Date;
+  class FixedDate extends RealDate {
+    constructor() {
+      super(at);
+    }
+  }
+  g.Date = FixedDate;
   g.today = () => '2026-11-22';
   try {
-    const built = approve({ txnDate: '1999-01-01' });
+    assert.equal(new Date().toISOString().slice(0, 10), '2026-11-21');
+    const built = approve({ txnDate: '2026-11-01' });
     const doc = /** @type {any} */ (built.doc);
     assert.equal(doc.txnDate, g.today());
     assert.equal(doc.txnDate, '2026-11-22');
-    assert.notEqual(doc.txnDate, new Date(at).toISOString().slice(0, 10));
+    assert.notEqual(doc.txnDate, '2026-11-01');
+    assert.notEqual(doc.txnDate, new Date().toISOString().slice(0, 10));
   } finally {
-    Date.now = realNow;
+    g.Date = RealDate;
     g.today = () => '2026-11-22';
   }
 });
@@ -934,6 +942,8 @@ test('a unit agreement keeps a second measurement and approves it', () => {
     html = view.views.contractor(id);
     assert.equal(html.includes('id="act-labor-qty"'), true);
     assert.equal(html.includes('id="act-approve-labor"'), true);
+    assert.equal(html.includes('معتمد'), true);
+    assert.equal(html.includes('القياس معتمد مسبقاً'), true);
     UI.onClick(/** @type {any} */ ({ id: 'act-approve-labor', disabled: false, dataset: {} }));
     const approvals = store.accountTxns.filter(row => String(row.id).indexOf('appr_') === 0);
     assert.equal(approvals.length, 2);
@@ -962,6 +972,84 @@ test('a measurement keeps a civil txnDate and drops 2026-02-31', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(/** @type {object} */ (bad.doc), 'txnDate'), false);
   const omitted = Work.laborQtyDoc(Object.assign({}, input, { id: '44444444-2222-3333-4444-555555555555' }));
   assert.equal(Object.prototype.hasOwnProperty.call(/** @type {object} */ (omitted.doc), 'txnDate'), false);
+  const april = Work.laborQtyDoc(Object.assign({}, input, { id: '55555555-2222-3333-4444-555555555555', txnDate: '2026-04-31' }));
+  assert.equal(Object.prototype.hasOwnProperty.call(/** @type {object} */ (april.doc), 'txnDate'), false);
+  const lump = {
+    id: brick().id,
+    method: /** @type {'lump'} */ ('lump'),
+    partyId: 'party-1',
+    projectId: 'job',
+    description: 'مبلغ',
+    currency: /** @type {'IQD'} */ ('IQD'),
+    lumpAmount: 600000,
+  };
+  const slot = Work.slotBodyId(lump.id, '1');
+  const late = Work.laborQtyDoc({
+    id: slot, agreement: lump, gen: '1', projectId: 'job', partyId: 'party-1', createdBy: 'u-ameer', deviceId: 'phone', txnDate: '2101-01-01',
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(/** @type {object} */ (late.doc), 'txnDate'), false);
+  const bound = Work.laborQtyDoc({
+    id: slot, agreement: lump, gen: '1', projectId: 'job', partyId: 'party-1', createdBy: 'u-ameer', deviceId: 'phone', txnDate: '2100-12-31',
+  });
+  assert.equal(/** @type {any} */ (bound.doc).txnDate, '2100-12-31');
+});
+
+test('an empty measurement tap queues nothing and a cleared second tap does not add a body', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    const id = brick().id;
+    store.agreements = [Object.assign(brick(), { createdBy: 'u-ameer', deviceId: 'phone' })];
+    const view = install();
+    view.views.contractor(id);
+    const save = { id: 'act-labor-qty', disabled: false, dataset: {} };
+    setFields({ 'cw-qty': '' });
+    UI.onClick(/** @type {any} */ (save));
+    UI.onClick(/** @type {any} */ (save));
+    assert.equal(store.accountTxns.length, 0);
+    assert.deepEqual(queued, []);
+    assert.equal(view.views.contractor(id).includes('المبلغ ليس عدداً صحيحاً'), true);
+    const missing = Work.laborQtyDoc({
+      id: '11111111-2222-3333-4444-555555555555',
+      agreement: brick(),
+      projectId: 'job',
+      partyId: 'party-1',
+      createdBy: 'u-ameer',
+      deviceId: 'phone',
+    });
+    assert.deepEqual(missing.errors, ['range']);
+    assert.equal(missing.doc, null);
+    setFields({ 'cw-qty': '8000' });
+    UI.onClick(/** @type {any} */ (save));
+    setFields({});
+    UI.onClick(/** @type {any} */ (save));
+    const bodies = store.accountTxns.filter(row => row.purpose === 'laborQty');
+    assert.equal(bodies.length, 1);
+    assert.equal(bodies[0].qty, 8000);
+    assert.deepEqual(queued, [bodies[0].id]);
+    assert.equal(view.views.contractor(id).includes('المبلغ ليس عدداً صحيحاً'), true);
+  });
+});
+
+test('a refused newest measurement does not hide an older valid one', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    const id = brick().id;
+    const older = '11111111-2222-3333-4444-555555555555';
+    const newer = '22222222-2222-3333-4444-555555555555';
+    store.agreements = [Object.assign(brick(), { createdBy: 'u-ameer', deviceId: 'phone' })];
+    store.accountTxns = [
+      { id: older, purpose: 'laborQty', agreementId: id, qty: 8000, projectId: 'job', partyId: 'party-1' },
+      { id: newer, purpose: 'laborQty', agreementId: id, projectId: 'job', partyId: 'party-1' },
+    ];
+    store.syncErrors = { [newer]: 'رُفض الإرسال' };
+    const view = install();
+    const html = view.views.contractor(id);
+    assert.equal(html.includes('id="act-approve-labor"'), true);
+    UI.onClick(/** @type {any} */ ({ id: 'act-approve-labor', disabled: false, dataset: {} }));
+    const approvals = store.accountTxns.filter(row => String(row.id).indexOf('appr_') === 0);
+    assert.equal(approvals.length, 1);
+    assert.equal(approvals[0].targetId, older);
+  });
 });
 
 test('the screen reversal copies the stored agreement description', () => {

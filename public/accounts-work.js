@@ -358,6 +358,10 @@
         if (!src.id || src.id !== slotBodyId(agreementId, gen)) return { doc: null, errors: ['method'] };
       } else if (method === 'unit' || method === 'daily') {
         if (typeof src.id !== 'string' || !UUID_RE.test(src.id)) return { doc: null, errors: ['method'] };
+        const qty = typeof src.approvedQty === 'number' ? src.approvedQty : src.qty;
+        if (typeof qty !== 'number' || !Number.isInteger(qty) || qty < 1 || qty > 100000000) {
+          return { doc: null, errors: ['range'] };
+        }
       } else return { doc: null, errors: ['method'] };
     }
     if (action === 'approveLabor' && src.targetId && liveApproval(src.targetId)) {
@@ -506,9 +510,14 @@
    */
   function saveMeasure(agreement) {
     if (!costOpen() || !agreement) return;
+    const needsQty = agreement.method === 'unit' || agreement.method === 'daily';
+    const qty = digits(field('cw-qty') || field('cw-days'));
+    if (needsQty && (qty == null || qty < 1 || qty > 100000000)) {
+      screen.msg = sentence(['range']);
+      return;
+    }
     const who = actor();
     const id = measurementId(agreement);
-    const qty = digits(field('cw-qty') || field('cw-days'));
     /** @type {LaborWorkInput} */
     const input = {
       id,
@@ -636,6 +645,18 @@
       picked = row;
     }
     return picked;
+  }
+
+  /**
+   * @param {string} agreementId
+   */
+  function hasLiveApproval(agreementId) {
+    const errors = syncErrors();
+    return rows(K.accountTxns).some(row => {
+      if (!row || row.purpose !== 'laborQty' || row.agreementId !== agreementId) return false;
+      if (typeof row.id !== 'string' || Object.prototype.hasOwnProperty.call(errors, row.id)) return false;
+      return liveApproval(row.id);
+    });
   }
 
   /**
@@ -910,10 +931,11 @@
     const bodyRefused = bodyId && Object.prototype.hasOwnProperty.call(errors, bodyId);
     const approved = bodyId ? liveApproval(bodyId) : false;
     const repeatable = agreement.method === 'unit' || agreement.method === 'daily';
+    const prior = repeatable && hasLiveApproval(id);
     const notes = [];
     if (cancelled) notes.push('معكوس');
-    else if (approved) notes.push('معتمد');
-    else if (body && !bodyRefused) {
+    else if (approved || prior) notes.push('معتمد');
+    if (!cancelled && body && !bodyRefused && !approved) {
       notes.push('منجز');
       notes.push('بانتظار الاعتماد');
     }
@@ -942,7 +964,7 @@
           '<button type="button" class="btn" id="act-approve-labor">حفظ</button></div>';
       }
     }
-    if (approved) {
+    if (approved || prior) {
       work += '<div class="card"><div class="note">القياس معتمد مسبقاً</div><div class="note">معتمد</div></div>';
     }
     const cancelOff = !projectOpen(agreement.projectId) || refusedReversal(id) ? ' disabled' : '';
