@@ -317,6 +317,20 @@ test('k equality: a non-date start stays 100000', () => {
   assert.equal(Accounts.projectCost('p', 100000, [kApproval()], null, 'soon'), 100000);
 });
 
+test('k equality: an empty start and a year-only start stay 100000', () => {
+  const rows = [kApproval()];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, ''), 100000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026'), 100000);
+});
+
+test('k equality: a non-date txnDate and a missing txnDate add nothing', () => {
+  // Rules allow an approveLabor with no txnDate. K skips it once start is set, so G must write the approval date.
+  assert.equal(Accounts.projectCost('p', 100000, [kApproval({ txnDate: 'soon' })], null, '2026-12-01'), 100000);
+  const bare = kApproval();
+  delete bare.txnDate;
+  assert.equal(Accounts.projectCost('p', 100000, [bare], null, '2026-12-01'), 100000);
+});
+
 test('k equality: an approval on another project stays 100000', () => {
   assert.equal(Accounts.projectCost('p', 100000, [kApproval({ projectId: 'q' })], null, '2026-12-01'), 100000);
 });
