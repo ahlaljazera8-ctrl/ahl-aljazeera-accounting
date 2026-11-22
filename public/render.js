@@ -89,11 +89,20 @@ function subcontractCard(sub, entries) {
     <div class="bar${fig.over ? ' over' : ''}" data-bar="${esc(sub.id)}"><i style="width:${fig.width}%"></i></div>
   </a>`;
 }
+/**
+ * Reads Accounts.CONTRACTOR_COST_START on each call. No stored copy.
+ * @returns {boolean}
+ */
+function contractorCostDated() {
+  const start = window.Accounts && Accounts.CONTRACTOR_COST_START;
+  return typeof start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(start);
+}
 /** @param {any} project @param {any} entries */
 function subcontractSection(project, entries) {
   const cards = subcontractsOf(project.id).map(/** @param {any} sub */ sub => subcontractCard(sub, entries)).join('');
-  return `<div class="card" id="subcontracts"><h2>المقاولون</h2></div>${cards || '<div class="card"><div class="note">لا توجد عقود.</div></div>'}
+  const anchor = contractorCostDated() ? '' : `
     <a class="btn ghost" href="${subHref('subnew', project.id)}">+ عقد مقاول</a>`;
+  return `<div class="card" id="subcontracts"><h2>المقاولون</h2></div>${cards || '<div class="card"><div class="note">لا توجد عقود.</div></div>'}${anchor}`;
 }
 function accountStores() {
   return {
@@ -885,6 +894,15 @@ const views = {
     if (!L.can(u, 'owner')) return '<div class="card">هذه الشاشة للمالك.</div>';
     const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === projectId);
     if (!project) return '<div class="card">المشروع غير متاح</div>';
+    if (contractorCostDated()) {
+      const work = window.AccountWork;
+      const line = work && work.pendingAmeer ? work.pendingAmeer.newContract : '';
+      return `<button type="button" class="mini" id="back-project">رجوع</button>
+      <div class="card">
+        <div class="step">${esc(project.name)}</div>
+        <div class="note">${esc(line)}</div>
+      </div>`;
+    }
     if (!state.subFormId) {
       state.subFormId = uuid();
       if (!state.subName) state.subName = 'مقاول السباكة';
@@ -1356,6 +1374,7 @@ function renderScreen() {
   syncPeopleTab(u);
   syncForemenTab(u);
   if (window.AccountsView) AccountsView.syncTab(u);
+  if (window.AccountWork && window.AccountWork.syncTab) window.AccountWork.syncTab(u);
   const foremanTab = v === 'foremen' || v === 'foreman' || v === 'foremannew' || v === 'foremanmove';
   const accountsTab = v === 'accounts' || v === 'account';
   const tab = accountsTab ? 'accounts' : foremanTab ? 'foremen' : (v === 'project' || v === 'entries' || v === 'sub' || v === 'subnew' || v === 'amend') ? 'projects' : (v === 'person' ? 'people' : v);
