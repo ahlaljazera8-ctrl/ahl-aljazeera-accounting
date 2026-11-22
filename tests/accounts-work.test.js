@@ -257,6 +257,79 @@ function page() {
   return pageViews;
 }
 
+/** @type {{ render: () => void, location: { hash: string } } | null} */
+let shellApi = null;
+
+function loadShell() {
+  if (shellApi) return shellApi;
+  useTabs();
+  const el = () => ({
+    value: '',
+    hidden: false,
+    textContent: '',
+    innerHTML: '',
+    dataset: {},
+    href: '',
+    children: /** @type {any[]} */ ([]),
+    classList: { toggle() {} },
+    addEventListener() {},
+    setAttribute() {},
+    removeAttribute() {},
+    append() {},
+    appendChild() {},
+    querySelector() { return null; },
+  });
+  const sandbox = {
+    console,
+    Ledger,
+    Accounts,
+    DomSafe,
+    Sync,
+    AccountWork: Work,
+    AccountsView: UI,
+    K: g.K,
+    get: (key, fallback) => g.get(key, fallback),
+    set: (key, value) => g.set(key, value),
+    me: () => g.me(),
+    uuid: () => g.uuid(),
+    today: () => g.today(),
+    demoRole: () => '',
+    queueDoc: id => g.queueDoc(id),
+    deviceId: 'phone',
+    flushRemote() {},
+    location: { hash: '#home' },
+    document: {
+      addEventListener() {},
+      querySelector(sel) {
+        if (sel === '.tabs') return tabsNow;
+        return null;
+      },
+      querySelectorAll() {
+        return tabsNow ? tabsNow.children : [];
+      },
+      createElement: () => el(),
+      createElementNS: () => el(),
+    },
+    navigator: { onLine: true },
+    PeopleDir: { createLoader() { return {}; }, TIMEOUT_MS: 1, RENDER_ERROR: '' },
+    withTimeout: p => p,
+    ensureFirebase: () => Promise.resolve({ listUsers: () => Promise.resolve([]) }),
+    $(sel) {
+      const id = String(sel || '').replace(/^#/, '');
+      if (id === 'outbox' || id === 'print-root' || id === 'bell-panel' || id === 'sync-msg') return null;
+      return el();
+    },
+    addEventListener() {},
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  const src = fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8');
+  vm.runInContext(src + '\nglobalThis.__render = render;\n', sandbox, { filename: 'render.js' });
+  shellApi = { render: sandbox.__render, location: sandbox.location };
+  return shellApi;
+}
+
 function school() {
   store.projects = [{ id: 'p-school', name: 'مجمع المدرسة', status: 'active', currency: 'IQD' }];
   store.subcontracts = [{ id: 'sc-1', projectId: 'p-school', name: 'مقاول السباكة', work: 'تمديد شبكة الماء', agreedOn: '2026-10-01' }];
@@ -289,6 +362,20 @@ test('approveLabor txnDate is today() even when the input date differs', () => {
     assert.match(doc.txnDate, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal(doc.txnDate, expected);
     assert.equal(doc.txnDate, g.today());
+  }
+  const at = Date.parse('2026-11-21T21:30:00.000Z');
+  const realNow = Date.now;
+  Date.now = () => at;
+  g.today = () => '2026-11-22';
+  try {
+    const built = approve({ txnDate: '1999-01-01' });
+    const doc = /** @type {any} */ (built.doc);
+    assert.equal(doc.txnDate, g.today());
+    assert.equal(doc.txnDate, '2026-11-22');
+    assert.notEqual(doc.txnDate, new Date(at).toISOString().slice(0, 10));
+  } finally {
+    Date.now = realNow;
+    g.today = () => '2026-11-22';
   }
 });
 
@@ -620,6 +707,7 @@ test('before the start date, agreement, measurement, and approval do not save', 
     assert.equal(tabs.children.length, 0);
     store.parties = [{ id: 'party-1', name: 'حسن' }];
     store.agreements = [brick()];
+    store.accountTxns = [{ id: '11111111-2222-3333-4444-555555555555', purpose: 'laborQty', agreementId: brick().id, qty: 8000, projectId: 'job', partyId: 'party-1' }];
     const before = store.accountTxns.length;
     view.views.contractor('new');
     setFields({ 'cw-desc': 'طابوق', 'cw-rate': '1', 'cw-per': '1', 'cw-unit': 'طوبة' });
@@ -631,6 +719,7 @@ test('before the start date, agreement, measurement, and approval do not save', 
     UI.onClick(/** @type {any} */ ({ id: 'act-approve-labor', disabled: false, dataset: {} }));
     assert.equal(store.agreements.length, 1);
     assert.equal(store.accountTxns.length, before);
+    assert.equal(store.accountTxns.some(row => String(row.id).indexOf('appr_') === 0), false);
     assert.deepEqual(queued, []);
   });
   assert.equal(Accounts.CONTRACTOR_COST_START, null);
@@ -800,6 +889,113 @@ test('builder keys stay inside the live allowlist', () => {
   subset(/** @type {object} */ (mile.doc), AG_MILE);
   const appr = approve({ createdByName: 'أمير' });
   subset(/** @type {object} */ (appr.doc), APPR);
+});
+
+test('a start date equal to today opens مقاول and allows a save', () => {
+  reset();
+  withStart(g.today(), () => {
+    const view = install();
+    const tabs = useTabs();
+    Work.syncTab(g.me());
+    assert.equal(tabs.children.length, 1);
+    store.parties = [{ id: 'party-1', name: 'حسن' }];
+    view.views.contractor('new');
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cparty: 'party-1' } }));
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cproj: 'job' } }));
+    setFields({ 'cw-desc': 'طابوق', 'cw-rate': '300000', 'cw-per': '4000', 'cw-unit': 'طوبة' });
+    UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+    assert.equal(store.agreements.length, 1);
+  });
+  assert.equal(Accounts.CONTRACTOR_COST_START, null);
+});
+
+test('a unit agreement keeps a second measurement and approves it', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    const id = brick().id;
+    store.agreements = [Object.assign(brick(), { createdBy: 'u-ameer', deviceId: 'phone' })];
+    const view = install();
+    view.views.contractor(id);
+    const save = { id: 'act-labor-qty', disabled: false, dataset: {} };
+    setFields({ 'cw-qty': '8000' });
+    UI.onClick(/** @type {any} */ (save));
+    setFields({ 'cw-qty': '4000' });
+    UI.onClick(/** @type {any} */ (save));
+    const bodies = store.accountTxns.filter(row => row.purpose === 'laborQty');
+    assert.equal(bodies.length, 2);
+    assert.notEqual(bodies[0].id, bodies[1].id);
+    let html = view.views.contractor(id);
+    assert.equal(html.includes('id="act-labor-qty"'), true);
+    assert.equal(html.includes('id="act-approve-labor"'), true);
+    UI.onClick(/** @type {any} */ ({ id: 'act-approve-labor', disabled: false, dataset: {} }));
+    const first = store.accountTxns.filter(row => String(row.id).indexOf('appr_') === 0);
+    assert.equal(first.length, 1);
+    assert.equal(first[0].targetId, bodies[1].id);
+    html = view.views.contractor(id);
+    assert.equal(html.includes('id="act-labor-qty"'), true);
+    assert.equal(html.includes('id="act-approve-labor"'), true);
+    UI.onClick(/** @type {any} */ ({ id: 'act-approve-labor', disabled: false, dataset: {} }));
+    const approvals = store.accountTxns.filter(row => String(row.id).indexOf('appr_') === 0);
+    assert.equal(approvals.length, 2);
+    assert.notEqual(approvals[0].id, approvals[1].id);
+  });
+});
+
+test('a measurement keeps a civil txnDate and drops 2026-02-31', () => {
+  reset();
+  const input = {
+    id: '11111111-2222-3333-4444-555555555555',
+    agreement: brick(),
+    projectId: 'job',
+    partyId: 'party-1',
+    createdBy: 'u-ameer',
+    deviceId: 'phone',
+    approvedQty: 8000,
+    qty: 8000,
+  };
+  const kept = Work.laborQtyDoc(Object.assign({}, input, { txnDate: '2026-11-22' }));
+  assert.equal(/** @type {any} */ (kept.doc).txnDate, '2026-11-22');
+  const later = Work.laborQtyDoc(Object.assign({}, input, { id: '22222222-2222-3333-4444-555555555555', txnDate: '2099-01-01' }));
+  assert.equal(/** @type {any} */ (later.doc).txnDate, '2099-01-01');
+  const bad = Work.laborQtyDoc(Object.assign({}, input, { id: '33333333-2222-3333-4444-555555555555', txnDate: '2026-02-31' }));
+  assert.equal(bad.doc == null, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(/** @type {object} */ (bad.doc), 'txnDate'), false);
+  const omitted = Work.laborQtyDoc(Object.assign({}, input, { id: '44444444-2222-3333-4444-555555555555' }));
+  assert.equal(Object.prototype.hasOwnProperty.call(/** @type {object} */ (omitted.doc), 'txnDate'), false);
+});
+
+test('the screen reversal copies the stored agreement description', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    const row = Object.assign(brick(), { createdBy: 'u-ameer', deviceId: 'phone', description: 'طابوق' });
+    store.agreements = [row];
+    const view = install();
+    view.views.contractor(row.id);
+    setFields({ 'cw-reason': 'تصحيح المبلغ' });
+    UI.onClick(/** @type {any} */ ({ id: 'act-cancel-agreement', disabled: false, dataset: {} }));
+    const rev = store.agreements.find(item => String(item.id).indexOf('rev_') === 0);
+    assert.ok(rev);
+    assert.equal(rev.description, 'طابوق');
+    assert.equal(rev.partyId, row.partyId);
+    assert.equal(rev.projectId, row.projectId);
+    assert.equal(Object.prototype.hasOwnProperty.call(rev, 'txnDate'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(rev, 'fxRate'), false);
+  });
+});
+
+test('renderScreen calls AccountWork.syncTab from the nav wiring', () => {
+  reset();
+  const shell = loadShell();
+  withStart(g.today(), () => {
+    shell.location.hash = '#home';
+    shell.render();
+    assert.equal(tabsNow.children.some(el => el.dataset.tab === 'contractor'), true);
+  });
+  withStart('2026-12-01', () => {
+    shell.render();
+    assert.equal(tabsNow.children.some(el => el.dataset.tab === 'contractor'), false);
+  });
+  assert.equal(Accounts.CONTRACTOR_COST_START, null);
 });
 
 test('the source binding stays null', () => {

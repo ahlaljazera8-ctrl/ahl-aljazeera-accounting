@@ -202,7 +202,7 @@ module.exports = [
         Ledger: 'readonly',
         Accounts: 'readonly',
         AccountsView: 'readonly',
-        AccountActions: 'writable',
+        AccountActions: 'readonly',
         Sync: 'readonly',
         SyncStatus: 'readonly',
         DomSafe: 'readonly',

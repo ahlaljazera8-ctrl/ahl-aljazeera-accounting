@@ -11,6 +11,19 @@
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
   /**
+   * Same civil-date check as entryDateOk in firestore.rules.
+   * @param {unknown} value
+   */
+  function civilDate(value) {
+    return typeof value === 'string'
+      && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value)
+      && value >= '2000-01-01'
+      && value <= '2100-12-31'
+      && !/^\d{4}-02-3[01]$/.test(value)
+      && !/^\d{4}-(04|06|09|11)-31$/.test(value);
+  }
+
+  /**
    * بانتظار أمير. Not treated as approved.
    * A later wording swap edits this object only.
    * unitByProgress is not painted. The unit method label stays بسعر الوحدة.
@@ -265,7 +278,7 @@
       projectId: agreement.projectId,
       method: agreement.method,
       description: agreement.description,
-      currency: agreement.currency === 'IQD' ? 'IQD' : 'IQD',
+      currency: 'IQD',
       createdBy: input.createdBy,
       createdAtServer: null,
       deviceId: input.deviceId,
@@ -316,7 +329,9 @@
     if (agreement.method === 'lump' || agreement.method === 'milestone') {
       return slotBodyId(agreement.id, String(slotAttempt(agreement.id)));
     }
-    if (!UUID_RE.test(screen.measureId)) screen.measureId = uuid();
+    if (!UUID_RE.test(screen.measureId) || rows(K.accountTxns).some(row => row && row.id === screen.measureId)) {
+      screen.measureId = uuid();
+    }
     return screen.measureId;
   }
 
@@ -393,8 +408,8 @@
     } else if (method === 'unit' || method === 'daily') {
       const qty = typeof src.approvedQty === 'number' ? src.approvedQty : src.qty;
       if (typeof qty === 'number') doc.qty = qty;
-      if (typeof src.txnDate === 'string' && DATE_RE.test(src.txnDate)) doc.txnDate = src.txnDate;
-    } else if (typeof src.txnDate === 'string' && DATE_RE.test(src.txnDate)) doc.txnDate = src.txnDate;
+      if (civilDate(src.txnDate)) doc.txnDate = src.txnDate;
+    } else if (civilDate(src.txnDate)) doc.txnDate = src.txnDate;
     return { doc: /** @type {object} */ (doc), errors: [] };
   }
 
@@ -518,6 +533,7 @@
     }
     const saved = /** @type {{ id: string }} */ (built.doc);
     commitBuilt(K.accountTxns, saved.id, built.doc);
+    if (agreement.method === 'unit' || agreement.method === 'daily') screen.measureId = '';
     screen.msg = '';
   }
 
@@ -541,7 +557,6 @@
       createdByName: who.createdByName,
       approvedQty: qty,
       qty,
-      txnDate: field('cw-date') || 'not-a-date',
     });
     if (!built.doc || built.errors.length) {
       screen.msg = sentence(built.errors);
@@ -612,16 +627,15 @@
       const id = slotBodyId(agreementId, String(slotAttempt(agreementId)));
       return txns.find(row => row && row.id === id && !Object.prototype.hasOwnProperty.call(errors, id)) || null;
     }
-    if (screen.measureId) {
-      const own = txns.find(row => row && row.id === screen.measureId);
-      if (own && typeof own.id === 'string' && !Object.prototype.hasOwnProperty.call(errors, own.id)) return own;
+    /** @type {Record<string, unknown> | null} */
+    let picked = null;
+    for (const row of txns) {
+      if (!row || row.purpose !== 'laborQty' || row.agreementId !== agreementId) continue;
+      if (typeof row.id !== 'string' || Object.prototype.hasOwnProperty.call(errors, row.id)) continue;
+      if (liveApproval(row.id)) continue;
+      picked = row;
     }
-    return (
-      txns.find(row => {
-        if (!row || row.purpose !== 'laborQty' || row.agreementId !== agreementId) return false;
-        return typeof row.id === 'string' && !Object.prototype.hasOwnProperty.call(errors, row.id);
-      }) || null
-    );
+    return picked;
   }
 
   /**
@@ -895,6 +909,7 @@
     const bodyId = body && typeof body.id === 'string' ? body.id : '';
     const bodyRefused = bodyId && Object.prototype.hasOwnProperty.call(errors, bodyId);
     const approved = bodyId ? liveApproval(bodyId) : false;
+    const repeatable = agreement.method === 'unit' || agreement.method === 'daily';
     const notes = [];
     if (cancelled) notes.push('معكوس');
     else if (approved) notes.push('معتمد');
@@ -902,10 +917,10 @@
       notes.push('منجز');
       notes.push('بانتظار الاعتماد');
     }
-    const offered = body && bodyId && !bodyRefused && !Object.prototype.hasOwnProperty.call(errors, bodyId);
+    const offered = body && bodyId && !bodyRefused && !approved;
     const open = costOpen() && !cancelled;
     let work = '';
-    if (open && !approved) {
+    if (open && (repeatable || !approved)) {
       const gen = agreement.method === 'lump' || agreement.method === 'milestone'
         ? '<div class="note">المحاولة ' + slotAttempt(id) + ' من 9</div>'
         : '';

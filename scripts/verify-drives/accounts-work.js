@@ -152,8 +152,19 @@ async function saveAgreement(run, tools, session, dir) {
   await clickOk(
     session,
     tools,
-    `(() => { const party = document.querySelector('[data-cparty]'); const project = document.querySelector(${JSON.stringify('button[data-cproj="' + tools.PROJECT_ID + '"]')}); if (!party || !project) return false; party.click(); project.click(); return true; })()`,
-    'party or project pill is missing',
+    `(() => { const party = document.querySelector('[data-cparty]'); if (!party) return false; party.click(); return true; })()`,
+    'party pill is missing',
+  );
+  await tools.waitUntil(
+    session,
+    `!!document.querySelector(${JSON.stringify('button[data-cproj="' + tools.PROJECT_ID + '"]')})`,
+    10000,
+  );
+  await clickOk(
+    session,
+    tools,
+    `(() => { const project = document.querySelector(${JSON.stringify('button[data-cproj="' + tools.PROJECT_ID + '"]')}); if (!project) return false; project.click(); return true; })()`,
+    'project pill is missing',
   );
   await tools.waitUntil(session, `!!document.querySelector('#cw-rate')`, 10000);
   const form = await tools.evaluate(session, `(document.querySelector('#main') || {}).innerText || ''`);
