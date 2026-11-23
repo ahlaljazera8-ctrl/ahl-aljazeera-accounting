@@ -1058,12 +1058,25 @@ test('typing updates the preview without replacing the amount field', () => {
     inputListeners.push(() => {
       inputRuns += 1;
     });
+    let previewWrites = 0;
+    let previewHtml = previewBox.innerHTML;
+    Object.defineProperty(previewBox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return previewHtml;
+      },
+      set(value) {
+        previewWrites += 1;
+        previewHtml = value;
+      },
+    });
     assert.equal(previewBox.innerHTML.includes('سلفة'), true);
     input.value = '1,500,000';
     input.selectionStart = 2;
     input.selectionEnd = 2;
     assert.equal(pressBackspace(input), true);
     assert.equal(inputRuns, 1);
+    assert.equal(previewWrites, 1);
     assert.equal(input.value, '500,000');
     assert.equal(input.selectionStart, 0);
     assert.equal(previewBox.innerHTML.includes('500,000'), true);
@@ -1295,6 +1308,57 @@ test('groupThousands and plainAmount keep commas out of the saved number', () =>
   Pay.applyGroupedAmount(arabicMid);
   assert.equal(arabicMid.value, '1,500,000');
   assert.equal(arabicMid.selectionStart, 3);
+});
+
+test('typing U+066C keeps the caret after the folded comma', () => {
+  /**
+   * @returns {{ value: string, selectionStart: number, selectionEnd: number, setSelectionRange: (start: number, end: number) => void }}
+   */
+  function box() {
+    return {
+      value: '',
+      selectionStart: 0,
+      selectionEnd: 0,
+      /**
+       * @param {number} start
+       * @param {number} end
+       */
+      setSelectionRange(start, end) {
+        this.selectionStart = start;
+        this.selectionEnd = end;
+      },
+    };
+  }
+  /**
+   * @param {{ value: string, selectionStart: number, selectionEnd: number, setSelectionRange: (start: number, end: number) => void }} input
+   * @param {string} ch
+   */
+  function typeChar(input, ch) {
+    const at = input.selectionStart;
+    input.value = input.value.slice(0, at) + ch + input.value.slice(input.selectionEnd);
+    input.selectionStart = at + ch.length;
+    input.selectionEnd = input.selectionStart;
+    Pay.applyGroupedAmount(input);
+  }
+  const amount = box();
+  for (const ch of '١٠٠\u066C٠٠٠') typeChar(amount, ch);
+  assert.equal(amount.value, '100,000');
+  assert.equal(amount.selectionStart, amount.value.length);
+  const mis = box();
+  for (const ch of '١\u066C٥٠٠٠٠') typeChar(mis, ch);
+  assert.equal(mis.value, '150,000');
+  assert.equal(mis.selectionStart, mis.value.length);
+  const short = box();
+  for (const ch of '٢\u066C٥') typeChar(short, ch);
+  assert.equal(short.value, '2,5');
+  assert.notEqual(short.value, '25');
+  const pasted = box();
+  pasted.value = '٢,';
+  pasted.selectionStart = 2;
+  pasted.selectionEnd = 2;
+  Pay.applyGroupedAmount(pasted);
+  assert.equal(pasted.value, '2,');
+  assert.equal(pasted.selectionStart, 2);
 });
 
 test('a redraw keeps the grouped amount in the field', () => {
