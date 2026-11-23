@@ -956,7 +956,7 @@ test('typing updates the preview without replacing the amount field', () => {
   reset();
   withStart('2026-11-22', () => {
     seedApproval(600000);
-    /** @type {Array<(event: { target: { id: string } }) => void>} */
+    /** @type {Array<(event: { target: { id: string }, type?: string }) => void>} */
     const inputListeners = [];
     /** @type {Array<(event: { key?: string, target?: { id: string }, preventDefault?: () => void }) => void>} */
     const keyListeners = [];
