@@ -310,6 +310,23 @@ function rowDate(row) {
 }
 
 /**
+ * @param {any} session
+ * @param {DriveTools} tools
+ * @param {string} selector
+ * @param {string} text
+ */
+async function typeKeys(session, tools, selector, text) {
+  const focused = await tools.evaluate(
+    session,
+    `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.focus(); return document.activeElement === el; })()`,
+  );
+  if (focused !== true) tools.fail('STOP: cannot focus ' + selector);
+  for (const ch of text) {
+    await session.send('Input.insertText', { text: ch });
+  }
+}
+
+/**
  * @param {any} run
  * @param {DriveTools} tools
  * @param {any} session
@@ -318,15 +335,10 @@ function rowDate(row) {
  */
 async function saveSplit(run, tools, session, dir, before) {
   await tools.waitUntil(session, `!!document.querySelector('#cp-amount')`, 10000);
-  await clickOk(
-    session,
-    tools,
-    `(() => { const input = document.querySelector('#cp-amount'); if (!input) return false; input.value = '700000'; input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`,
-    'payment amount is missing',
-  );
+  await typeKeys(session, tools, '#cp-amount', '700000');
   await tools.waitUntil(
     session,
-    `(() => { const preview = document.querySelector('#cp-preview'); const text = preview ? preview.innerText || '' : ''; return text.includes('عن عمل معتمد') && text.includes('سلفة') && text.includes(${JSON.stringify(PAY_TEXT)}) && text.includes(${JSON.stringify(ADVANCE_TEXT)}); })()`,
+    `(() => { const input = document.querySelector('#cp-amount'); const preview = document.querySelector('#cp-preview'); const text = preview ? preview.innerText || '' : ''; return !!input && input.value === '700000' && document.activeElement === input && text.includes('عن عمل معتمد') && text.includes('سلفة') && text.includes(${JSON.stringify(PAY_TEXT)}) && text.includes(${JSON.stringify(ADVANCE_TEXT)}); })()`,
     10000,
   );
   const mid = (await readRows(run, tools, 'accountTxns')).filter(
@@ -391,15 +403,10 @@ async function drive(featureId, run, tools) {
         `(() => { const pill = document.querySelector(${JSON.stringify('button[data-ctarget="' + split.advance.id + '"]')}); if (!pill) return false; pill.click(); return true; })()`,
         'advance pill is missing',
       );
-      await clickOk(
-        session,
-        tools,
-        `(() => { const input = document.querySelector('#cp-return'); if (!input) return false; input.value = '30000'; input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`,
-        'return amount is missing',
-      );
+      await typeKeys(session, tools, '#cp-return', '30000');
       await tools.waitUntil(
         session,
-        `(document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes(${JSON.stringify(RETURN_TEXT)})`,
+        `(() => { const input = document.querySelector('#cp-return'); return !!input && input.value === '30000' && document.activeElement === input && ((document.querySelector('#cp-return-preview') || {}).innerText || '').includes(${JSON.stringify(RETURN_TEXT)}); })()`,
         10000,
       );
       const mid = (await readRows(run, tools, 'accountTxns')).filter(
@@ -427,15 +434,10 @@ async function drive(featureId, run, tools) {
         `(() => { const pill = document.querySelector(${JSON.stringify('button[data-ctarget="' + split.pay.id + '"]')}); if (!pill) return false; pill.click(); return true; })()`,
         'payment pill is missing',
       );
-      await clickOk(
-        session,
-        tools,
-        `(() => { const input = document.querySelector('#cp-refund'); if (!input) return false; input.value = '50000'; input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`,
-        'refund amount is missing',
-      );
+      await typeKeys(session, tools, '#cp-refund', '50000');
       await tools.waitUntil(
         session,
-        `(document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes(${JSON.stringify(REFUND_TEXT)})`,
+        `(() => { const input = document.querySelector('#cp-refund'); return !!input && input.value === '50000' && document.activeElement === input && ((document.querySelector('#cp-refund-preview') || {}).innerText || '').includes(${JSON.stringify(REFUND_TEXT)}); })()`,
         10000,
       );
       const mid = (await readRows(run, tools, 'accountTxns')).filter(

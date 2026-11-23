@@ -360,6 +360,8 @@ test('a payment above approved work previews the split before it is saved', () =
     assert.equal(html.includes('الرصيد:'), false);
     assert.equal(html.includes('(سلفة)'), false);
     assert.equal(html.includes('المتبقي سلفة'), false);
+    assert.equal(shown.includes('\u2212'), false);
+    assert.equal(html.includes('\u2212'), false);
     assert.deepEqual(store.accountTxns.map(row => row.id), before);
     click('act-pay-labor');
     const pay = rowsOf('payLabor');
@@ -928,6 +930,146 @@ test('builder keys stay inside the live allowlist', () => {
   subset(review, REVW_KEYS);
   assert.equal(Object.prototype.hasOwnProperty.call(review, 'amount'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(review, 'txnDate'), false);
+});
+
+test('a saved payment clears the amount instead of previewing a new draft', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    seedApproval(600000);
+    const view = installBoth();
+    view.views.contractor(AG);
+    setFields({ 'cp-amount': '700000' });
+    click('act-pay-labor');
+    assert.equal(fields['cp-amount'].value, '');
+    const html = view.views.contractor(AG);
+    const shown = preview(html);
+    assert.equal(shown.includes('700,000'), false);
+    assert.equal(shown.includes('سلفة'), false);
+    assert.equal(shown.includes('100,000'), false);
+    assert.equal(rowsOf('payLabor')[0].amount, 600000);
+    assert.equal(rowsOf('advanceLabor')[0].amount, 100000);
+    assert.equal(html.includes('id="act-pay-labor" disabled') || html.includes('id="act-advance-labor" disabled'), true);
+  });
+});
+
+test('typing updates the preview without replacing the amount field', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    seedApproval(600000);
+    /** @type {Array<(event: { target: { id: string } }) => void>} */
+    const listeners = [];
+    const input = { id: 'cp-amount', value: '' };
+    const previewBox = { innerHTML: '' };
+    const purposeBox = { innerHTML: '' };
+    const button = { id: 'act-pay-labor', disabled: false };
+    const root = {
+      querySelector(sel) {
+        if (sel === '#cp-preview') return previewBox;
+        if (sel === '#cp-purpose') return purposeBox;
+        if (sel === 'button') return button;
+        return null;
+      },
+    };
+    const prevDoc = g.document;
+    g.document = {
+      addEventListener(type, fn) {
+        if (type === 'input') listeners.push(fn);
+      },
+      querySelector(sel) {
+        if (sel === '#cp-amount') return input;
+        if (sel === '#cp-pay') return root;
+        return null;
+      },
+      createElement() { return {}; },
+      createElementNS() { return {}; },
+    };
+    let renders = 0;
+    const next = api();
+    next.render = () => { renders += 1; };
+    Work.install(next);
+    Pay.install(next);
+    next.views.contractor(AG);
+    const before = renders;
+    input.value = '7';
+    for (const fn of listeners) fn({ target: input });
+    assert.equal(renders, before);
+    assert.equal(input.value, '7');
+    assert.equal(previewBox.innerHTML.includes('7'), true);
+    assert.equal(previewBox.innerHTML.includes('\u2212'), false);
+    input.value = '700000';
+    for (const fn of listeners) fn({ target: input });
+    assert.equal(renders, before);
+    assert.equal(input, g.document.querySelector('#cp-amount'));
+    assert.equal(previewBox.innerHTML.includes('600,000'), true);
+    assert.equal(previewBox.innerHTML.includes('100,000'), true);
+    assert.equal(previewBox.innerHTML.includes('عن عمل معتمد'), true);
+    assert.equal(previewBox.innerHTML.includes('سلفة'), true);
+    g.document = prevDoc;
+  });
+});
+
+test('a form opened on an open gate appends nothing after the gate closes', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    seedApproval(600000);
+    store.accountTxns.push(cashRow(PAY_ID, 'payLabor', 600000));
+    store.accountTxns.push(cashRow(ADV_ID, 'advanceLabor', 100000));
+    const view = installBoth();
+    const open = view.views.contractor(AG);
+    assert.equal(open.includes('تسجيل دفعة'), true);
+    click('', { ctarget: ADV_ID, cpurpose: 'returnAdvance' });
+    click('', { ctarget: PAY_ID, cpurpose: 'refundLabor' });
+    setFields({ 'cp-amount': '10000', 'cp-return': '1000', 'cp-refund': '1000' });
+    const before = store.accountTxns.length;
+    Accounts.CONTRACTOR_COST_START = null;
+    click('act-pay-labor');
+    click('act-return-advance');
+    click('act-refund-labor');
+    assert.equal(store.accountTxns.length, before);
+    Accounts.CONTRACTOR_COST_START = '2026-11-23';
+    click('act-pay-labor');
+    click('act-return-advance');
+    click('act-refund-labor');
+    assert.equal(store.accountTxns.length, before);
+    assert.deepEqual(queued, []);
+  });
+  assert.equal(Accounts.CONTRACTOR_COST_START, null);
+});
+
+test('reviewDoc refuses a refused row, a reversed row, and a second live review', () => {
+  reset();
+  seedApproval(600000);
+  store.accountTxns.push(cashRow(PAY_ID, 'payLabor', 600000));
+  store.syncErrors = { [PAY_ID]: 'رُفض الإرسال' };
+  const refused = Pay.reviewDoc(header({ targetId: PAY_ID }));
+  assert.equal(refused.doc, null);
+  store.syncErrors = {};
+  store.accountTxns.push({ id: 'rev_' + PAY_ID, kind: 'rev', reversesId: PAY_ID });
+  const reversed = Pay.reviewDoc(header({ targetId: PAY_ID }));
+  assert.equal(reversed.doc, null);
+  store.accountTxns = store.accountTxns.filter(row => row.id !== 'rev_' + PAY_ID);
+  const first = Pay.reviewDoc(header({ targetId: PAY_ID }));
+  assert.equal(/** @type {any} */ (first.doc).id, 'revw_' + PAY_ID);
+  store.accountTxns.push(first.doc);
+  const second = Pay.reviewDoc(header({ targetId: PAY_ID }));
+  assert.equal(second.doc, null);
+});
+
+test('a site user sees no payment blocks', () => {
+  reset();
+  const prev = g.me;
+  g.me = () => ({ uid: 'u-site', role: 'site', active: true, displayName: 'أحمد' });
+  try {
+    withStart('2026-11-22', () => {
+      seedApproval(600000);
+      const view = installBoth();
+      const html = view.views.contractor(AG);
+      assert.equal(html.includes('تسجيل دفعة'), false);
+      for (const id of ACTS) assert.equal(html.includes(id), false, id);
+    });
+  } finally {
+    g.me = prev;
+  }
 });
 
 test('a paidAs outside the two labels adds no new sentence', () => {

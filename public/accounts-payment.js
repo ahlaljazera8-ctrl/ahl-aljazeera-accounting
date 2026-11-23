@@ -557,6 +557,7 @@
     linkRefusal(agreement.partyId, agreement.projectId, savedIds);
     screen.msg = '';
     screen.payDone = true;
+    clearField('cp-amount');
     button.disabled = false;
     if (viewApi) viewApi.render();
   }
@@ -597,6 +598,7 @@
     screen.msg = '';
     if (returning) screen.returnDone = true;
     else screen.refundDone = true;
+    clearField(returning ? 'cp-return' : 'cp-refund');
     button.disabled = false;
     if (viewApi) viewApi.render();
   }
@@ -649,7 +651,8 @@
       id === 'act-advance-labor' ||
       id === 'act-return-advance' ||
       id === 'act-refund-labor' ||
-      id === 'act-review-cash' ||
+      isReviewButton(id) ||
+      !!dataset.creview ||
       !!dataset.ctarget;
     if (!ours) return false;
     if (button.disabled && id.indexOf('act-') === 0) return true;
@@ -684,7 +687,7 @@
       savePointer('refundLabor', agreement, button);
       return true;
     }
-    if (id === 'act-review-cash') {
+    if (isReviewButton(id) || dataset.creview) {
       button.disabled = true;
       saveReview(agreement, dataset.creview || '', button);
       return true;
@@ -745,6 +748,105 @@
     for (const action of actions) AccountActions.push(action);
   }
 
+  /**
+   * @param {string} id
+   */
+  function isReviewButton(id) {
+    return id === 'act-review-cash' || id.indexOf('act-review-cash-') === 0;
+  }
+
+  /**
+   * @param {string} id
+   */
+  function clearField(id) {
+    const el = document.querySelector('#' + id);
+    if (!el) return;
+    /** @type {HTMLInputElement} */ (el).value = '';
+  }
+
+  /**
+   * @param {Element | null} el
+   * @param {string} html
+   */
+  function setHtml(el, html) {
+    if (!el) return;
+    /** @type {HTMLElement} */ (el).innerHTML = html;
+  }
+
+  /**
+   * @param {{ payLabor: number, advanceLabor: number }} split
+   */
+  function previewInner(split) {
+    let preview = '<div class="note">' + SENTENCE.before + '</div>';
+    if (split.payLabor > 0) {
+      preview += '<div class="kv"><span>' + SENTENCE.forApproved + '</span><b>' + moneyText(split.payLabor) + '</b></div>';
+    }
+    if (split.advanceLabor > 0) {
+      preview += '<div class="kv"><span>' + SENTENCE.advance + '</span><b>' + moneyText(split.advanceLabor) + '</b></div>';
+      preview += '<div class="note">' + SENTENCE.advanceNoteComma + '</div>';
+      preview += '<div class="note">' + SENTENCE.advanceNotePlain + '</div>';
+    }
+    return preview;
+  }
+
+  /**
+   * @param {{ payLabor: number, advanceLabor: number }} split
+   */
+  function purposeInner(split) {
+    let purpose = '<div class="note">' + SENTENCE.purpose + '</div><div class="pills">';
+    if (split.payLabor > 0) purpose += '<span class="pill on">' + SENTENCE.forApproved + '</span>';
+    if (split.advanceLabor > 0) purpose += '<span class="pill on">' + SENTENCE.advanceComing + '</span>';
+    purpose += '</div>';
+    return purpose;
+  }
+
+  /**
+   * @param {{ payLabor: number, advanceLabor: number }} split
+   */
+  function payButtonId(split) {
+    return split.advanceLabor > 0 && split.payLabor === 0 ? 'act-advance-labor' : 'act-pay-labor';
+  }
+
+  /**
+   * @param {{ id: string, partyId: string, projectId: string }} agreement
+   */
+  function draftSplit(agreement) {
+    const amount = digits(field('cp-amount'));
+    if (amount == null || amount < 1) return { payLabor: 0, advanceLabor: 0 };
+    return paymentSplit(amount, approvedUnpaid(agreement.partyId, agreement.projectId));
+  }
+
+  /**
+   * @param {string} raw
+   */
+  function pointerPreviewInner(raw) {
+    const amount = digits(raw);
+    if (amount == null || amount < 1) return '';
+    return '<div class="kv"><span>' + SENTENCE.amountLabel + '</span><b>' + moneyText(amount) + '</b></div>';
+  }
+
+  function refreshPaymentDraft() {
+    const agreement = storedAgreement(screen.arg);
+    const root = document.querySelector('#cp-pay');
+    if (!agreement || !costOpen() || !root || typeof root.querySelector !== 'function') return;
+    const split = draftSplit(agreement);
+    setHtml(root.querySelector('#cp-preview'), previewInner(split));
+    setHtml(root.querySelector('#cp-purpose'), purposeInner(split));
+    const button = root.querySelector('button');
+    if (!button) return;
+    const control = /** @type {HTMLButtonElement} */ (button);
+    control.id = payButtonId(split);
+    control.disabled = screen.payDone;
+  }
+
+  /**
+   * @param {string} inputId
+   * @param {string} slotId
+   */
+  function refreshPointerDraft(inputId, slotId) {
+    setHtml(document.querySelector('#' + slotId), pointerPreviewInner(field(inputId)));
+  }
+
   function bindDraft() {
     if (draftBound) return;
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
@@ -752,8 +854,9 @@
     document.addEventListener('input', event => {
       const target = /** @type {HTMLInputElement | null} */ (event.target);
       if (!target) return;
-      if (target.id !== 'cp-amount' && target.id !== 'cp-return' && target.id !== 'cp-refund') return;
-      if (viewApi) viewApi.render();
+      if (target.id === 'cp-amount') refreshPaymentDraft();
+      else if (target.id === 'cp-return') refreshPointerDraft('cp-return', 'cp-return-preview');
+      else if (target.id === 'cp-refund') refreshPointerDraft('cp-refund', 'cp-refund-preview');
     });
   }
 
@@ -809,24 +912,10 @@
   function paymentBlock(agreement) {
     ensurePay(agreement);
     const raw = field('cp-amount');
-    const amount = digits(raw);
-    const split = amount != null && amount >= 1
-      ? paymentSplit(amount, approvedUnpaid(agreement.partyId, agreement.projectId))
-      : { payLabor: 0, advanceLabor: 0 };
-    let preview = '<div class="note">' + SENTENCE.before + '</div>';
-    if (split.payLabor > 0) {
-      preview += '<div class="kv"><span>' + SENTENCE.forApproved + '</span><b>' + moneyText(split.payLabor) + '</b></div>';
-    }
-    if (split.advanceLabor > 0) {
-      preview += '<div class="kv"><span>' + SENTENCE.advance + '</span><b>' + moneyText(split.advanceLabor) + '</b></div>';
-      preview += '<div class="note">' + SENTENCE.advanceNoteComma + '</div>';
-      preview += '<div class="note">' + SENTENCE.advanceNotePlain + '</div>';
-    }
-    let purpose = '<div class="note">' + SENTENCE.purpose + '</div><div class="pills">';
-    if (split.payLabor > 0) purpose += '<span class="pill on">' + SENTENCE.forApproved + '</span>';
-    if (split.advanceLabor > 0) purpose += '<span class="pill on">' + SENTENCE.advanceComing + '</span>';
-    purpose += '</div>';
-    const buttonId = split.advanceLabor > 0 && split.payLabor === 0 ? 'act-advance-labor' : 'act-pay-labor';
+    const split = draftSplit(agreement);
+    const preview = previewInner(split);
+    const purpose = purposeInner(split);
+    const buttonId = payButtonId(split);
     const off = screen.payDone ? ' disabled' : '';
     const msg = screen.msg ? '<div id="cp-msg" class="msg">' + esc(screen.msg) + '</div>' : '';
     return (
@@ -854,24 +943,22 @@
     if (returning) screen.returnTarget = chosen;
     else screen.refundTarget = chosen;
     const raw = field(returning ? 'cp-return' : 'cp-refund');
-    const amount = digits(raw);
     const pills = offered.map(row => {
       const on = row.id === chosen ? ' on' : '';
       const amountText = typeof row.amount === 'number' ? moneyText(row.amount) : '';
       return '<button type="button" class="pill' + on + '" data-ctarget="' + esc(row.id) + '" data-cpurpose="' + purpose + '">' + amountText + '</button>';
     }).join('');
-    const preview = amount != null && amount >= 1
-      ? '<div class="kv"><span>' + SENTENCE.amountLabel + '</span><b>' + moneyText(amount) + '</b></div>'
-      : '';
+    const preview = pointerPreviewInner(raw);
     const done = returning ? screen.returnDone : screen.refundDone;
     const off = !chosen || done ? ' disabled' : '';
     const heading = returning ? SENTENCE.returnHeading : SENTENCE.refundHeading;
     const inputId = returning ? 'cp-return' : 'cp-refund';
+    const slotId = returning ? 'cp-return-preview' : 'cp-refund-preview';
     const buttonId = returning ? 'act-return-advance' : 'act-refund-labor';
     return (
       '<div class="card"><h2>' + heading + '</h2><div class="pills">' + pills + '</div>' +
       '<label class="field">' + SENTENCE.amountLabel + '<input id="' + inputId + '" class="full" inputmode="numeric" value="' + esc(raw) + '"></label>' +
-      preview +
+      '<div id="' + slotId + '">' + preview + '</div>' +
       '<button type="button" class="btn" id="' + buttonId + '"' + off + '>' + SENTENCE.save + '</button></div>'
     );
   }
@@ -895,7 +982,7 @@
           '<div class="card"><div class="note">' + SENTENCE.unreviewed + '</div>' +
           '<div class="note">' + SENTENCE.showsOnStatement + '</div>' +
           '<div class="note">' + SENTENCE.untilOwnerReviews + '</div>' +
-          '<button type="button" class="btn" id="act-review-cash" data-creview="' + esc(row.id) + '">' + SENTENCE.review + '</button></div>';
+          '<button type="button" class="btn" id="act-review-cash-' + esc(row.id) + '" data-creview="' + esc(row.id) + '">' + SENTENCE.review + '</button></div>';
       }
     }
     const link = get(K.refusedLinks, null);
