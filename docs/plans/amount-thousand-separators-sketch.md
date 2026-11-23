@@ -85,7 +85,7 @@ A value set without an `input` event is still saved by the existing parser. The 
 
 `public/ledger.js` is not edited. The fold there and the fold in `foldAmountDigits` match on this SHA. A later pull request edits `ledger.js` only if those two folds have diverged, and it says why in that pull request.
 
-Each code pull request that edits `public/` bumps `const VERSION`. This sketch reserves no number. Line 2 is `aj-p0-v72` on this main. The code pull request takes the next free value at merge time.
+Each code pull request that edits `public/` bumps `const VERSION`. This sketch reserves no number. Slice 0 deployed `aj-p0-v73`. Slice 1 takes `aj-p0-v74`. A later code pull request takes the next free value at its own base.
 
 ## Later code pull requests
 
@@ -170,6 +170,6 @@ This sketch does not answer these. It adds no Arabic string. A later slice that 
 
 ## This pull request
 
-r2 of the sketch. The diff is this file, plus the dated note already at the end of `docs/plans/flake-login-relogin-plan.md`. That note records a 2026-11-23 box run. It does not scope a flake fix. `VERSION` stays `aj-p0-v72`. Nothing here is deployed. These NOTES are not an approval.
+r2 of the sketch. The diff is this file, plus the dated note already at the end of `docs/plans/flake-login-relogin-plan.md`. That note records a 2026-11-23 box run. It does not scope a flake fix. These NOTES are not an approval.
 
-Slice 0 is the later shared-helper pull request. It records N1, N3, N4, N5, the EA correction, and the closed M3 answer in this file. It bumps `VERSION`. It does not deploy, and it does not implement `#cw-qty` or `#cw-days`.
+Slice 0 is merged on main `a9f3bf0390db95bd0f28f943a5a8e67804841da9` and deployed as `aj-p0-v73`. Slice 1 bumps `const VERSION` to `aj-p0-v74`.

@@ -979,7 +979,7 @@
    * @param {{ id?: string } | null} target
    */
   function isAmountField(target) {
-    return !!target && (target.id === 'cp-amount' || target.id === 'cp-return' || target.id === 'cp-refund');
+    return !!target && (target.id === 'cp-amount' || target.id === 'cp-return' || target.id === 'cp-refund' || target.id === 'amt');
   }
 
   /**

@@ -1359,6 +1359,20 @@ test('typing U+066C keeps the caret after the folded comma', () => {
   Pay.applyGroupedAmount(pasted);
   assert.equal(pasted.value, '2,');
   assert.equal(pasted.selectionStart, 2);
+  const leading = box();
+  leading.value = ' 2,5';
+  leading.selectionStart = 4;
+  leading.selectionEnd = 4;
+  Pay.applyGroupedAmount(leading);
+  assert.equal(leading.value, '2,5');
+  assert.equal(leading.selectionStart, 3);
+  const trailing = box();
+  trailing.value = '2,5 ';
+  trailing.selectionStart = 4;
+  trailing.selectionEnd = 4;
+  Pay.applyGroupedAmount(trailing);
+  assert.equal(trailing.value, '2,5');
+  assert.equal(trailing.selectionStart, 3);
 });
 
 test('a redraw keeps the grouped amount in the field', () => {
@@ -1460,4 +1474,145 @@ test('a paidAs outside the two labels adds no new sentence', () => {
     assert.equal(purpose.includes('سلفة عمل قادم'), true);
     assert.equal(html.includes(Q19), false);
   });
+});
+
+test('#amt groups a typed amount and a redraw keeps the draft', () => {
+  reset();
+  school();
+  /** @type {Array<{ type: string, fn: (event: { target?: { id?: string }, type?: string }) => void }>} */
+  const listeners = [];
+  /** @type {Record<string, any>} */
+  const els = {};
+  /**
+   * @param {string} id
+   */
+  function node(id) {
+    if (!els[id]) {
+      els[id] = {
+        id,
+        value: '',
+        hidden: false,
+        textContent: '',
+        classList: { toggle() {} },
+        setAttribute() {},
+        removeAttribute() {},
+        addEventListener() {},
+        querySelector() { return null; },
+      };
+    }
+    return els[id];
+  }
+  const amt = node('amt');
+  amt.selectionStart = 0;
+  amt.selectionEnd = 0;
+  amt.setSelectionRange = function (start, end) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
+  };
+  const main = node('main');
+  let mainHtml = '';
+  Object.defineProperty(main, 'innerHTML', {
+    get() { return mainHtml; },
+    set(html) {
+      mainHtml = String(html);
+      const match = mainHtml.match(/id="amt"[^>]*value="([^"]*)"/);
+      if (match) amt.value = match[1];
+    },
+  });
+  const doc = {
+    /**
+     * @param {string} type
+     * @param {(event: { target?: { id?: string }, type?: string }) => void} fn
+     */
+    addEventListener(type, fn) { listeners.push({ type, fn }); },
+    /**
+     * @param {string} sel
+     */
+    querySelector(sel) {
+      if (sel === '.tabs') return null;
+      if (sel === '#login') return { hidden: true };
+      if (sel === '#outbox' || sel === '#print-root' || sel === '#bell-panel' || sel === '#sync-msg') return null;
+      const id = String(sel || '').replace(/^#/, '');
+      return node(id);
+    },
+    querySelectorAll() { return []; },
+    createElement() { return { append() {}, setAttribute() {}, classList: { toggle() {} } }; },
+    createElementNS() { return { setAttribute() {}, append() {} }; },
+    documentElement: { dir: 'rtl' },
+  };
+  const sandbox = {
+    console,
+    Ledger,
+    Accounts,
+    DomSafe,
+    Sync,
+    K: g.K,
+    get: (key, fallback) => g.get(key, fallback),
+    set: (key, value) => g.set(key, value),
+    me: () => g.me(),
+    uuid: () => g.uuid(),
+    today: () => g.today(),
+    demoRole: () => '',
+    queueDoc: id => g.queueDoc(id),
+    deviceId: 'phone',
+    flushRemote() {},
+    location: { hash: '#entry' },
+    document: doc,
+    navigator: { onLine: true },
+    PeopleDir: { createLoader() { return {}; }, TIMEOUT_MS: 1, RENDER_ERROR: 'render-error' },
+    withTimeout: p => p,
+    ensureFirebase: () => Promise.resolve({ listUsers: () => Promise.resolve([]) }),
+    $: sel => doc.querySelector(sel),
+    addEventListener: (type, fn) => doc.addEventListener(type, fn),
+    AccountsView: { install() {}, syncTab() {}, onInput() { return false; }, onClick() { return false; } },
+    AccountWork: { install() {}, syncTab() {} },
+    ForemenUI: { install() {}, onInput() { return false; }, onClick() { return false; } },
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/accounts-payment.js'), 'utf8'), sandbox, { filename: 'accounts-payment.js' });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8') + '\nglobalThis.__render = render;\n', sandbox, { filename: 'render.js' });
+  /**
+   * @param {string} ch
+   */
+  function typeChar(ch) {
+    const at = amt.selectionStart;
+    amt.value = amt.value.slice(0, at) + ch + amt.value.slice(amt.selectionEnd);
+    amt.selectionStart = at + ch.length;
+    amt.selectionEnd = amt.selectionStart;
+    for (const item of listeners) {
+      if (item.type === 'input') item.fn({ target: amt, type: 'input' });
+    }
+  }
+  for (const ch of '1,50000') typeChar(ch);
+  assert.equal(amt.value, '150,000');
+  const saved = Ledger.parseAmount(amt.value);
+  assert.equal(saved.ok, true);
+  assert.equal(saved.amount, 150000);
+  sandbox.__render();
+  assert.equal(mainHtml.includes('id="render-error"'), false, mainHtml.slice(0, 300));
+  assert.equal(amt.value, '150,000');
+  amt.value = '';
+  amt.selectionStart = 0;
+  amt.selectionEnd = 0;
+  for (const ch of '١٠٠\u066C٠٠٠') typeChar(ch);
+  assert.equal(amt.value, '100,000');
+  assert.equal(amt.selectionStart, amt.value.length);
+  sandbox.__render();
+  assert.equal(amt.value, '100,000');
+  amt.value = '';
+  amt.selectionStart = 0;
+  amt.selectionEnd = 0;
+  for (const ch of '2,5') typeChar(ch);
+  assert.equal(amt.value, '2,5');
+  assert.equal(Ledger.parseAmount(amt.value).ok, false);
+  amt.value = '';
+  amt.selectionStart = 0;
+  amt.selectionEnd = 0;
+  typeChar('٧');
+  assert.equal(amt.value, '7');
+  const arabic = Ledger.parseAmount(amt.value);
+  assert.equal(arabic.ok, true);
+  assert.equal(arabic.amount, 7);
 });
