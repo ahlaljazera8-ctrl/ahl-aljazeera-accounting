@@ -22,21 +22,21 @@ The comma rules already shipped on `cp-amount`, `cp-return`, and `cp-refund` sta
 
 Every `inputmode="numeric"` field under `public/`, read on this SHA. The login email (`public/index.html` line 25) is `inputmode="email"`.
 
-| Screen | Field | Where | Current behavior | Slice |
-| --- | --- | --- | --- | --- |
-| قيد جديد (`views.entry`, title at `public/render.js` line 982) | `#amt` | `public/render.js` line 725 | Paints `state.amountDraft`. Save calls `L.parseAmount` at line 1508. No input listener groups the field. | 1 |
-| same form | `+ ألف`, `+ مليون`, `مسح` | lines 726 and 1445-1458 | `L.parseAmount` of the field, then `L.fmt` into the field, then `render`. `captureForm` (line 1053) stores that. | 1, same field |
-| عقد مقاول (`views.subnew`) | `#sub-amount` | line 916 | Opens as `L.fmt(1500000)`, which is `1,500,000` (line 909). Save calls `L.parseAmount` at line 168. | 2 |
-| ملحق (`views.amend`) | `#am-amount` | line 941 | Opens as `L.fmt(200000)`, which is `200,000` (line 933). Save calls `L.parseAmount` at line 202. | 2 |
-| سلفة جديدة, تسديد المستحق, استلام المتبقي (one sheet, `views.foremanmove`) | `#fm-amount` | `public/foremen.js` line 301 | Prefill is `Ledger.fmt` (lines 317-324). `onInput` (lines 494-515) stores the raw value and parses it with `L.parseAmount` for the sentence. Save calls `L.parseAmount` at line 423. The list heading is `السلف` (line 235). | 3 |
-| مقاول, عقد عمل جديد | `#cw-lump` مبلغ | `public/accounts-work.js` line 895 | Empty. `digits` (lines 136-141) strips every comma, so `2,5` becomes `25`. No Arabic fold. | 4 |
-| same form, unit | `#cw-rate` سعر الوحدة | line 898 | Same `digits`. Stored as `unitRate` (line 487). Cap `100000000` (`agreementDoc`, lines 243-244). | 4 |
-| same form, daily | `#cw-day` أجرة اليوم | line 902 | Same `digits`. Stored as `dayRate` (line 490). | 4 |
-| same form, milestone | `#cw-mile` قيمة المرحلة | line 903 | Same `digits`. Stored as `milestoneAmount` (line 491). | 4 |
-| مقاول, تسجيل دفعة | `#cp-amount` | `public/accounts-payment.js` line 1095 | Already grouped. `bindDraft` (lines 1014-1032). | shipped in H |
-| مقاول, إرجاع سلفة | `#cp-return` | lines 1127-1132 | Already grouped. | shipped in H |
-| مقاول, استرداد | `#cp-refund` | lines 1127-1132 | Already grouped. | shipped in H |
-| project, قيمة العقد | `#contract` | `public/render.js` line 244 | Paints `String(amount)` with no commas (line 242). The label beside it already uses `money` (line 56), which calls `L.fmt` (`public/ledger.js` line 484). Save calls `L.parseAmount` with `allowZero` (line 258). | 5 |
+| Screen                                                                     | Field                     | Where                                  | Current behavior                                                                                                                                                                                                             | Slice         |
+| -------------------------------------------------------------------------- | ------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| قيد جديد (`views.entry`, title at `public/render.js` line 982)             | `#amt`                    | `public/render.js` line 725            | Paints `state.amountDraft`. Save calls `L.parseAmount` at line 1508. No input listener groups the field.                                                                                                                     | 1             |
+| same form                                                                  | `+ ألف`, `+ مليون`, `مسح` | lines 726 and 1445-1458                | `L.parseAmount` of the field, then `L.fmt` into the field, then `render`. `captureForm` (line 1053) stores that.                                                                                                             | 1, same field |
+| عقد مقاول (`views.subnew`)                                                 | `#sub-amount`             | line 916                               | Opens as `L.fmt(1500000)`, which is `1,500,000` (line 909). Save calls `L.parseAmount` at line 168.                                                                                                                          | 2             |
+| ملحق (`views.amend`)                                                       | `#am-amount`              | line 941                               | Opens as `L.fmt(200000)`, which is `200,000` (line 933). Save calls `L.parseAmount` at line 202.                                                                                                                             | 2             |
+| سلفة جديدة, تسديد المستحق, استلام المتبقي (one sheet, `views.foremanmove`) | `#fm-amount`              | `public/foremen.js` line 301           | Prefill is `Ledger.fmt` (lines 317-324). `onInput` (lines 494-515) stores the raw value and parses it with `L.parseAmount` for the sentence. Save calls `L.parseAmount` at line 423. The list heading is `السلف` (line 235). | 3             |
+| مقاول, عقد عمل جديد                                                        | `#cw-lump` مبلغ           | `public/accounts-work.js` line 895     | Empty. `digits` (lines 136-141) strips every comma, so `2,5` becomes `25`. No Arabic fold.                                                                                                                                   | 4             |
+| same form, unit                                                            | `#cw-rate` سعر الوحدة     | line 898                               | Same `digits`. Stored as `unitRate` (line 487). Cap `100000000` (`agreementDoc`, lines 243-244).                                                                                                                             | 4             |
+| same form, daily                                                           | `#cw-day` أجرة اليوم      | line 902                               | Same `digits`. Stored as `dayRate` (line 490).                                                                                                                                                                               | 4             |
+| same form, milestone                                                       | `#cw-mile` قيمة المرحلة   | line 903                               | Same `digits`. Stored as `milestoneAmount` (line 491).                                                                                                                                                                       | 4             |
+| مقاول, تسجيل دفعة                                                          | `#cp-amount`              | `public/accounts-payment.js` line 1095 | Already grouped. `bindDraft` (lines 1014-1032).                                                                                                                                                                              | shipped in H  |
+| مقاول, إرجاع سلفة                                                          | `#cp-return`              | lines 1127-1132                        | Already grouped.                                                                                                                                                                                                             | shipped in H  |
+| مقاول, استرداد                                                             | `#cp-refund`              | lines 1127-1132                        | Already grouped.                                                                                                                                                                                                             | shipped in H  |
+| project, قيمة العقد                                                        | `#contract`               | `public/render.js` line 244            | Paints `String(amount)` with no commas (line 242). The label beside it already uses `money` (line 56), which calls `L.fmt` (`public/ledger.js` line 484). Save calls `L.parseAmount` with `allowZero` (line 258).            | 5             |
 
 `L.fmt` is `toLocaleString('en-US')` (`public/ledger.js` line 484). Painted totals, statements, CSV cells, and `#fm-amt-text` already go through it. They are not inputs. No slice edits them.
 
@@ -44,11 +44,11 @@ Every `inputmode="numeric"` field under `public/`, read on this SHA. The login e
 
 These are numeric inputs on «مقاول». They are counts. This sketch does not put thousand separators on them, and slice 5 does not pick them up.
 
-| Field | Label | Where | Stored as |
-| --- | --- | --- | --- |
-| `#cw-per` | لكل كم | `public/accounts-work.js` line 899 | `unitQty`, cap `1000000` (lines 243-244 and 488) |
-| `#cw-qty` | كمية منجزة | line 951 | `qty` via `digits` (line 514), cap `100000000` (line 515) |
-| `#cw-days` | أيام معتمدة | line 953 | the same `digits` call |
+| Field      | Label       | Where                              | Stored as                                                 |
+| ---------- | ----------- | ---------------------------------- | --------------------------------------------------------- |
+| `#cw-per`  | لكل كم      | `public/accounts-work.js` line 899 | `unitQty`, cap `1000000` (lines 243-244 and 488)          |
+| `#cw-qty`  | كمية منجزة  | line 951                           | `qty` via `digits` (line 514), cap `100000000` (line 515) |
+| `#cw-days` | أيام معتمدة | line 953                           | the same `digits` call                                    |
 
 The «حسابات» pill `السلف` (`public/accounts-view.js` line 410) filters rows. It is not an input. `AccountsView.onInput` only reads `#statement-from` (lines 609-614).
 
