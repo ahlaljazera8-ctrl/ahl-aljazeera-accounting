@@ -148,7 +148,9 @@
 
   /**
    * Western comma grouping for an amount being typed. "100000", "100,000", and Arabic-Indic digits are "100,000".
-   * A long mis-group such as 1,50000 is rewritten to 150,000. A short group such as 2,5 is left as typed.
+   * A long mis-group such as 1,50000 is rewritten to 150,000. A short group such as 2,5 keeps its comma.
+   * Digits are folded even when the group is refused, so the comma stays and the value does not become 25.
+   * On that refused path, ٬ (U+066C) folds to ',' and ٫ (U+066B) folds to '.'.
    * A later screen can call this without rewriting the grouping.
    * @param {string} raw
    * @returns {string}
@@ -162,7 +164,7 @@
       return folded;
     }
     const regrouped = regroupedDigits(folded);
-    if (regrouped == null) return folded ? source : '';
+    if (regrouped == null) return folded;
     return regrouped.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
@@ -240,7 +242,7 @@
     const grouped = groupThousands(raw);
     if (grouped === raw) return;
     input.value = grouped;
-    const next = caretAfterDigits(grouped, count);
+    const next = grouped.length === raw.length && foldAmountDigits(raw) === grouped ? caret : caretAfterDigits(grouped, count);
     if (typeof input.setSelectionRange === 'function') input.setSelectionRange(next, next);
     else {
       input.selectionStart = next;
@@ -1022,7 +1024,8 @@
       if (!isAmountField(target) || !target) return;
       if (!deleteDigitBeforeComma(target)) return;
       keyEvent.preventDefault();
-      refreshAmountField(target.id);
+      // The document input listener already calls refreshAmountField.
+      target.dispatchEvent(new Event('input', { bubbles: true }));
     });
     document.addEventListener('input', event => {
       const target = /** @type {HTMLInputElement | null} */ (event.target);
