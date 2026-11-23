@@ -977,6 +977,14 @@ test('typing updates the preview without replacing the amount field', () => {
           this.selectionStart = start;
           this.selectionEnd = end;
         },
+        /**
+         * @param {{ type?: string, bubbles?: boolean }} event
+         */
+        dispatchEvent(event) {
+          if (!event || event.type !== 'input' || event.bubbles !== true) return true;
+          for (const fn of inputListeners.slice()) fn({ target: this, type: 'input' });
+          return true;
+        },
       };
     }
     const input = amountBox('cp-amount');
@@ -1046,12 +1054,20 @@ test('typing updates the preview without replacing the amount field', () => {
       assert.equal(keyListeners.length > 0, true);
       return stopped;
     }
+    let inputRuns = 0;
+    inputListeners.push(() => {
+      inputRuns += 1;
+    });
+    assert.equal(previewBox.innerHTML.includes('سلفة'), true);
     input.value = '1,500,000';
     input.selectionStart = 2;
     input.selectionEnd = 2;
     assert.equal(pressBackspace(input), true);
+    assert.equal(inputRuns, 1);
     assert.equal(input.value, '500,000');
     assert.equal(input.selectionStart, 0);
+    assert.equal(previewBox.innerHTML.includes('500,000'), true);
+    assert.equal(previewBox.innerHTML.includes('سلفة'), false);
     input.value = '1,500,000';
     input.selectionStart = 6;
     input.selectionEnd = 6;
@@ -1059,11 +1075,13 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(input.value, '150,000');
     assert.equal(input.selectionStart, 3);
     input.value = '1,500,000';
-    input.selectionStart = 1;
+    input.selectionStart = 2;
     input.selectionEnd = 5;
+    const runsAtSelection = inputRuns;
     assert.equal(pressBackspace(input), false);
+    assert.equal(inputRuns, runsAtSelection);
     assert.equal(input.value, '1,500,000');
-    assert.equal(input.selectionStart, 1);
+    assert.equal(input.selectionStart, 2);
     assert.equal(input.selectionEnd, 5);
     /**
      * @param {{ id: string, value: string, selectionStart: number, selectionEnd: number, setSelectionRange: (start: number, end: number) => void }} box
@@ -1084,9 +1102,11 @@ test('typing updates the preview without replacing the amount field', () => {
     paste(input, '2,5');
     assert.equal(input.value, '2,5');
     paste(input, '٢,٥');
-    assert.equal(input.value, '٢,٥');
+    assert.equal(input.value, '2,5');
+    paste(input, '2,٥');
+    assert.equal(input.value, '2,5');
     paste(input, '٢\u066C٥');
-    assert.equal(input.value, '٢\u066C٥');
+    assert.equal(input.value, '2,5');
     input.value = '';
     input.selectionStart = 0;
     input.selectionEnd = 0;
@@ -1199,7 +1219,7 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(input.value, '2,5');
     click('act-pay-labor');
     paste(input, '٢,٥');
-    assert.equal(input.value, '٢,٥');
+    assert.equal(input.value, '2,5');
     click('act-pay-labor');
     paste(input, '1,50000');
     input.value = '1,50000';
@@ -1225,10 +1245,17 @@ test('groupThousands and plainAmount keep commas out of the saved number', () =>
   assert.equal(Pay.plainAmount('١\u066C٥٠٠٠٠'), null);
   assert.equal(Pay.plainAmount('150,000'), 150000);
   assert.equal(Pay.groupThousands('2,5'), '2,5');
-  assert.equal(Pay.groupThousands('٢,٥'), '٢,٥');
+  assert.equal(Pay.groupThousands('٢,٥'), '2,5');
+  assert.equal(Pay.groupThousands('2,٥'), '2,5');
+  assert.equal(Pay.groupThousands('٢\u066C٥'), '2,5');
+  assert.notEqual(Pay.groupThousands('٢,٥'), '25');
+  assert.notEqual(Pay.groupThousands('2,٥'), '25');
   assert.equal(Pay.groupThousands('1,50000'), '150,000');
   assert.equal(Pay.groupThousands('١\u066C٥٠٠٠٠'), '150,000');
   assert.notEqual(Pay.groupThousands('2,5'), '25');
+  assert.equal(Pay.groupThousands('0700000'), '0,700,000');
+  assert.equal(Pay.plainAmount('0,700,000'), 700000);
+  assert.equal(Pay.groupThousands(',500'), ',500');
   assert.equal(Pay.plainAmount('١٠٠٠٠٠'), 100000);
   assert.equal(Pay.plainAmount('\u06F7\u06F0\u06F0\u06F0\u06F0\u06F0'), 700000);
   assert.equal(Pay.plainAmount('١٠٠\u066C٠٠٠'), 100000);

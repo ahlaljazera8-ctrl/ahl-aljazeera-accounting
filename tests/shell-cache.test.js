@@ -41,7 +41,7 @@ test('session.js is a classic script loaded before app.js and precached with the
   assert.ok(sessionAt > 0 && appAt > sessionAt);
   assert.equal(html.includes('type="module"'), false);
   // Q5: next free number at rebase. Date fix is v59 and export is v60, so this pin is v61 and stays renumberable.
-  assert.match(sw, /const VERSION = 'aj-p0-v72'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v73'/);
   assert.match(sw, /\.\/session\.js/);
   assert.match(sw, /'\/session\.js': 1/);
   assert.match(session, /window\.AJ/);
@@ -64,7 +64,7 @@ test('firebase-client.js is a classic script between session.js and app.js and i
   assert.match(sw, /\.\/firebase-client\.js/);
   assert.match(sw, /'\/firebase-client\.js': 1/);
   // Q5: next free number at rebase. Date fix is v59 and export is v60, so this pin is v61 and stays renumberable.
-  assert.match(sw, /const VERSION = 'aj-p0-v72'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v73'/);
   assert.equal(cacheControl('/firebase-client.js'), 'no-cache');
 });
 
@@ -101,6 +101,6 @@ test('render.js is a classic script between firebase-client.js and app.js and is
   assert.match(sw, /\.\/render\.js/);
   assert.match(sw, /'\/render\.js': 1/);
   // Q5: next free number at rebase. Date fix is v59 and export is v60, so this pin is v61 and stays renumberable.
-  assert.match(sw, /const VERSION = 'aj-p0-v72'/);
+  assert.match(sw, /const VERSION = 'aj-p0-v73'/);
   assert.equal(cacheControl('/render.js'), 'no-cache');
 });
