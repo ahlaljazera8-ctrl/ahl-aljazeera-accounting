@@ -120,14 +120,86 @@
   }
 
   /**
+   * Western comma grouping for an amount being typed. "100000" and "100,000" are both "100,000".
+   * A later screen can call this without rewriting the grouping.
+   * @param {string} raw
+   * @returns {string}
+   */
+  function groupThousands(raw) {
+    const text = String(raw || '').replace(/,/g, '');
+    if (!/^\d+$/.test(text)) return text ? String(raw || '') : '';
+    return text.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  /**
+   * The integer the amount box means. Commas are grouping, not part of the number.
    * @param {string} raw
    * @returns {number | null}
    */
-  function digits(raw) {
+  function plainAmount(raw) {
     const text = String(raw || '').trim().replace(/,/g, '');
     if (!/^\d+$/.test(text)) return null;
     const n = Number(text);
     return Number.isSafeInteger(n) ? n : null;
+  }
+
+  /**
+   * @param {string} value
+   * @param {number} caret
+   */
+  function digitsBeforeCaret(value, caret) {
+    const stop = Math.min(Math.max(caret, 0), value.length);
+    let count = 0;
+    for (let i = 0; i < stop; i += 1) {
+      const ch = value.charAt(i);
+      if (ch >= '0' && ch <= '9') count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * @param {string} grouped
+   * @param {number} count
+   */
+  function caretAfterDigits(grouped, count) {
+    if (count <= 0) return 0;
+    let seen = 0;
+    for (let i = 0; i < grouped.length; i += 1) {
+      const ch = grouped.charAt(i);
+      if (ch >= '0' && ch <= '9') {
+        seen += 1;
+        if (seen === count) return i + 1;
+      }
+    }
+    return grouped.length;
+  }
+
+  /**
+   * Put grouping into the field and leave the caret on the same digit.
+   * @param {{ value: string, selectionStart?: number | null, selectionEnd?: number | null, setSelectionRange?: (start: number, end: number) => void }} input
+   */
+  function applyGroupedAmount(input) {
+    if (!input || typeof input.value !== 'string') return;
+    const raw = input.value;
+    const caret = typeof input.selectionStart === 'number' ? input.selectionStart : raw.length;
+    const count = digitsBeforeCaret(raw, caret);
+    const grouped = groupThousands(raw);
+    if (grouped === raw) return;
+    input.value = grouped;
+    const next = caretAfterDigits(grouped, count);
+    if (typeof input.setSelectionRange === 'function') input.setSelectionRange(next, next);
+    else {
+      input.selectionStart = next;
+      input.selectionEnd = next;
+    }
+  }
+
+  /**
+   * @param {string} raw
+   * @returns {number | null}
+   */
+  function digits(raw) {
+    return plainAmount(raw);
   }
 
   /**
@@ -854,9 +926,11 @@
     document.addEventListener('input', event => {
       const target = /** @type {HTMLInputElement | null} */ (event.target);
       if (!target) return;
+      if (target.id !== 'cp-amount' && target.id !== 'cp-return' && target.id !== 'cp-refund') return;
+      applyGroupedAmount(target);
       if (target.id === 'cp-amount') refreshPaymentDraft();
       else if (target.id === 'cp-return') refreshPointerDraft('cp-return', 'cp-return-preview');
-      else if (target.id === 'cp-refund') refreshPointerDraft('cp-refund', 'cp-refund-preview');
+      else refreshPointerDraft('cp-refund', 'cp-refund-preview');
     });
   }
 
@@ -920,7 +994,7 @@
     const msg = screen.msg ? '<div id="cp-msg" class="msg">' + esc(screen.msg) + '</div>' : '';
     return (
       '<div class="card" id="cp-pay"><h2>' + SENTENCE.payHeading + '</h2>' +
-      '<label class="field">' + SENTENCE.amountLabel + '<input id="cp-amount" class="full" inputmode="numeric" value="' + esc(raw) + '"></label>' +
+      '<label class="field">' + SENTENCE.amountLabel + '<input id="cp-amount" class="full" inputmode="numeric" value="' + esc(groupThousands(raw)) + '"></label>' +
       '<div id="cp-preview">' + preview + '</div>' +
       '<div id="cp-purpose">' + purpose + '</div>' +
       '<button type="button" class="btn" id="' + buttonId + '"' + off + '>' + SENTENCE.save + '</button>' +
@@ -957,7 +1031,7 @@
     const buttonId = returning ? 'act-return-advance' : 'act-refund-labor';
     return (
       '<div class="card"><h2>' + heading + '</h2><div class="pills">' + pills + '</div>' +
-      '<label class="field">' + SENTENCE.amountLabel + '<input id="' + inputId + '" class="full" inputmode="numeric" value="' + esc(raw) + '"></label>' +
+      '<label class="field">' + SENTENCE.amountLabel + '<input id="' + inputId + '" class="full" inputmode="numeric" value="' + esc(groupThousands(raw)) + '"></label>' +
       '<div id="' + slotId + '">' + preview + '</div>' +
       '<button type="button" class="btn" id="' + buttonId + '"' + off + '>' + SENTENCE.save + '</button></div>'
     );
@@ -1000,5 +1074,8 @@
     paymentSplit,
     cashDoc,
     reviewDoc,
+    groupThousands,
+    plainAmount,
+    applyGroupedAmount,
   };
 });

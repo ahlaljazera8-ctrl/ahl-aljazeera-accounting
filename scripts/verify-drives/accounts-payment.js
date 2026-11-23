@@ -335,10 +335,21 @@ async function typeKeys(session, tools, selector, text) {
  */
 async function saveSplit(run, tools, session, dir, before) {
   await tools.waitUntil(session, `!!document.querySelector('#cp-amount')`, 10000);
+  await typeKeys(session, tools, '#cp-amount', '100000');
+  await tools.waitUntil(
+    session,
+    `(() => { const input = document.querySelector('#cp-amount'); return !!input && input.value === '100,000' && document.activeElement === input; })()`,
+    10000,
+  );
+  const cleared = await tools.evaluate(
+    session,
+    `(() => { const input = document.querySelector('#cp-amount'); if (!input) return false; input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); return input.value === ''; })()`,
+  );
+  if (cleared !== true) tools.fail('STOP: amount field did not clear before the split');
   await typeKeys(session, tools, '#cp-amount', '700000');
   await tools.waitUntil(
     session,
-    `(() => { const input = document.querySelector('#cp-amount'); const preview = document.querySelector('#cp-preview'); const text = preview ? preview.innerText || '' : ''; return !!input && input.value === '700000' && document.activeElement === input && text.includes('عن عمل معتمد') && text.includes('سلفة') && text.includes(${JSON.stringify(PAY_TEXT)}) && text.includes(${JSON.stringify(ADVANCE_TEXT)}); })()`,
+    `(() => { const input = document.querySelector('#cp-amount'); const preview = document.querySelector('#cp-preview'); const text = preview ? preview.innerText || '' : ''; return !!input && input.value === '700,000' && document.activeElement === input && text.includes('عن عمل معتمد') && text.includes('سلفة') && text.includes(${JSON.stringify(PAY_TEXT)}) && text.includes(${JSON.stringify(ADVANCE_TEXT)}); })()`,
     10000,
   );
   const mid = (await readRows(run, tools, 'accountTxns')).filter(
@@ -406,7 +417,7 @@ async function drive(featureId, run, tools) {
       await typeKeys(session, tools, '#cp-return', '30000');
       await tools.waitUntil(
         session,
-        `(() => { const input = document.querySelector('#cp-return'); return !!input && input.value === '30000' && document.activeElement === input && ((document.querySelector('#cp-return-preview') || {}).innerText || '').includes(${JSON.stringify(RETURN_TEXT)}); })()`,
+        `(() => { const input = document.querySelector('#cp-return'); return !!input && input.value === '30,000' && document.activeElement === input && ((document.querySelector('#cp-return-preview') || {}).innerText || '').includes(${JSON.stringify(RETURN_TEXT)}); })()`,
         10000,
       );
       const mid = (await readRows(run, tools, 'accountTxns')).filter(
@@ -437,7 +448,7 @@ async function drive(featureId, run, tools) {
       await typeKeys(session, tools, '#cp-refund', '50000');
       await tools.waitUntil(
         session,
-        `(() => { const input = document.querySelector('#cp-refund'); return !!input && input.value === '50000' && document.activeElement === input && ((document.querySelector('#cp-refund-preview') || {}).innerText || '').includes(${JSON.stringify(REFUND_TEXT)}); })()`,
+        `(() => { const input = document.querySelector('#cp-refund'); return !!input && input.value === '50,000' && document.activeElement === input && ((document.querySelector('#cp-refund-preview') || {}).innerText || '').includes(${JSON.stringify(REFUND_TEXT)}); })()`,
         10000,
       );
       const mid = (await readRows(run, tools, 'accountTxns')).filter(
