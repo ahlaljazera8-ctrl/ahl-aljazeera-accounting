@@ -921,6 +921,29 @@ interface AccountModule {
   install(api: RenderApi): void;
 }
 
+interface GroupedAmountInput {
+  value: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+  setSelectionRange?(start: number, end: number): void;
+}
+
+interface AccountPaymentApi {
+  install(api: RenderApi): void;
+  paymentSplit(amount: number, approvedUnpaid: number): { payLabor: number; advanceLabor: number };
+  cashDoc(
+    purpose: 'payLabor' | 'advanceLabor' | 'returnAdvance' | 'refundLabor',
+    input: object,
+  ): { doc: object | null; errors: string[] };
+  reviewDoc(input: object): { doc: object | null; errors: string[] };
+  /** Western thousands grouping. A later screen can reuse this without a second copy. */
+  groupThousands(raw: string): string;
+  /** Digits only. Commas are not part of the saved amount. */
+  plainAmount(raw: string): number | null;
+  /** Group the field and keep the caret on the same digit. */
+  applyGroupedAmount(input: GroupedAmountInput): void;
+}
+
 type PayMethod = 'lump' | 'unit' | 'daily' | 'milestone';
 
 interface AgreementDocInput {
@@ -1228,7 +1251,7 @@ interface Window {
   PeopleDir: PeopleDirApi;
   AccountsView?: AccountsViewApi;
   AccountWork?: AccountWorkApi;
-  AccountPayment?: AccountModule;
+  AccountPayment?: AccountPaymentApi;
   AccountCorrect?: AccountModule;
   AccountStatement?: AccountModule;
   AccountShare?: AccountModule;

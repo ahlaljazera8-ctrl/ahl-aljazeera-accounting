@@ -64,7 +64,7 @@ Exit 1 with the failed line. Do not launch a replacement from inside doctor.
 node scripts/verify-aj.js drive ledger-entry
 ```
 
-That command is the proved ledger journey. `drive` also accepts `new-agreement`, `cancel-agreement`, `labor-qty`, and `approve-labor`. Any other feature id exits 3 and names the feature file. Do not click through an unproved feature and exit 0.
+That command is the proved ledger journey. `drive` also accepts `new-agreement`, `cancel-agreement`, `labor-qty`, `approve-labor`, `pay-labor`, `advance-labor`, `return-advance`, `refund-labor`, and `review-cash`. Any other feature id exits 3 and names the feature file. Do not click through an unproved feature and exit 0.
 
 After a successful doctor, `drive ledger-entry` does this:
 
