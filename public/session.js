@@ -348,7 +348,7 @@ async function outboxEmpty() {
   } catch (e) { return false; }
 }
 /** @type {Record<string, 1>} */
-var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'accounts-view.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
+var SHELL_FILES = { 'index.html':1, 'style.css':1, 'ledger.js':1, 'sync.js':1, 'sync-status.js':1, 'dom-safe.js':1, 'appcheck.js':1, 'firebase-config.js':1, 'session.js':1, 'firebase-client.js':1, 'accounts.js':1, 'accounts-view.js':1, 'accounts-work.js':1, 'render.js':1, 'app.js':1, 'manifest.json':1, 'icon.svg':1 };
 /**
  * @param {string} raw
  * @returns {boolean}

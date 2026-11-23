@@ -585,6 +585,37 @@ async function seed(authPort, firestorePort) {
 /**
  * @param {number} authPort
  * @param {number} firestorePort
+ * @param {string} name
+ * @returns {Promise<Array<Record<string, unknown> & { id: string }>>}
+ */
+async function readCollection(authPort, firestorePort, name) {
+  const authEnv = localHost('127.0.0.1:' + authPort);
+  const firestoreEnv = localHost('127.0.0.1:' + firestorePort);
+  adoptEmulatorHost('FIREBASE_AUTH_EMULATOR_HOST', authEnv.host, authEnv.port);
+  adoptEmulatorHost('FIRESTORE_EMULATOR_HOST', firestoreEnv.host, firestoreEnv.port);
+  const { initializeApp, deleteApp } = require('firebase/app');
+  const { getAuth, connectAuthEmulator, signInWithEmailAndPassword } = require('firebase/auth');
+  const { getFirestore, connectFirestoreEmulator, collection, getDocs } = require('firebase/firestore');
+  const app = initializeApp(
+    { apiKey: 'demo', projectId: PROJECT, authDomain: 'localhost' },
+    'verify-col-' + name + '-' + Date.now(),
+  );
+  try {
+    const auth = getAuth(app);
+    connectAuthEmulator(auth, 'http://' + authEnv.host + ':' + authEnv.port, { disableWarnings: true });
+    await signInWithEmailAndPassword(auth, EMAIL, PASSWORD);
+    const db = getFirestore(app);
+    connectFirestoreEmulator(db, firestoreEnv.host, firestoreEnv.port);
+    const snap = await getDocs(collection(db, name));
+    return snap.docs.map(item => Object.assign({ id: item.id }, item.data()));
+  } finally {
+    await deleteApp(app);
+  }
+}
+
+/**
+ * @param {number} authPort
+ * @param {number} firestorePort
  * @returns {Promise<LedgerRow[]>}
  */
 async function readEntries(authPort, firestorePort) {
@@ -1305,11 +1336,35 @@ async function driveLedgerEntry(run) {
  * @returns {Promise<void>}
  */
 async function drive(run, featureId) {
-  if (featureId !== 'ledger-entry') {
-    const name = featureId || '(missing)';
-    throw new VerifyError('not proved in this run: ' + name + '. See features/' + (featureId || 'README') + '.md', 3);
+  if (featureId === 'ledger-entry') {
+    await driveLedgerEntry(run);
+    return;
   }
-  await driveLedgerEntry(run);
+  const workIds = ['new-agreement', 'cancel-agreement', 'labor-qty', 'approve-labor'];
+  if (workIds.includes(featureId)) {
+    const work = require('./verify-drives/accounts-work');
+    await work.drive(featureId, run, {
+      connectCdp,
+      evaluate,
+      waitUntil,
+      shoot,
+      finishSession,
+      readCollection,
+      kvText,
+      fail: message => {
+        throw new VerifyError(message);
+      },
+      EMAIL,
+      PASSWORD,
+      DISPLAY,
+      PROJECT_ID,
+      PROJECT_NAME,
+      PROJECT,
+    });
+    return;
+  }
+  const name = featureId || '(missing)';
+  throw new VerifyError('not proved in this run: ' + name + '. See features/' + (featureId || 'README') + '.md', 3);
 }
 
 /**

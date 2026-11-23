@@ -192,7 +192,7 @@ module.exports = [
     rules,
   },
   {
-    files: ['public/foremen.js', 'public/accounts-view.js'],
+    files: ['public/foremen.js', 'public/accounts-view.js', 'public/accounts-work.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'script',
@@ -201,6 +201,8 @@ module.exports = [
         ...globals.node,
         Ledger: 'readonly',
         Accounts: 'readonly',
+        AccountsView: 'readonly',
+        AccountActions: 'readonly',
         Sync: 'readonly',
         SyncStatus: 'readonly',
         DomSafe: 'readonly',

@@ -858,7 +858,7 @@ interface ForemenUiApi {
   syncLine(lastSyncMs: number, format?: (ms: number) => string): string;
 }
 
-type ActionTab = 'agreements' | 'movements' | 'statement';
+type ActionTab = 'agreements' | 'movements' | 'statement' | 'contractor';
 type AccountTab = 'overview' | 'agreements' | 'movements' | 'statement';
 type MovementFilter = 'all' | 'payments' | 'advances' | 'measurements';
 
@@ -919,6 +919,75 @@ interface AccountModel {
 
 interface AccountModule {
   install(api: RenderApi): void;
+}
+
+type PayMethod = 'lump' | 'unit' | 'daily' | 'milestone';
+
+interface AgreementDocInput {
+  id: string;
+  partyId: string;
+  projectId: string;
+  method: PayMethod;
+  description: string;
+  lumpAmount?: number;
+  unitRate?: number;
+  unitQty?: number;
+  unitName?: string;
+  dayRate?: number;
+  milestoneAmount?: number;
+  createdBy?: string;
+  deviceId?: string;
+}
+
+interface StoredAgreement {
+  method: PayMethod;
+  id: string;
+  partyId: string;
+  projectId: string;
+  description: string;
+  currency: 'IQD';
+  lumpAmount?: number;
+  unitRate?: number;
+  unitQty?: number;
+  unitName?: string;
+  dayRate?: number;
+  milestoneAmount?: number;
+  milestoneMode?: string;
+}
+
+interface LaborWorkInput {
+  id?: string;
+  agreement?: StoredAgreement;
+  agreementId?: string;
+  gen?: string;
+  approvedQty?: number;
+  qty?: number;
+  targetId?: string;
+  target?: { id: string; purpose: string };
+  projectId?: string;
+  partyId?: string;
+  createdBy?: string;
+  createdByName?: string;
+  deviceId?: string;
+  txnDate?: string;
+  amount?: number;
+}
+
+interface AccountWorkApi {
+  install(api: RenderApi): void;
+  syncTab(user: { role?: string } | null | undefined): void;
+  slotBodyId(agreementId: string, gen: string): string;
+  agreementDoc(input: AgreementDocInput): { doc: object | null; errors: string[] };
+  agreementReversalDoc(input: {
+    agreement: StoredAgreement;
+    reversalReason: string;
+    createdBy: string;
+    deviceId: string;
+  }): { doc: object | null; errors: string[] };
+  laborQtyDoc(input: LaborWorkInput): { doc: object | null; errors: string[] };
+  approveLaborDoc(input: LaborWorkInput): { doc: object | null; errors: string[] };
+  /** بانتظار أمير. Not approved. unitByProgress is not painted. */
+  pendingAmeer: { readonly newContract: string; readonly unitByProgress: string };
 }
 
 interface AccountsViewApi {
@@ -1158,7 +1227,7 @@ interface Window {
   ForemenUI: ForemenUiApi;
   PeopleDir: PeopleDirApi;
   AccountsView?: AccountsViewApi;
-  AccountWork?: AccountModule;
+  AccountWork?: AccountWorkApi;
   AccountPayment?: AccountModule;
   AccountCorrect?: AccountModule;
   AccountStatement?: AccountModule;

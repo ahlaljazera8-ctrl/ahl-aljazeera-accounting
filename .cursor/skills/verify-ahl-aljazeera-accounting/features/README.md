@@ -49,5 +49,9 @@ Each feature file starts with an H1 and one paragraph of user-visible behaviour,
 - [Foreman balances](./foremen.md) is the owner «العُهد» tab. This helper does not drive it yet.
 - [Accounts](./accounts.md) is the owner «حسابات» list. The demo proof is `tests/browser-check.js`.
 - [Account](./account.md) is the read-only person page. It is not a passing drive yet.
+- [New agreement](./new-agreement.md) saves one labor agreement from «مقاول».
+- [Cancel agreement](./cancel-agreement.md) queues a reversal the server refuses when the project is closed.
+- [Labor quantity](./labor-qty.md) saves one measurement on that agreement.
+- [Approve labor](./approve-labor.md) approves the brick measurement. `drive new-agreement`, `drive labor-qty`, `drive approve-labor`, and `drive cancel-agreement` each printed `proved`.
 
 The owner tab «الأشخاص» (`syncPeopleTab` in `public/render.js`) is a real screen and is not in this seed. Add it in a `/maintain-verification-skill` run. Do not claim it was verified. «الرئيسية» is the landing state inside login and the balance check inside the new-entry journey, not a sixth file.
