@@ -1058,6 +1058,35 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(pressBackspace(input), true);
     assert.equal(input.value, '150,000');
     assert.equal(input.selectionStart, 3);
+    input.value = '1,500,000';
+    input.selectionStart = 1;
+    input.selectionEnd = 5;
+    assert.equal(pressBackspace(input), false);
+    assert.equal(input.value, '1,500,000');
+    assert.equal(input.selectionStart, 1);
+    assert.equal(input.selectionEnd, 5);
+    /**
+     * @param {{ id: string, value: string, selectionStart: number, selectionEnd: number, setSelectionRange: (start: number, end: number) => void }} box
+     * @param {string} text
+     */
+    function paste(box, text) {
+      box.value = text;
+      box.selectionStart = text.length;
+      box.selectionEnd = text.length;
+      for (const fn of inputListeners) fn({ target: box });
+    }
+    paste(input, '1,50000');
+    assert.equal(input.value, '150,000');
+    assert.equal(input.selectionStart, 7);
+    paste(input, '١\u066C٥٠٠٠٠');
+    assert.equal(input.value, '150,000');
+    assert.equal(input.selectionStart, 7);
+    paste(input, '2,5');
+    assert.equal(input.value, '2,5');
+    paste(input, '٢,٥');
+    assert.equal(input.value, '٢,٥');
+    paste(input, '٢\u066C٥');
+    assert.equal(input.value, '٢\u066C٥');
     input.value = '';
     input.selectionStart = 0;
     input.selectionEnd = 0;
@@ -1115,6 +1144,9 @@ test('typing updates the preview without replacing the amount field', () => {
     const arabic = '١٠٠٠٠٠';
     const range = 'المبلغ ليس عدداً صحيحاً';
     for (const ch of arabic) typeChar(input, ch);
+    assert.equal(input.value, '100,000');
+    assert.equal(input.selectionStart, input.value.length);
+    assert.equal(g.document.querySelector('#cp-amount'), input);
     const paysBefore = rowsOf('payLabor').length;
     click('act-pay-labor');
     const arabicPay = rowsOf('payLabor')[rowsOf('payLabor').length - 1];
@@ -1125,6 +1157,9 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(next.views.contractor(AG).includes(range), false);
     click('', { ctarget: ADV_ID, cpurpose: 'returnAdvance' });
     for (const ch of arabic) typeChar(returnInput, ch);
+    assert.equal(returnInput.value, '100,000');
+    assert.equal(returnInput.selectionStart, returnInput.value.length);
+    assert.equal(g.document.querySelector('#cp-return'), returnInput);
     const returnsBefore = rowsOf('returnAdvance').length;
     click('act-return-advance');
     const arabicReturn = rowsOf('returnAdvance')[rowsOf('returnAdvance').length - 1];
@@ -1135,6 +1170,9 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(next.views.contractor(AG).includes(range), false);
     click('', { ctarget: arabicPay.id, cpurpose: 'refundLabor' });
     for (const ch of arabic) typeChar(refundInput, ch);
+    assert.equal(refundInput.value, '100,000');
+    assert.equal(refundInput.selectionStart, refundInput.value.length);
+    assert.equal(g.document.querySelector('#cp-refund'), refundInput);
     const refundsBefore = rowsOf('refundLabor').length;
     click('act-refund-labor');
     const arabicRefund = rowsOf('refundLabor')[rowsOf('refundLabor').length - 1];
@@ -1143,6 +1181,31 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(typeof arabicRefund.amount, 'number');
     assert.equal(refundInput.value, '');
     assert.equal(next.views.contractor(AG).includes(range), false);
+    next.views.contractor('');
+    next.views.contractor(AG);
+    paste(input, '1,50000');
+    assert.equal(input.value, '150,000');
+    const longBefore = rowsOf('payLabor').length;
+    click('act-pay-labor');
+    const regroupedPay = rowsOf('payLabor')[rowsOf('payLabor').length - 1];
+    assert.equal(rowsOf('payLabor').length, longBefore + 1);
+    assert.equal(regroupedPay.amount, 150000);
+    assert.equal(typeof regroupedPay.amount, 'number');
+    assert.equal(next.views.contractor(AG).includes(range), false);
+    next.views.contractor('');
+    next.views.contractor(AG);
+    const refusedBefore = store.accountTxns.length;
+    paste(input, '2,5');
+    assert.equal(input.value, '2,5');
+    click('act-pay-labor');
+    paste(input, '٢,٥');
+    assert.equal(input.value, '٢,٥');
+    click('act-pay-labor');
+    paste(input, '1,50000');
+    input.value = '1,50000';
+    click('act-pay-labor');
+    assert.equal(store.accountTxns.length, refusedBefore);
+    assert.equal(next.views.contractor(AG).includes(range), true);
     g.document = prevDoc;
   });
 });
@@ -1154,11 +1217,24 @@ test('groupThousands and plainAmount keep commas out of the saved number', () =>
   assert.equal(Pay.plainAmount('100,000'), 100000);
   assert.equal(typeof Pay.plainAmount('100,000'), 'number');
   assert.equal(String(Pay.plainAmount('100,000')).includes(','), false);
-  assert.equal(Pay.plainAmount('1,0,0'), 100);
+  assert.equal(Pay.plainAmount('1,0,0'), null);
+  assert.equal(Pay.plainAmount('2,5'), null);
+  assert.equal(Pay.plainAmount('٢,٥'), null);
+  assert.equal(Pay.plainAmount('٢\u066C٥'), null);
+  assert.equal(Pay.plainAmount('1,50000'), null);
+  assert.equal(Pay.plainAmount('١\u066C٥٠٠٠٠'), null);
+  assert.equal(Pay.plainAmount('150,000'), 150000);
+  assert.equal(Pay.groupThousands('2,5'), '2,5');
+  assert.equal(Pay.groupThousands('٢,٥'), '٢,٥');
+  assert.equal(Pay.groupThousands('1,50000'), '150,000');
+  assert.equal(Pay.groupThousands('١\u066C٥٠٠٠٠'), '150,000');
+  assert.notEqual(Pay.groupThousands('2,5'), '25');
   assert.equal(Pay.plainAmount('١٠٠٠٠٠'), 100000);
   assert.equal(Pay.plainAmount('\u06F7\u06F0\u06F0\u06F0\u06F0\u06F0'), 700000);
   assert.equal(Pay.plainAmount('١٠٠\u066C٠٠٠'), 100000);
-  assert.equal(Pay.groupThousands('١٠٠٠٠٠'), '١٠٠٠٠٠');
+  assert.equal(Pay.groupThousands('١٠٠٠٠٠'), '100,000');
+  assert.equal(Pay.groupThousands('\u06F7\u06F0\u06F0\u06F0\u06F0\u06F0'), '700,000');
+  assert.equal(Pay.groupThousands('١٠٠\u066C٠٠٠'), '100,000');
   const mid = {
     value: '1500,000',
     selectionStart: 2,
@@ -1176,6 +1252,22 @@ test('groupThousands and plainAmount keep commas out of the saved number', () =>
   assert.equal(mid.value, '1,500,000');
   assert.equal(mid.selectionStart, 3);
   assert.notEqual(mid.selectionStart, mid.value.length);
+  const arabicMid = {
+    value: '1٥00,000',
+    selectionStart: 2,
+    selectionEnd: 2,
+    /**
+     * @param {number} start
+     * @param {number} end
+     */
+    setSelectionRange(start, end) {
+      this.selectionStart = start;
+      this.selectionEnd = end;
+    },
+  };
+  Pay.applyGroupedAmount(arabicMid);
+  assert.equal(arabicMid.value, '1,500,000');
+  assert.equal(arabicMid.selectionStart, 3);
 });
 
 test('a redraw keeps the grouped amount in the field', () => {

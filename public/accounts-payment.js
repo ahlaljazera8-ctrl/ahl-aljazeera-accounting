@@ -120,21 +120,54 @@
   }
 
   /**
-   * Western comma grouping for an amount being typed. "100000" and "100,000" are both "100,000".
-   * Arabic-Indic glyphs stay as typed. Which display they should use is [OPEN] for Ameer.
+   * Same shape L.parseAmount accepts: plain digits, or a leading 1–3 digits and groups of three.
+   * @param {string} text
+   * @returns {string | null}
+   */
+  function groupedDigits(text) {
+    if (/^\d+$/.test(text)) return text;
+    if (/^\d{1,3}(,\d{3})+$/.test(text)) return text.replace(/,/g, '');
+    return null;
+  }
+
+  /**
+   * Digits of a comma run that can be regrouped without changing the number.
+   * A short group such as 2,5 is not regrouped.
+   * @param {string} text
+   * @returns {string | null}
+   */
+  function regroupedDigits(text) {
+    if (!text.includes(',')) return null;
+    const parts = text.split(',');
+    if (parts.some(part => !/^\d+$/.test(part))) return null;
+    for (let i = 1; i < parts.length; i += 1) {
+      if (parts[i].length < 3) return null;
+    }
+    return parts.join('');
+  }
+
+  /**
+   * Western comma grouping for an amount being typed. "100000", "100,000", and Arabic-Indic digits are "100,000".
+   * A long mis-group such as 1,50000 is rewritten to 150,000. A short group such as 2,5 is left as typed.
    * A later screen can call this without rewriting the grouping.
    * @param {string} raw
    * @returns {string}
    */
   function groupThousands(raw) {
-    const text = String(raw || '').replace(/,/g, '');
-    if (!/^\d+$/.test(text)) return text ? String(raw || '') : '';
-    return text.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const source = String(raw || '');
+    const folded = foldAmountDigits(source);
+    const exact = groupedDigits(folded);
+    if (exact != null) {
+      if (!folded.includes(',')) return exact.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return folded;
+    }
+    const regrouped = regroupedDigits(folded);
+    if (regrouped == null) return folded ? source : '';
+    return regrouped.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
   /**
    * Same digit fold as L.parseAmount: ٠-٩, ۰-۹, and U+066C as a comma.
-   * The field is not rewritten. Only the number used for save and preview is folded.
    * @param {string} raw
    * @returns {string}
    */
@@ -152,10 +185,17 @@
    * @returns {number | null}
    */
   function plainAmount(raw) {
-    const text = foldAmountDigits(raw).replace(/,/g, '');
-    if (!/^\d+$/.test(text)) return null;
+    const text = groupedDigits(foldAmountDigits(raw));
+    if (text == null || !/^\d+$/.test(text)) return null;
     const n = Number(text);
     return Number.isSafeInteger(n) ? n : null;
+  }
+
+  /**
+   * @param {string} ch
+   */
+  function isAmountDigit(ch) {
+    return (ch >= '0' && ch <= '9') || (ch >= '٠' && ch <= '٩') || (ch >= '۰' && ch <= '۹');
   }
 
   /**
@@ -166,8 +206,7 @@
     const stop = Math.min(Math.max(caret, 0), value.length);
     let count = 0;
     for (let i = 0; i < stop; i += 1) {
-      const ch = value.charAt(i);
-      if (ch >= '0' && ch <= '9') count += 1;
+      if (isAmountDigit(value.charAt(i))) count += 1;
     }
     return count;
   }
