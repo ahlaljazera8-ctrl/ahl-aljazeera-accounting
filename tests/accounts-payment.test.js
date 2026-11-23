@@ -957,7 +957,9 @@ test('typing updates the preview without replacing the amount field', () => {
   withStart('2026-11-22', () => {
     seedApproval(600000);
     /** @type {Array<(event: { target: { id: string } }) => void>} */
-    const listeners = [];
+    const inputListeners = [];
+    /** @type {Array<(event: { key?: string, target?: { id: string }, preventDefault?: () => void }) => void>} */
+    const keyListeners = [];
     /**
      * @param {string} id
      */
@@ -994,7 +996,8 @@ test('typing updates the preview without replacing the amount field', () => {
     const prevDoc = g.document;
     g.document = {
       addEventListener(type, fn) {
-        if (type === 'input') listeners.push(fn);
+        if (type === 'input') inputListeners.push(fn);
+        if (type === 'keydown') keyListeners.push(fn);
       },
       querySelector(sel) {
         if (sel === '#cp-amount') return input;
@@ -1014,14 +1017,14 @@ test('typing updates the preview without replacing the amount field', () => {
     next.views.contractor(AG);
     const before = renders;
     input.value = '7';
-    for (const fn of listeners) fn({ target: input });
+    for (const fn of inputListeners) fn({ target: input });
     assert.equal(renders, before);
     assert.equal(input.value, '7');
     assert.equal(previewBox.innerHTML.includes('7'), true);
     assert.equal(previewBox.innerHTML.includes('\u2212'), false);
     input.value = '700000';
     input.selectionStart = 6;
-    for (const fn of listeners) fn({ target: input });
+    for (const fn of inputListeners) fn({ target: input });
     assert.equal(renders, before);
     assert.equal(input.value, '700,000');
     assert.equal(input, g.document.querySelector('#cp-amount'));
@@ -1029,6 +1032,32 @@ test('typing updates the preview without replacing the amount field', () => {
     assert.equal(previewBox.innerHTML.includes('100,000'), true);
     assert.equal(previewBox.innerHTML.includes('عن عمل معتمد'), true);
     assert.equal(previewBox.innerHTML.includes('سلفة'), true);
+    /**
+     * @param {{ id: string, value: string, selectionStart: number, selectionEnd: number }} box
+     */
+    function pressBackspace(box) {
+      let stopped = false;
+      const event = {
+        key: 'Backspace',
+        target: box,
+        preventDefault() { stopped = true; },
+      };
+      for (const fn of keyListeners) fn(event);
+      assert.equal(keyListeners.length > 0, true);
+      return stopped;
+    }
+    input.value = '1,500,000';
+    input.selectionStart = 2;
+    input.selectionEnd = 2;
+    assert.equal(pressBackspace(input), true);
+    assert.equal(input.value, '500,000');
+    assert.equal(input.selectionStart, 0);
+    input.value = '1,500,000';
+    input.selectionStart = 6;
+    input.selectionEnd = 6;
+    assert.equal(pressBackspace(input), true);
+    assert.equal(input.value, '150,000');
+    assert.equal(input.selectionStart, 3);
     input.value = '';
     input.selectionStart = 0;
     input.selectionEnd = 0;
@@ -1041,7 +1070,7 @@ test('typing updates the preview without replacing the amount field', () => {
       box.value = box.value.slice(0, at) + ch + box.value.slice(box.selectionEnd);
       box.selectionStart = at + ch.length;
       box.selectionEnd = box.selectionStart;
-      for (const fn of listeners) fn({ target: box });
+      for (const fn of inputListeners) fn({ target: box });
     }
     for (const ch of '100000') typeChar(input, ch);
     assert.equal(renders, before);
@@ -1062,6 +1091,7 @@ test('typing updates the preview without replacing the amount field', () => {
     const returned = rowsOf('returnAdvance')[0];
     assert.equal(returned.amount, 100000);
     assert.equal(String(returned.amount).includes(','), false);
+    assert.equal(returnInput.value, '');
     click('', { ctarget: posted.id, cpurpose: 'refundLabor' });
     for (const ch of '100000') typeChar(refundInput, ch);
     assert.equal(refundInput.value, '100,000');
@@ -1070,6 +1100,49 @@ test('typing updates the preview without replacing the amount field', () => {
     const refunded = rowsOf('refundLabor')[0];
     assert.equal(refunded.amount, 100000);
     assert.equal(String(refunded.amount).includes(','), false);
+    assert.equal(refundInput.value, '');
+    next.views.contractor('');
+    input.value = '';
+    input.selectionStart = 0;
+    input.selectionEnd = 0;
+    returnInput.value = '';
+    returnInput.selectionStart = 0;
+    returnInput.selectionEnd = 0;
+    refundInput.value = '';
+    refundInput.selectionStart = 0;
+    refundInput.selectionEnd = 0;
+    next.views.contractor(AG);
+    const arabic = '١٠٠٠٠٠';
+    const range = 'المبلغ ليس عدداً صحيحاً';
+    for (const ch of arabic) typeChar(input, ch);
+    const paysBefore = rowsOf('payLabor').length;
+    click('act-pay-labor');
+    const arabicPay = rowsOf('payLabor')[rowsOf('payLabor').length - 1];
+    assert.equal(rowsOf('payLabor').length, paysBefore + 1);
+    assert.equal(arabicPay.amount, 100000);
+    assert.equal(typeof arabicPay.amount, 'number');
+    assert.equal(String(arabicPay.amount).includes(','), false);
+    assert.equal(next.views.contractor(AG).includes(range), false);
+    click('', { ctarget: ADV_ID, cpurpose: 'returnAdvance' });
+    for (const ch of arabic) typeChar(returnInput, ch);
+    const returnsBefore = rowsOf('returnAdvance').length;
+    click('act-return-advance');
+    const arabicReturn = rowsOf('returnAdvance')[rowsOf('returnAdvance').length - 1];
+    assert.equal(rowsOf('returnAdvance').length, returnsBefore + 1);
+    assert.equal(arabicReturn.amount, 100000);
+    assert.equal(typeof arabicReturn.amount, 'number');
+    assert.equal(returnInput.value, '');
+    assert.equal(next.views.contractor(AG).includes(range), false);
+    click('', { ctarget: arabicPay.id, cpurpose: 'refundLabor' });
+    for (const ch of arabic) typeChar(refundInput, ch);
+    const refundsBefore = rowsOf('refundLabor').length;
+    click('act-refund-labor');
+    const arabicRefund = rowsOf('refundLabor')[rowsOf('refundLabor').length - 1];
+    assert.equal(rowsOf('refundLabor').length, refundsBefore + 1);
+    assert.equal(arabicRefund.amount, 100000);
+    assert.equal(typeof arabicRefund.amount, 'number');
+    assert.equal(refundInput.value, '');
+    assert.equal(next.views.contractor(AG).includes(range), false);
     g.document = prevDoc;
   });
 });
@@ -1081,6 +1154,11 @@ test('groupThousands and plainAmount keep commas out of the saved number', () =>
   assert.equal(Pay.plainAmount('100,000'), 100000);
   assert.equal(typeof Pay.plainAmount('100,000'), 'number');
   assert.equal(String(Pay.plainAmount('100,000')).includes(','), false);
+  assert.equal(Pay.plainAmount('1,0,0'), 100);
+  assert.equal(Pay.plainAmount('١٠٠٠٠٠'), 100000);
+  assert.equal(Pay.plainAmount('\u06F7\u06F0\u06F0\u06F0\u06F0\u06F0'), 700000);
+  assert.equal(Pay.plainAmount('١٠٠\u066C٠٠٠'), 100000);
+  assert.equal(Pay.groupThousands('١٠٠٠٠٠'), '١٠٠٠٠٠');
   const mid = {
     value: '1500,000',
     selectionStart: 2,
@@ -1098,6 +1176,24 @@ test('groupThousands and plainAmount keep commas out of the saved number', () =>
   assert.equal(mid.value, '1,500,000');
   assert.equal(mid.selectionStart, 3);
   assert.notEqual(mid.selectionStart, mid.value.length);
+});
+
+test('a redraw keeps the grouped amount in the field', () => {
+  reset();
+  withStart('2026-11-22', () => {
+    seedApproval(600000);
+    store.accountTxns.push(cashRow(PAY_ID, 'payLabor', 600000));
+    store.accountTxns.push(cashRow(ADV_ID, 'advanceLabor', 200000));
+    const view = installBoth();
+    setFields({ 'cp-amount': '700000', 'cp-return': '30000', 'cp-refund': '50000' });
+    const html = view.views.contractor(AG);
+    assert.equal(html.includes('id="cp-amount" class="full" inputmode="numeric" value="700,000"'), true);
+    assert.equal(html.includes('id="cp-return" class="full" inputmode="numeric" value="30,000"'), true);
+    assert.equal(html.includes('id="cp-refund" class="full" inputmode="numeric" value="50,000"'), true);
+    assert.equal(html.includes('value="700000"'), false);
+    assert.equal(html.includes('value="30000"'), false);
+    assert.equal(html.includes('value="50000"'), false);
+  });
 });
 
 test('a form opened on an open gate appends nothing after the gate closes', () => {

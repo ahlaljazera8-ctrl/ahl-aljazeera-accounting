@@ -121,6 +121,7 @@
 
   /**
    * Western comma grouping for an amount being typed. "100000" and "100,000" are both "100,000".
+   * Arabic-Indic glyphs stay as typed. Which display they should use is [OPEN] for Ameer.
    * A later screen can call this without rewriting the grouping.
    * @param {string} raw
    * @returns {string}
@@ -132,12 +133,26 @@
   }
 
   /**
+   * Same digit fold as L.parseAmount: ٠-٩, ۰-۹, and U+066C as a comma.
+   * The field is not rewritten. Only the number used for save and preview is folded.
+   * @param {string} raw
+   * @returns {string}
+   */
+  function foldAmountDigits(raw) {
+    let text = String(raw || '').trim();
+    text = text.replace(/[٠-٩]/g, ch => String(ch.charCodeAt(0) - 0x0660));
+    text = text.replace(/[۰-۹]/g, ch => String(ch.charCodeAt(0) - 0x06f0));
+    text = text.replace(/\u066C/g, ',').replace(/\u066B/g, '.');
+    return text;
+  }
+
+  /**
    * The integer the amount box means. Commas are grouping, not part of the number.
    * @param {string} raw
    * @returns {number | null}
    */
   function plainAmount(raw) {
-    const text = String(raw || '').trim().replace(/,/g, '');
+    const text = foldAmountDigits(raw).replace(/,/g, '');
     if (!/^\d+$/.test(text)) return null;
     const n = Number(text);
     return Number.isSafeInteger(n) ? n : null;
@@ -919,18 +934,62 @@
     setHtml(document.querySelector('#' + slotId), pointerPreviewInner(field(inputId)));
   }
 
+  /**
+   * @param {{ id?: string } | null} target
+   */
+  function isAmountField(target) {
+    return !!target && (target.id === 'cp-amount' || target.id === 'cp-return' || target.id === 'cp-refund');
+  }
+
+  /**
+   * @param {string} id
+   */
+  function refreshAmountField(id) {
+    if (id === 'cp-amount') refreshPaymentDraft();
+    else if (id === 'cp-return') refreshPointerDraft('cp-return', 'cp-return-preview');
+    else if (id === 'cp-refund') refreshPointerDraft('cp-refund', 'cp-refund-preview');
+  }
+
+  /**
+   * One Backspace with the caret just after a grouping comma deletes the digit before that comma.
+   * @param {{ value: string, selectionStart?: number | null, selectionEnd?: number | null, setSelectionRange?: (start: number, end: number) => void }} input
+   * @returns {boolean}
+   */
+  function deleteDigitBeforeComma(input) {
+    if (!input || typeof input.value !== 'string') return false;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    if (typeof start !== 'number' || typeof end !== 'number' || start !== end || start < 2) return false;
+    if (input.value.charAt(start - 1) !== ',') return false;
+    input.value = input.value.slice(0, start - 2) + input.value.slice(start);
+    const caret = start - 2;
+    if (typeof input.setSelectionRange === 'function') input.setSelectionRange(caret, caret);
+    else {
+      input.selectionStart = caret;
+      input.selectionEnd = caret;
+    }
+    applyGroupedAmount(input);
+    return true;
+  }
+
   function bindDraft() {
     if (draftBound) return;
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
     draftBound = true;
+    document.addEventListener('keydown', event => {
+      const keyEvent = /** @type {KeyboardEvent} */ (event);
+      if (keyEvent.key !== 'Backspace') return;
+      const target = /** @type {HTMLInputElement | null} */ (keyEvent.target);
+      if (!isAmountField(target) || !target) return;
+      if (!deleteDigitBeforeComma(target)) return;
+      keyEvent.preventDefault();
+      refreshAmountField(target.id);
+    });
     document.addEventListener('input', event => {
       const target = /** @type {HTMLInputElement | null} */ (event.target);
-      if (!target) return;
-      if (target.id !== 'cp-amount' && target.id !== 'cp-return' && target.id !== 'cp-refund') return;
+      if (!isAmountField(target) || !target) return;
       applyGroupedAmount(target);
-      if (target.id === 'cp-amount') refreshPaymentDraft();
-      else if (target.id === 'cp-return') refreshPointerDraft('cp-return', 'cp-return-preview');
-      else refreshPointerDraft('cp-refund', 'cp-refund-preview');
+      refreshAmountField(target.id);
     });
   }
 
