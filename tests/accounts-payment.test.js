@@ -1615,4 +1615,29 @@ test('#amt groups a typed amount and a redraw keeps the draft', () => {
   const arabic = Ledger.parseAmount(amt.value);
   assert.equal(arabic.ok, true);
   assert.equal(arabic.amount, 7);
+  const desc = node('desc');
+  desc.selectionStart = 0;
+  desc.selectionEnd = 0;
+  const party = node('party');
+  party.selectionStart = 0;
+  party.selectionEnd = 0;
+  /**
+   * @param {any} el
+   * @param {string} text
+   */
+  function typeInto(el, text) {
+    for (const ch of text) {
+      const at = el.selectionStart;
+      el.value = el.value.slice(0, at) + ch + el.value.slice(el.selectionEnd);
+      el.selectionStart = at + ch.length;
+      el.selectionEnd = el.selectionStart;
+      for (const item of listeners) {
+        if (item.type === 'input') item.fn({ target: el, type: 'input' });
+      }
+    }
+  }
+  typeInto(desc, '1,50000');
+  typeInto(party, '٢,٥');
+  assert.equal(desc.value, '1,50000');
+  assert.equal(party.value, '٢,٥');
 });

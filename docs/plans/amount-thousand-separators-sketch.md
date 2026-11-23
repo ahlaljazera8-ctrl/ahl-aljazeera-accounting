@@ -118,7 +118,7 @@ Files: `public/accounts-payment.js` (the id), the entry behavior test, and the `
 
 ### 2. السلف
 
-Starts after slice 0 is on main. One field, three kinds. `#fm-amount` is the amount on سلفة جديدة, تسديد المستحق, and استلام المتبقي. Add `fm-amount` to `isAmountField`. At the start of `ForemenUI.onInput`, if `globalThis.AccountPayment` is present, or a `typeof` check says so, call `applyGroupedAmount`, then copy (`public/foremen.js` lines 494-497). Save stays `L.parseAmount` (line 423). The prefill stays `Ledger.fmt`. The foremen unit tests have no `window`, so the guard is not a bare `window.AccountPayment`.
+Starts after slice 0 is on main. One field, three kinds. `#fm-amount` is the amount on سلفة جديدة, تسديد المستحق, and استلام المتبقي. Add `fm-amount` to `isAmountField`. At the start of `ForemenUI.onInput`, if `globalThis.AccountPayment` is present, or a `typeof` check says so, call `applyGroupedAmount`, then copy (`public/foremen.js` lines 500-503). Save stays `L.parseAmount` (line 423). The prefill stays `Ledger.fmt`. The foremen unit tests have no `window`, so the guard is not a bare `window.AccountPayment`.
 
 Slice 0 has already made the cancelled Backspace dispatch `input`, so `onInput` runs and the sentence and the over-settle warning follow the field. This slice tests that path: `١٠٠٠٠٠`, Backspace after the comma, field `10,000`, sentence `10,000`, and a save of `10000`.
 
