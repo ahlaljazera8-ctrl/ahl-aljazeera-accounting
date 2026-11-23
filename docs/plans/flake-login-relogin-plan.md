@@ -172,3 +172,9 @@ browser-check.js:1820 (site user export) failed once on 97871185, job 1337412013
 ## 8. Not in the code pull request
 
 A retry of the click or of a job as the fix. A skip. A sleep. A larger timeout. A change to `forgetGoneProjects`, `dropProjectLocal`, `render.js:585`, `session.js:77`, or `firestore.rules`. A production deploy, a rules deploy, or any write to the live project `ahl-aljazeera-accounting`.
+
+## 9. Dated note, 2026-11-23
+
+Not a fix. Sections 0–8 are unchanged.
+
+A box emulator ×10 on `999586b6` (H head, outside the H diff, did not block #100): 2/10 clean. login-relogin ×6, session-live ×4, project-gone ×1, all 16s timeouts. payment-half-refused 10/10. No flake fix is scoped from this note.
