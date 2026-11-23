@@ -921,6 +921,16 @@ interface AccountModule {
   install(api: RenderApi): void;
 }
 
+interface AccountPaymentApi {
+  install(api: RenderApi): void;
+  paymentSplit(amount: number, approvedUnpaid: number): { payLabor: number; advanceLabor: number };
+  cashDoc(
+    purpose: 'payLabor' | 'advanceLabor' | 'returnAdvance' | 'refundLabor',
+    input: object,
+  ): { doc: object | null; errors: string[] };
+  reviewDoc(input: object): { doc: object | null; errors: string[] };
+}
+
 type PayMethod = 'lump' | 'unit' | 'daily' | 'milestone';
 
 interface AgreementDocInput {
@@ -1228,7 +1238,7 @@ interface Window {
   PeopleDir: PeopleDirApi;
   AccountsView?: AccountsViewApi;
   AccountWork?: AccountWorkApi;
-  AccountPayment?: AccountModule;
+  AccountPayment?: AccountPaymentApi;
   AccountCorrect?: AccountModule;
   AccountStatement?: AccountModule;
   AccountShare?: AccountModule;

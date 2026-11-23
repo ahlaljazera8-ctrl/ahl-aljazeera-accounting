@@ -1341,9 +1341,32 @@ async function drive(run, featureId) {
     return;
   }
   const workIds = ['new-agreement', 'cancel-agreement', 'labor-qty', 'approve-labor'];
+  const paymentIds = ['pay-labor', 'advance-labor', 'return-advance', 'refund-labor', 'review-cash'];
   if (workIds.includes(featureId)) {
     const work = require('./verify-drives/accounts-work');
     await work.drive(featureId, run, {
+      connectCdp,
+      evaluate,
+      waitUntil,
+      shoot,
+      finishSession,
+      readCollection,
+      kvText,
+      fail: message => {
+        throw new VerifyError(message);
+      },
+      EMAIL,
+      PASSWORD,
+      DISPLAY,
+      PROJECT_ID,
+      PROJECT_NAME,
+      PROJECT,
+    });
+    return;
+  }
+  if (paymentIds.includes(featureId)) {
+    const payment = require('./verify-drives/accounts-payment');
+    await payment.drive(featureId, run, {
       connectCdp,
       evaluate,
       waitUntil,
