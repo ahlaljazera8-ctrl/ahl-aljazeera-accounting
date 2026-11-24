@@ -646,11 +646,17 @@
       const id = slotBodyId(agreementId, String(slotAttempt(agreementId)));
       return txns.find(row => row && row.id === id && !Object.prototype.hasOwnProperty.call(errors, id)) || null;
     }
+    const index = Accounts.rowIndex(/** @type {FoldDoc[]} */ (/** @type {unknown} */ (txns)), errors);
     /** @type {Record<string, unknown> | null} */
     let picked = null;
     for (const row of txns) {
       if (!row || row.purpose !== 'laborQty' || row.agreementId !== agreementId) continue;
       if (typeof row.id !== 'string' || Object.prototype.hasOwnProperty.call(errors, row.id)) continue;
+      // A reversal copies purpose laborQty. It is not a measurement.
+      if (row.kind === 'rev' || row.kind === 'rej' || row.id.startsWith('rev_') || row.id.startsWith('rej_')) continue;
+      if (!Accounts.rowLive(/** @type {FoldDoc} */ (/** @type {unknown} */ (row)), index)) continue;
+      const apprId = 'appr_' + row.id;
+      if (txns.some(item => item && item.id === apprId) && !Object.prototype.hasOwnProperty.call(errors, apprId)) continue;
       if (liveApproval(row.id)) continue;
       picked = row;
     }
@@ -951,8 +957,9 @@
     }
     const offered = body && bodyId && !bodyRefused && !approved;
     const open = costOpen() && !cancelled;
+    const slotEnded = !repeatable && !!body && !Accounts.rowLive(/** @type {FoldDoc} */ (/** @type {unknown} */ (body)), Accounts.rowIndex(/** @type {FoldDoc[]} */ (/** @type {unknown} */ (rows(K.accountTxns))), errors));
     let work = '';
-    if (open && (repeatable || !approved)) {
+    if (open && (repeatable || !approved) && !slotEnded) {
       const gen = agreement.method === 'lump' || agreement.method === 'milestone'
         ? '<div class="note">المحاولة ' + slotAttempt(id) + ' من 9</div>'
         : '';

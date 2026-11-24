@@ -14,11 +14,11 @@ function assertHashLanded(expected, actual) {
 // routeList, checkTokens, SKIP, seedLocal, resetLocal, and guard follow PLAN-r3 §5c.
 const GUARD_PAGE = String.raw`
 (() => {
-  const AMOUNT_IDS = ['cp-amount','cp-return','cp-refund','amt','fm-amount','cw-lump','cw-rate','cw-day','cw-mile','contract','sub-amount','am-amount'];
+  const AMOUNT_IDS = ['cp-amount','cp-return','cp-refund','amt','fm-amount','cw-lump','cw-rate','cw-day','cw-mile','contract','sub-amount','am-amount','cc-deduct'];
   const SEEDED_QTY = 12000;
   const NON_AMOUNT_IDS = { 'am-date':'date', 'statement-from':'date', 'cw-qty':'qty (M3)', 'cw-days':'days (M3)', 'cw-per':'unit qty', 'cw-unit':'unit name',
     'person-uid':'uid', 'person-name':'name', 'person-email':'email', 'person-active':'checkbox', 'party':'name', 'party-name':'name', 'sub-name':'name',
-    'fm-name':'name', 'fm-person-note':'note', 'fm-note':'note', 'am-note':'note', 'cw-reason':'reason', 'delete-name':'project name' };
+    'fm-name':'name', 'fm-person-note':'note', 'fm-note':'note', 'am-note':'note', 'cw-reason':'reason', 'cc-reason':'reason', 'cc-ded-reason':'reason', 'cc-sup-qty':'qty', 'delete-name':'project name' };
   const DATE = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/;
   const TIME = /^\d{2}:\d{2}:\d{2}$/;
   const ID_SHAPE = /^(?=.*[A-Za-z_-])[A-Za-z0-9_-]{1,64}$/;
@@ -112,7 +112,8 @@ const GUARD_PAGE = String.raw`
       { id: 'm2', purpose: 'laborQty', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', qty: SEEDED_QTY, txnDate: '2026-11-05', ledger: 'labor' },
       { id: 'pay1', purpose: 'payLabor', amount: 1250000, partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-02', ledger: 'labor' },
       { id: 'adv1', purpose: 'advanceLabor', amount: 1100000, partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-03', ledger: 'labor' },
-      { id: 'ret1', purpose: 'returnAdvance', amount: 30000, targetId: 'adv1', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-04', ledger: 'labor' }]);
+      { id: 'ret1', purpose: 'returnAdvance', amount: 30000, targetId: 'adv1', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-04', ledger: 'labor' },
+      { id: 'd1appr_m1', docType: 'accountTxn', kind: 'body', purpose: 'deduct', amount: 50000, cumAmount: 50000, targetId: 'appr_m1', partyId: 'p1', projectId: 'p-school', ledger: 'labor', currency: 'IQD', fxRate: 1, txnDate: '2026-11-06', description: 'دين' }]);
     const rej = { id: 'rej-del', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 1500000, currency: 'IQD', entryDate: '2026-11-03', description: 'سمنت مرفوض', partyName: '', isReversal: false, createdAtDevice: Date.UTC(2026, 10, 3), createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'phone' };
     await set(K.entries, get(K.entries, []).concat([rej]));
     await set(K.syncErrors, Object.assign({}, get(K.syncErrors, {}) || {}, { 'rej-del': SyncStatus.PROJECT_DELETED }));
@@ -533,6 +534,21 @@ async function crawlSeparatorGuard(guardPage, role, check) {
           if (hasAmount) {
             await fill('#cp-amount', '١٥٠٠٠٠٠');
             await scan(role + ' ' + phase + ' ' + hash + ' cp-amount typed');
+          }
+          if (phase === 'cost-open' && arg === 'ag-unit') {
+            await guardPage.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+            await ev(`(async () => { const rows = (get(K.accountTxns, []) || []).filter(row => !row || row.id !== 'd1appr_m1'); await set(K.accountTxns, rows); return true; })()`);
+            await nav(hash);
+            const shown = await fill('#cc-deduct', '١٥٠٠٠٠');
+            await fill('#cc-ded-reason', 'سبب');
+            const before = await ev(`(get(K.accountTxns, []) || []).length`);
+            await click('#act-deduct');
+            const saved = await ev(`(() => { const row = (get(K.accountTxns, []) || []).find(item => item && item.purpose === 'deduct' && item.amount === 150000); return row ? { id: row.id, cum: row.cumAmount, n: get(K.accountTxns, []).length } : null; })()`);
+            check('deduct Arabic digits show 150,000 and save one position', shown === '150,000' && !!saved && saved.id === 'd1appr_m1' && saved.cum === 150000 && saved.n === before + 1);
+            const mid = await ev(`(get(K.accountTxns, []) || []).length`);
+            const kept = await fill('#cc-deduct', '2,5');
+            const after = await ev(`(() => ({ n: (get(K.accountTxns, []) || []).length, value: (document.querySelector('#cc-deduct') || {}).value, rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth }))()`);
+            check('deduct 2,5 appends nothing and the card does not overflow', kept === '2,5' && !!after && after.n === mid && after.value === '2,5' && after.rtl === 'rtl' && after.width === 390 && after.hz === false);
           }
         }
       }

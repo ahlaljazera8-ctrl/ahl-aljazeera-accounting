@@ -1145,3 +1145,84 @@ test('E32 kept id does not arm the tail', async () => {
     mock.timers.reset();
   }
 });
+
+test('a deduct remote copy keeps cumAmount', () => {
+  const doc = txn({ id: 'd1appr_m1', purpose: 'deduct', amount: 50000, cumAmount: 50000, targetId: 'appr_m1' });
+  const remote = Sync.toRemote(doc);
+  assert.equal(remote.cumAmount, 50000);
+  assert.equal(remote.amount, 50000);
+  assert.equal(remote.targetId, 'appr_m1');
+});
+
+test('a lost deduct position is adopted and its queued descendants are parked', async () => {
+  const target = 'appr_m1';
+  const d1 = 'd1' + target;
+  const d2 = 'd2' + target;
+  const local = txn({ id: d1, purpose: 'deduct', amount: 40000, cumAmount: 40000, targetId: target });
+  const server = txn({ id: d1, purpose: 'deduct', amount: 50000, cumAmount: 50000, targetId: target, createdBy: 'owner-a' });
+  delete server.docType;
+  const appr = txn({ id: 'appr_' + d1, kind: 'appr', purpose: 'approveDeduct', targetId: d1, amount: undefined });
+  const rev = txn({ id: 'rev_' + d1, kind: 'rev', purpose: 'deduct', reversesId: d1, reversalReason: 'سبب', amount: 40000 });
+  const next = txn({ id: d2, purpose: 'deduct', amount: 10000, cumAmount: 50000, targetId: target });
+  const docs = [local, appr, rev, next];
+  const { result, calls } = await runFlush(docs, {
+    read: id => (id === d1 ? { status: 'found', doc: server } : { status: 'missing' }),
+  });
+  assert.deepEqual(calls.write, [d1]);
+  assert.equal(result.adopted.some(row => row.id === d1 && row.remote.amount === 50000), true);
+  for (const id of [appr.id, rev.id, next.id]) {
+    assert.equal(result.parked.includes(id), true, id);
+    assert.equal(result.slotLosers.some(row => row.doc.id === id), true, id);
+    assert.equal(calls.write.includes(id), false, id);
+  }
+  assert.equal(result.failed.length, 0);
+});
+
+test('other bodies are still refused when the server copy differs', async () => {
+  const cases = [
+    txn({ id: 'aaaaaaaa-bbbb-cccc-dddd-0000000000aa', purpose: 'payLabor', amount: 10 }),
+    txn({ id: 'aaaaaaaa-bbbb-cccc-dddd-0000000000ab', purpose: 'returnAdvance', amount: 10, targetId: 'adv1' }),
+    txn({ id: 'aaaaaaaa-bbbb-cccc-dddd-0000000000ac', purpose: 'laborQty', amount: 10 }),
+    txn({ id: 'aaaaaaaa-bbbb-cccc-dddd-0000000000ad', purpose: 'deduct', amount: 10, cumAmount: 10, targetId: 'appr_m1' }),
+  ];
+  for (const local of cases) {
+    const server = Object.assign({}, local, { amount: local.amount + 1, createdBy: 'owner-b' });
+    delete server.docType;
+    const { result } = await runFlush([local], { read: () => ({ status: 'found', doc: server }) });
+    assert.equal(result.adopted.length, 0, local.id);
+    assert.equal(result.failed.some(row => row.id === local.id), true, local.id);
+    assert.equal(result.slotLosers.some(row => row.doc.id === local.id), false, local.id);
+  }
+});
+
+test('a transient reversal queued before the next deduct holds that deduct back', async () => {
+  const target = 'appr_hold';
+  const d1 = 'd1' + target;
+  const rev = txn({ id: 'rev_' + d1, kind: 'rev', purpose: 'deduct', reversesId: d1, reversalReason: 'سبب', amount: 100 });
+  const next = txn({ id: 'd2' + target, purpose: 'deduct', amount: 50, cumAmount: 50, targetId: target });
+  const first = await runFlush([rev, next], {
+    ids: [rev.id, next.id],
+    write: async () => { throw codeErr('unavailable'); },
+  });
+  assert.deepEqual(first.calls.write, [rev.id]);
+  assert.equal(first.result.kept.includes(rev.id), true);
+  assert.equal(first.result.kept.includes(next.id), true);
+  const second = await runFlush([rev, next], { ids: [rev.id, next.id], write: async () => {} });
+  assert.deepEqual(second.calls.write, [rev.id, next.id]);
+  assert.equal(second.result.synced.includes(rev.id), true);
+  assert.equal(second.result.synced.includes(next.id), true);
+  assert.equal(second.result.kept.length, 0);
+});
+
+test('a reversal queued after the next deduct does not hold that deduct', async () => {
+  const target = 'appr_later';
+  const d1 = 'd1' + target;
+  const next = txn({ id: 'd2' + target, purpose: 'deduct', amount: 50, cumAmount: 150, targetId: target });
+  const rev = txn({ id: 'rev_' + d1, kind: 'rev', purpose: 'deduct', reversesId: d1, reversalReason: 'سبب', amount: 100 });
+  const { result, calls } = await runFlush([next, rev], { ids: [next.id, rev.id], write: async () => {} });
+  assert.deepEqual(calls.write, [next.id, rev.id]);
+  assert.equal(result.kept.length, 0);
+  assert.equal(result.failed.length, 0);
+  assert.equal(result.synced.includes(next.id), true);
+  assert.equal(result.synced.includes(rev.id), true);
+});

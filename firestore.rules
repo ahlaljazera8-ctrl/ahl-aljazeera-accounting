@@ -950,9 +950,28 @@ service cloud.firestore {
           && optDate(d())
           && optDesc(d());
       }
+      function dedGen(t) {
+        return id == 'd1' + t ? 1 : id == 'd2' + t ? 2 : id == 'd3' + t ? 3
+          : id == 'd4' + t ? 4 : id == 'd5' + t ? 5 : id == 'd6' + t ? 6
+          : id == 'd7' + t ? 7 : id == 'd8' + t ? 8 : id == 'd9' + t ? 9 : 0;
+      }
+      function dedId(t, g) { return 'd' + string(g) + t; }
+      function prevCumOk(prev, prevId) {
+        let gone = exists(/databases/$(database)/documents/accountTxns/$('rev_' + prevId))
+          || exists(/databases/$(database)/documents/accountTxns/$('rej_' + prevId));
+        return prev.data.purpose == 'deduct'
+          && prev.data.targetId == d().targetId
+          && prev.data.cumAmount is int
+          && d().cumAmount == prev.data.cumAmount - (gone ? prev.data.amount : 0) + d().amount;
+      }
+      function cumOk(g) {
+        return g == 1
+          ? d().cumAmount == d().amount
+          : prevCumOk(get(/databases/$(database)/documents/accountTxns/$(dedId(d().targetId, g - 1))), dedId(d().targetId, g - 1));
+      }
       /**
        * @returns {boolean}
-       * Reads: 5. user, project, party, get of the approveLabor, exists of rev_ of that approval.
+       * Reads: 5, plus up to 3 when g > 1 (get of g-1, exists of its rev_, exists of its rej_). 8 <= 10.
        */
       function deductCreate() {
         let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
@@ -964,18 +983,22 @@ service cloud.firestore {
           && headerOk(d(), user)
           && projectActive(project)
           && party.data.name is string
-          && uuidOk(id)
+          && idOk(id)
+          && dedGen(d().targetId) >= 1
           && d().id == id
           && d().kind == 'body'
           && d().purpose == 'deduct'
           && d().ledger == 'labor'
           && purposeOk(d().purpose, d().ledger)
-          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && d().keys().hasOnly(['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'cumAmount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
           && moneyOk(d())
           && live
           && approval.data.purpose == 'approveLabor'
           && approval.data.kind == 'appr'
           && d().amount <= approval.data.amount
+          && d().cumAmount is int
+          && d().cumAmount <= approval.data.amount
+          && cumOk(dedGen(d().targetId))
           && d().partyId == approval.data.partyId
           && d().projectId == approval.data.projectId
           && d().currency == approval.data.currency

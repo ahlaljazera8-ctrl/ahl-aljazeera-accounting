@@ -236,10 +236,13 @@ function settle(measurementId, advanceId, gen, amount, over) {
     ledger: 'labor', currency: 'IQD', fxRate: 1, amount, targetId: measurementId, settlesId: advanceId,
   }, over);
 }
+function dedSlot(approvalId, g) {
+  return 'd' + String(g) + approvalId;
+}
 function deductOf(id, approvalId, amount, over) {
   return Object.assign({
     id, kind: 'body', purpose: 'deduct', projectId: P1, partyId: PARTY, ledger: 'labor',
-    currency: 'IQD', fxRate: 1, amount, targetId: approvalId,
+    currency: 'IQD', fxRate: 1, amount, cumAmount: amount, targetId: approvalId,
   }, over);
 }
 function approveDeductOf(body) {
@@ -528,10 +531,10 @@ testSeq('project: deductCreate denies a missing project', async () => {
   await allow(send(OWNER_A, 'accountTxns', body.id, body));
   const mark = approval(body.id, agreement, 600000, 8000, { projectId: ISO });
   await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
-  const first = deductOf(uuid(21), mark.id, 10, { projectId: ISO });
+  const first = deductOf(dedSlot(mark.id, 1), mark.id, 10, { projectId: ISO });
   await allow(send(OWNER_A, 'accountTxns', first.id, first));
   await dropIso();
-  const second = deductOf(uuid(22), mark.id, 10, { projectId: ISO });
+  const second = deductOf(dedSlot(mark.id, 2), mark.id, 10, { projectId: ISO, cumAmount: 20 });
   await deny(send(OWNER_A, 'accountTxns', second.id, second));
 });
 
@@ -544,8 +547,8 @@ testSeq('project: approveDeductCreate denies a missing project', async () => {
   await allow(send(OWNER_A, 'accountTxns', body.id, body));
   const mark = approval(body.id, agreement, 600000, 8000, { projectId: ISO });
   await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
-  const firstBody = deductOf(uuid(21), mark.id, 100, { projectId: ISO });
-  const secondBody = deductOf(uuid(22), mark.id, 100, { projectId: ISO });
+  const firstBody = deductOf(dedSlot(mark.id, 1), mark.id, 100, { projectId: ISO });
+  const secondBody = deductOf(dedSlot(mark.id, 2), mark.id, 100, { projectId: ISO, cumAmount: 200 });
   await allow(send(OWNER_A, 'accountTxns', firstBody.id, firstBody));
   await allow(send(OWNER_A, 'accountTxns', secondBody.id, secondBody));
   const first = approveDeductOf(firstBody);
@@ -1026,7 +1029,7 @@ testSeq('sup: a sup_ whose purpose, ledger, partyId, projectId, agreementId, cur
   await deny(send(OWNER_A, 'accountTxns', id, supOf(body, { currency: 'USD' })));
   await deny(send(OWNER_A, 'accountTxns', id, supOf(body, { fxRate: 2 })));
   const { mark } = await putApprovedUnit(uuid(3), uuid(13), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 100);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 100);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   await deny(send(OWNER_A, 'accountTxns', 'sup_' + deduct.id, supOf(deduct, { agreementId: uuid(3) })));
 });
@@ -1284,7 +1287,7 @@ testSeq('s7.9 sup_ of payLabor fails; sup_ of advanceLabor fails', async () => {
 testSeq('s7.9 a deduct body with no appr_ succeeds', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 1000);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 1000);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   assert.equal((await getDoc(doc(db(OWNER_A), 'accountTxns', 'appr_' + deduct.id))).exists(), false);
 });
@@ -1292,7 +1295,7 @@ testSeq('s7.9 a deduct body with no appr_ succeeds', async () => {
 testSeq('s7.9 an appr_ of that deduct whose purpose is approveLabor fails', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 1000);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 1000);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const wrong = approval(deduct.id, uuid(1), 1000, null, { purpose: 'approveLabor' });
   await deny(send(OWNER_A, 'accountTxns', wrong.id, wrong));
@@ -1301,7 +1304,7 @@ testSeq('s7.9 an appr_ of that deduct whose purpose is approveLabor fails', asyn
 testSeq('s7.9 approveDeduct with no amount succeeds; a second one fails', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 1000);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 1000);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const mark2 = approveDeductOf(deduct);
   await allow(send(OWNER_A, 'accountTxns', mark2.id, mark2));
@@ -1310,42 +1313,41 @@ testSeq('s7.9 approveDeduct with no amount succeeds; a second one fails', async 
   await deny(send(OWNER_A, 'accountTxns', mark2.id, mark2));
 });
 
-testSeq('s7.9 approveDeduct denies when rej_ of the deduct exists, and when sup_ of the deduct exists', async () => {
+testSeq('s7.9 approveDeduct denies when rej_ of the deduct exists, and a sup_ of a deduct position is denied', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const rejected = deductOf(uuid(21), mark.id, 100);
+  const rejected = deductOf(dedSlot(mark.id, 1), mark.id, 100);
   await allow(send(OWNER_A, 'accountTxns', rejected.id, rejected));
   await allow(send(OWNER_A, 'accountTxns', 'rej_' + rejected.id, rejOf(rejected.id)));
   await deny(send(OWNER_A, 'accountTxns', 'appr_' + rejected.id, approveDeductOf(rejected)));
-  const replaced = deductOf(uuid(22), mark.id, 100);
+  const replaced = deductOf(dedSlot(mark.id, 2), mark.id, 100, { cumAmount: 100 });
   await allow(send(OWNER_A, 'accountTxns', replaced.id, replaced));
-  await allow(send(OWNER_A, 'accountTxns', 'sup_' + replaced.id, supOf(replaced, { amount: 80 })));
-  await deny(send(OWNER_A, 'accountTxns', 'appr_' + replaced.id, approveDeductOf(replaced)));
+  await deny(send(OWNER_A, 'accountTxns', 'sup_' + replaced.id, supOf(replaced, { amount: 80 })));
 });
 
 testSeq('s7.10 a labor deduct whose target is not a live approveLabor fails', async () => {
   await seed();
   const { body, mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  await deny(send(OWNER_A, 'accountTxns', uuid(21), deductOf(uuid(21), uuid(99), 10)));
-  await deny(send(OWNER_A, 'accountTxns', uuid(22), deductOf(uuid(22), body.id, 10)));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(uuid(99), 1), deductOf(dedSlot(uuid(99), 1), uuid(99), 10)));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(body.id, 1), deductOf(dedSlot(body.id, 1), body.id, 10)));
   const rev = txnRev(mark);
   await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
-  await deny(send(OWNER_A, 'accountTxns', uuid(23), deductOf(uuid(23), mark.id, 10)));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 1), deductOf(dedSlot(mark.id, 1), mark.id, 10)));
 });
 
 testSeq('s7.10 a labor deduct larger than that approval fails', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  await deny(send(OWNER_A, 'accountTxns', uuid(21), deductOf(uuid(21), mark.id, 600001)));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 1), deductOf(dedSlot(mark.id, 1), mark.id, 600001)));
 });
 
 testSeq('s7.10 a deduct whose partyId, projectId, or currency differs from the approval fails', async () => {
   await seed();
   await allow(send(OWNER_A, 'parties', 'party-2', { id: 'party-2', name: 'Other' }));
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  await deny(send(OWNER_A, 'accountTxns', uuid(21), deductOf(uuid(21), mark.id, 10, { partyId: 'party-2' })));
-  await deny(send(OWNER_A, 'accountTxns', uuid(22), deductOf(uuid(22), mark.id, 10, { projectId: 'p2' })));
-  await deny(send(OWNER_A, 'accountTxns', uuid(23), deductOf(uuid(23), mark.id, 10, { currency: 'USD' })));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 1), deductOf(dedSlot(mark.id, 1), mark.id, 10, { partyId: 'party-2' })));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 2), deductOf(dedSlot(mark.id, 2), mark.id, 10, { projectId: 'p2', cumAmount: 20 })));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 3), deductOf(dedSlot(mark.id, 3), mark.id, 10, { currency: 'USD', cumAmount: 30 })));
 });
 
 testSeq('s7.11 returnAdvance against a live advanceLabor succeeds', async () => {
@@ -1397,12 +1399,12 @@ testSeq('s7.11 refundLabor denies when rev_ of the named payLabor exists', async
   await deny(send(OWNER_A, 'accountTxns', uuid(2), cash(uuid(2), 'refundLabor', 10, { targetId: pay.id })));
 });
 
-testSeq('s7.12 one deduct above the approval fails; a second deduct that itself fits the approval succeeds', async () => {
+testSeq('s7.12 one deduct above the approval fails; a second 600,000 deduct is denied by the cumulative cap', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  await deny(send(OWNER_A, 'accountTxns', uuid(21), deductOf(uuid(21), mark.id, 600001)));
-  await allow(send(OWNER_A, 'accountTxns', uuid(22), deductOf(uuid(22), mark.id, 600000)));
-  await allow(send(OWNER_A, 'accountTxns', uuid(23), deductOf(uuid(23), mark.id, 600000)));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 1), deductOf(dedSlot(mark.id, 1), mark.id, 600001)));
+  await allow(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 1), deductOf(dedSlot(mark.id, 1), mark.id, 600000)));
+  await deny(send(OWNER_A, 'accountTxns', dedSlot(mark.id, 2), deductOf(dedSlot(mark.id, 2), mark.id, 600000, { cumAmount: 1200000 })));
 });
 
 testSeq('s7.13 payLabor succeeds while no revw_ exists', async () => {
@@ -1452,7 +1454,7 @@ testSeq('s7.13 revw_ of refundLabor, advanceLabor, and returnAdvance succeed; re
     await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
   }
   const { mark } = await putApprovedUnit(uuid(5), uuid(15), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 10);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 10);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const bad = revwOf(Object.assign({}, deduct, { purpose: 'deduct', fxRate: 1, currency: 'IQD' }));
   await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
@@ -1638,12 +1640,12 @@ testSeq('batch: rej_ then appr_ of one laborQty in one writeBatch is denied; nei
 testSeq('batch: approveDeduct and rej_ of one deduct in one writeBatch is denied in both orders; neither document exists after', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const first = deductOf(uuid(21), mark.id, 100);
+  const first = deductOf(dedSlot(mark.id, 1), mark.id, 100);
   await allow(send(OWNER_A, 'accountTxns', first.id, first));
   const appr = approveDeductOf(first);
   const rej = rejOf(first.id);
   assertBatchDenied(await commitBatch(OWNER_A, [[appr.id, appr], [rej.id, rej]]), [appr.id, rej.id]);
-  const second = deductOf(uuid(22), mark.id, 100);
+  const second = deductOf(dedSlot(mark.id, 2), mark.id, 100, { cumAmount: 200 });
   await allow(send(OWNER_A, 'accountTxns', second.id, second));
   const appr2 = approveDeductOf(second);
   const rej2 = rejOf(second.id);
@@ -1662,12 +1664,12 @@ testSeq('batch: appr_ and sup_ of one body in one writeBatch is denied in both o
   assertBatchDenied(await commitBatch(OWNER_A, [[laborSup2.id, laborSup2], [laborAppr2.id, laborAppr2]]), [laborAppr2.id, laborSup2.id]);
 
   const { mark } = await putApprovedUnit(uuid(3), uuid(13), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 100);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 100);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const deductAppr = approveDeductOf(deduct);
   const deductSup = supOf(deduct, { amount: 80 });
   assertBatchDenied(await commitBatch(OWNER_A, [[deductAppr.id, deductAppr], [deductSup.id, deductSup]]), [deductAppr.id, deductSup.id]);
-  const deduct2 = deductOf(uuid(22), mark.id, 100);
+  const deduct2 = deductOf(dedSlot(mark.id, 2), mark.id, 100, { cumAmount: 200 });
   await allow(send(OWNER_A, 'accountTxns', deduct2.id, deduct2));
   const deductAppr2 = approveDeductOf(deduct2);
   const deductSup2 = supOf(deduct2, { amount: 80 });
@@ -1683,7 +1685,7 @@ testSeq('single approveLabor, approveDeduct, rej_, and sup_ are still allowed', 
   await allow(send(OWNER_A, 'accountTxns', 'rej_' + open.id, rejOf(open.id)));
   const replaced = await putUnit(uuid(3), uuid(13), 8);
   await allow(send(OWNER_A, 'accountTxns', 'sup_' + replaced.id, supOf(replaced, { qty: 4 })));
-  const deduct = deductOf(uuid(21), mark.id, 100);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 100);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const deductAppr = approveDeductOf(deduct);
   await allow(send(OWNER_A, 'accountTxns', deductAppr.id, deductAppr));
@@ -1705,14 +1707,14 @@ testSeq('a deduct whose targetId is a rev_ of an approveLabor is denied', async 
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
   const rev = txnRev(mark);
   await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
-  const bad = deductOf(uuid(21), rev.id, 10);
+  const bad = deductOf(dedSlot(rev.id, 1), rev.id, 10);
   await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
 });
 
 testSeq('an approveDeduct whose target is a rev_ of a deduct is denied', async () => {
   await seed();
   const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
-  const deduct = deductOf(uuid(21), mark.id, 100);
+  const deduct = deductOf(dedSlot(mark.id, 1), mark.id, 100);
   await allow(send(OWNER_A, 'accountTxns', deduct.id, deduct));
   const rev = txnRev(deduct);
   await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
@@ -1968,4 +1970,152 @@ testSeq("source: slotBodyCreate, laborQtyCreate, and approveLaborCreate each con
     assert.equal(body.includes('agreements'), true, name);
     assert.match(body, /'rev_' \+/);
   }
+});
+
+testSeq('R0 dedId string(g) allows d1 then d2', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 100);
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 100, { cumAmount: 200 });
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  await allow(send(OWNER_A, 'accountTxns', d2.id, d2));
+});
+
+testSeq('R1 d1 at exactly the approval is allowed', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 600000);
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+});
+
+testSeq('R2 d1 400,000 then d2 200,000 at the limit is allowed', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 400000);
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 200000, { cumAmount: 600000 });
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  await allow(send(OWNER_A, 'accountTxns', d2.id, d2));
+});
+
+testSeq('R3 d2 over the approval cap is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 400000);
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 200001, { cumAmount: 600001 });
+  await deny(send(OWNER_A, 'accountTxns', d2.id, d2));
+});
+
+testSeq('R4 a forged cumAmount is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 400000);
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  const low = deductOf(dedSlot(mark.id, 2), mark.id, 200000, { cumAmount: 200000 });
+  const below = deductOf(dedSlot(mark.id, 2), mark.id, 200000, { cumAmount: 599999 });
+  const above = deductOf(dedSlot(mark.id, 2), mark.id, 200000, { cumAmount: 600001 });
+  const fraction = deductOf(dedSlot(mark.id, 2), mark.id, 200000, { cumAmount: 600000.5 });
+  const missing = deductOf(dedSlot(mark.id, 2), mark.id, 200000);
+  delete missing.cumAmount;
+  await deny(send(OWNER_A, 'accountTxns', low.id, low));
+  await deny(send(OWNER_A, 'accountTxns', below.id, below));
+  await deny(send(OWNER_A, 'accountTxns', above.id, above));
+  await deny(send(OWNER_A, 'accountTxns', fraction.id, fraction));
+  await deny(send(OWNER_A, 'accountTxns', missing.id, missing));
+});
+
+testSeq('R5 a gap, a d10 id, a d0 id, a uuid id, and another approval id are denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const { mark: other } = await putApprovedUnit(uuid(2), uuid(12), 8000, 600000);
+  const gap = deductOf(dedSlot(mark.id, 2), mark.id, 10, { cumAmount: 10 });
+  const d10 = deductOf('d10' + mark.id, mark.id, 10);
+  const d0 = deductOf('d0' + mark.id, mark.id, 10);
+  const plain = deductOf(uuid(21), mark.id, 10);
+  const crossed = deductOf(dedSlot(other.id, 1), mark.id, 10);
+  await deny(send(OWNER_A, 'accountTxns', gap.id, gap));
+  await deny(send(OWNER_A, 'accountTxns', d10.id, d10));
+  await deny(send(OWNER_A, 'accountTxns', d0.id, d0));
+  await deny(send(OWNER_A, 'accountTxns', plain.id, plain));
+  await deny(send(OWNER_A, 'accountTxns', crossed.id, crossed));
+});
+
+testSeq('R6 two owners cannot both create the same d1', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const first = deductOf(dedSlot(mark.id, 1), mark.id, 100);
+  const second = deductOf(dedSlot(mark.id, 1), mark.id, 200);
+  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await deny(send(OWNER_B, 'accountTxns', second.id, second));
+});
+
+testSeq('R7 rev_ of d1 releases the cap for d2; without it d2 is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 500000);
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  const early = deductOf(dedSlot(mark.id, 2), mark.id, 500000, { cumAmount: 500000 });
+  await deny(send(OWNER_A, 'accountTxns', early.id, early));
+  const rev = txnRev(d1);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 500000, { cumAmount: 500000 });
+  await allow(send(OWNER_A, 'accountTxns', d2.id, d2));
+});
+
+testSeq('R8 rej_ of a pending d1 releases the cap for d2', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 500000);
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  const rej = rejOf(d1.id);
+  await allow(send(OWNER_A, 'accountTxns', rej.id, rej));
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 500000, { cumAmount: 500000 });
+  await allow(send(OWNER_A, 'accountTxns', d2.id, d2));
+});
+
+testSeq('R9 two 600,000 deducts on one approval are denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 600000);
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 600000, { cumAmount: 1200000 });
+  await deny(send(OWNER_A, 'accountTxns', d2.id, d2));
+});
+
+testSeq('R10 a deduct after the approval is reversed is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const rev = txnRev(mark);
+  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 10);
+  await deny(send(OWNER_A, 'accountTxns', d1.id, d1));
+});
+
+testSeq('R11 an older reversed deduct stays inside the cap', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 300000);
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 300000, { cumAmount: 600000 });
+  await allow(send(OWNER_A, 'accountTxns', d1.id, d1));
+  await allow(send(OWNER_A, 'accountTxns', d2.id, d2));
+  await allow(send(OWNER_A, 'accountTxns', txnRev(d1).id, txnRev(d1)));
+  await allow(send(OWNER_A, 'accountTxns', txnRev(d2).id, txnRev(d2)));
+  const low = deductOf(dedSlot(mark.id, 3), mark.id, 300000, { cumAmount: 300000 });
+  const fit = deductOf(dedSlot(mark.id, 3), mark.id, 300000, { cumAmount: 600000 });
+  const over = deductOf(dedSlot(mark.id, 3), mark.id, 300001, { cumAmount: 600001 });
+  await deny(send(OWNER_A, 'accountTxns', low.id, low));
+  await deny(send(OWNER_A, 'accountTxns', over.id, over));
+  await allow(send(OWNER_A, 'accountTxns', fit.id, fit));
+});
+
+testSeq('R12 a batch of two positions, and a position with its approval, is denied', async () => {
+  await seed();
+  const { mark } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
+  const d1 = deductOf(dedSlot(mark.id, 1), mark.id, 100);
+  const d2 = deductOf(dedSlot(mark.id, 2), mark.id, 100, { cumAmount: 200 });
+  assertBatchDenied(await commitBatch(OWNER_A, [[d1.id, d1], [d2.id, d2]]), [d1.id, d2.id]);
+  const { mark: other } = await putApprovedUnit(uuid(2), uuid(12), 8000, 600000);
+  const body = deductOf(dedSlot(other.id, 1), other.id, 100);
+  const appr = approveDeductOf(body);
+  assertBatchDenied(await commitBatch(OWNER_A, [[body.id, body], [appr.id, appr]]), [body.id, appr.id]);
 });
