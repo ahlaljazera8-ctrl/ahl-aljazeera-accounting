@@ -14,7 +14,7 @@ Open the measurement on «مقاول» and save «اعتماد قياس العم
 
 `node scripts/verify-aj.js drive approve-labor`
 
-Sign in, set the exported `Accounts.CONTRACTOR_COST_START` to a `YYYY-MM-DD` fixture on or before `today()`, open «مقاول», save the brick agreement, save the measurement, approve it, then restore null. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. That `appr_` has a `YYYY-MM-DD` `txnDate`. The person page shows `عمل معتمد` 600,000. After the export is null, home `إجمالي المصروف` is unchanged. The agreement form says `بسعر الوحدة`.
+Sign in, set the exported `Accounts.CONTRACTOR_COST_START` to a `YYYY-MM-DD` fixture on or before `today()`, open «مقاول», save the brick agreement, save the measurement, approve it, then restore null. Firestore has one `agreements` row, one `laborQty`, and one `appr_`. That `appr_` has a `YYYY-MM-DD` `txnDate`. The person page shows `عمل معتمد` 600,000. After the export is null, home `إجمالي المصروف` is unchanged. The agreement form says `حسب الإنجاز (الكمية × سعر الوحدة)`.
 
 ## Gotchas
 

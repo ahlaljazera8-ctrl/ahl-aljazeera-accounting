@@ -181,8 +181,8 @@ async function saveAgreement(run, tools, session, dir, party) {
   );
   await tools.waitUntil(session, `!!document.querySelector('#cw-rate')`, 10000);
   const form = await tools.evaluate(session, `(document.querySelector('#main') || {}).innerText || ''`);
-  if (typeof form !== 'string' || !form.includes('بسعر الوحدة'))
-    tools.fail('STOP: agreement form did not say بسعر الوحدة');
+  if (typeof form !== 'string' || !form.includes('حسب الإنجاز (الكمية × سعر الوحدة)'))
+    tools.fail('STOP: agreement form did not say حسب الإنجاز (الكمية × سعر الوحدة)');
   await tools.shoot(session, path.join(dir, 'form.png'));
   const before = new Set((await readRows(run, tools, 'agreements')).map(row => row.id));
   await clickOk(
@@ -349,7 +349,7 @@ async function saveSplit(run, tools, session, dir, before) {
   await typeKeys(session, tools, '#cp-amount', '700000');
   await tools.waitUntil(
     session,
-    `(() => { const input = document.querySelector('#cp-amount'); const preview = document.querySelector('#cp-preview'); const text = preview ? preview.innerText || '' : ''; return !!input && input.value === '700,000' && document.activeElement === input && text.includes('عن عمل معتمد') && text.includes('سلفة') && text.includes(${JSON.stringify(PAY_TEXT)}) && text.includes(${JSON.stringify(ADVANCE_TEXT)}); })()`,
+    `(() => { const input = document.querySelector('#cp-amount'); const preview = document.querySelector('#cp-preview'); const text = preview ? preview.innerText || '' : ''; return !!input && input.value === '700,000' && document.activeElement === input && text.includes('عن عمل معتمد') && text.includes('سلفة') && text.includes(${JSON.stringify(PAY_TEXT)}) && text.includes(${JSON.stringify(ADVANCE_TEXT)}) && text.includes('سلفة، ليست مصروفاً.') && !text.includes('السلفة ليست مصروفاً'); })()`,
     10000,
   );
   const mid = (await readRows(run, tools, 'accountTxns')).filter(
@@ -414,6 +414,37 @@ async function drive(featureId, run, tools) {
         `(() => { const pill = document.querySelector(${JSON.stringify('button[data-ctarget="' + split.advance.id + '"]')}); if (!pill) return false; pill.click(); return true; })()`,
         'advance pill is missing',
       );
+      const advanceAmount = split.advance && split.advance.amount;
+      const overAmount = typeof advanceAmount === 'number' ? advanceAmount + 1 : NaN;
+      if (!Number.isSafeInteger(overAmount)) tools.fail('STOP: advance amount is not a number');
+      const overText = String(overAmount);
+      const overShown = overText.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      await typeKeys(session, tools, '#cp-return', overText);
+      await tools.waitUntil(
+        session,
+        `(() => { const input = document.querySelector('#cp-return'); return !!input && input.value === ${JSON.stringify(overShown)} && document.activeElement === input; })()`,
+        10000,
+      );
+      await clickOk(
+        session,
+        tools,
+        `(() => { const save = document.querySelector('#act-return-advance'); if (!save || save.disabled) return false; save.click(); return true; })()`,
+        'return over-advance save is missing',
+      );
+      await tools.waitUntil(
+        session,
+        `(document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes('المُرجَع والتسوية أكبر من السلفة')`,
+        10000,
+      );
+      const overRows = (await readRows(run, tools, 'accountTxns')).filter(
+        row => !known.has(row.id) && row.purpose === 'returnAdvance',
+      );
+      if (overRows.length !== 0) tools.fail('STOP: over-advance return was written');
+      const cleared = await tools.evaluate(
+        session,
+        `(() => { const input = document.querySelector('#cp-return'); if (!input) return false; input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); return input.value === ''; })()`,
+      );
+      if (cleared !== true) tools.fail('STOP: return field did not clear');
       await typeKeys(session, tools, '#cp-return', '30000');
       await tools.waitUntil(
         session,

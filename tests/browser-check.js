@@ -536,6 +536,32 @@ async function crawlSeparatorGuard(guardPage, role, check) {
             await scan(role + ' ' + phase + ' ' + hash + ' cp-amount typed');
           }
           if (phase === 'cost-open' && arg === 'ag-unit') {
+            await nav(hash);
+            const hasPay = await ev(`!!document.querySelector('#cp-amount')`);
+            check('cost-open ag-unit requires #cp-amount', hasPay === true);
+            await fill('#cp-amount', '١٥٠٠٠٠٠');
+            const preview = await ev(`(document.querySelector('#cp-preview') || {}).innerText || ''`);
+            const commaNote = 'سلفة، ليست مصروفاً.';
+            const plainNote = 'السلفة ليست مصروفاً';
+            const commaCount = typeof preview === 'string' ? preview.split(commaNote).length - 1 : 0;
+            check(
+              'advance preview keeps the comma note once',
+              hasPay === true && commaCount === 1 && typeof preview === 'string' && !preview.includes(plainNote),
+            );
+            const unitLabel = 'حسب الإنجاز (الكمية × سعر الوحدة)';
+            const oldUnit = 'بسعر الوحدة';
+            const contractorText = await ev(`(document.querySelector('#main') || {}).innerText || ''`);
+            check(
+              'مقاول unit agreement shows the progress label',
+              typeof contractorText === 'string' && contractorText.includes(unitLabel) && !contractorText.includes(oldUnit),
+            );
+            await nav('#account/p1');
+            await click('[data-acctab="agreements"]');
+            const accountText = await ev(`(document.querySelector('#main') || {}).innerText || ''`);
+            check(
+              'حسابات agreements tab shows the progress label',
+              typeof accountText === 'string' && accountText.includes(unitLabel) && !accountText.includes(oldUnit),
+            );
             await guardPage.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
             await ev(`(async () => { const rows = (get(K.accountTxns, []) || []).filter(row => !row || row.id !== 'd1appr_m1'); await set(K.accountTxns, rows); return true; })()`);
             await nav(hash);

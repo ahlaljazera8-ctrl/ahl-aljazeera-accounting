@@ -168,10 +168,10 @@ async function saveAgreement(run, tools, session, dir) {
   );
   await tools.waitUntil(session, `!!document.querySelector('#cw-rate')`, 10000);
   const form = await tools.evaluate(session, `(document.querySelector('#main') || {}).innerText || ''`);
-  if (typeof form !== 'string' || !form.includes('بسعر الوحدة'))
-    tools.fail('STOP: agreement form did not say بسعر الوحدة');
-  if (typeof form === 'string' && form.includes('حسب الإنجاز (الكمية × سعر الوحدة)')) {
-    tools.fail('STOP: the waiting unit label was painted');
+  if (typeof form !== 'string' || !form.includes('حسب الإنجاز (الكمية × سعر الوحدة)'))
+    tools.fail('STOP: agreement form did not say حسب الإنجاز (الكمية × سعر الوحدة)');
+  if (typeof form === 'string' && form.includes('بسعر الوحدة')) {
+    tools.fail('STOP: the old unit label was painted');
   }
   await tools.shoot(session, path.join(dir, 'form.png'));
   await clickOk(

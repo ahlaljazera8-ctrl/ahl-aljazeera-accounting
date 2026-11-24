@@ -356,7 +356,8 @@ test('a payment above approved work previews the split before it is saved', () =
     assert.equal(shown.includes('600,000'), true);
     assert.equal(shown.includes('100,000'), true);
     assert.equal(shown.includes('سلفة، ليست مصروفاً.'), true);
-    assert.equal(shown.includes('السلفة ليست مصروفاً'), true);
+    assert.equal(shown.split('سلفة، ليست مصروفاً.').length, 2);
+    assert.equal(shown.includes('السلفة ليست مصروفاً'), false);
     assert.equal(html.includes('الرصيد:'), false);
     assert.equal(html.includes('(سلفة)'), false);
     assert.equal(html.includes('المتبقي سلفة'), false);
@@ -594,7 +595,7 @@ test('a missing, unknown, or wrong-purpose target appends nothing', () => {
   });
 });
 
-test('returnAdvance stays inside the advance and does not paint Q19', () => {
+test('returnAdvance stays inside the advance and paints Q19 when it is over', () => {
   reset();
   withStart('2026-11-22', () => {
     seedApproval(600000);
@@ -607,6 +608,8 @@ test('returnAdvance stays inside the advance and does not paint Q19', () => {
     const row = rowsOf('returnAdvance')[0];
     assert.equal(row.amount, 30000);
     assert.deepEqual(row.effect, { cost: 0, person: 1, cash: -1 });
+    const saved = view.views.contractor(AG);
+    assert.equal(saved.includes(Q19), false);
     const over = Pay.cashDoc('returnAdvance', header({ id: 'r-over', amount: 100001, targetId: ADV_ID }));
     assert.equal(over.doc, null);
     assert.equal(over.errors.includes('cap'), true);
@@ -618,7 +621,19 @@ test('returnAdvance stays inside the advance and does not paint Q19', () => {
     click('act-return-advance');
     const html = view.views.contractor(AG);
     assert.equal(store.accountTxns.length, before);
-    assert.equal(html.includes(Q19), false);
+    assert.equal(html.includes(Q19), true);
+    const cumulative = Pay.cashDoc('returnAdvance', header({ id: 'r-cum', amount: 70001, targetId: ADV_ID }));
+    assert.equal(cumulative.doc, null);
+    assert.equal(cumulative.errors.includes('cumulative'), true);
+    view.views.contractor('');
+    view.views.contractor(AG);
+    click('', { ctarget: ADV_ID, cpurpose: 'returnAdvance' });
+    setFields({ 'cp-return': '70001' });
+    const beforeCumulative = store.accountTxns.length;
+    click('act-return-advance');
+    const cumulativeHtml = view.views.contractor(AG);
+    assert.equal(store.accountTxns.length, beforeCumulative);
+    assert.equal(cumulativeHtml.includes(Q19), true);
   });
 });
 

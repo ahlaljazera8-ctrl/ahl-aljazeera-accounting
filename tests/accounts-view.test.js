@@ -12,6 +12,7 @@ g.Accounts = Accounts;
 g.DomSafe = DomSafe;
 g.Sync = Sync;
 const UI = require('../public/accounts-view.js');
+const AccountWork = require('../public/accounts-work.js');
 
 const store = {
   parties: [],
@@ -331,6 +332,26 @@ test('a real rej_ still shows مرفوض', () => {
   model.screen.filter = 'all';
   const card = movementCard(UI.accountHtml(model, 'p1'), 'approveLabor');
   assert.equal(card.includes('مرفوض'), true);
+});
+
+test('a unit agreement on حسابات shows the progress label', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.agreements = [{
+    id: 'ag-unit',
+    partyId: 'p1',
+    projectId: 'job',
+    method: 'unit',
+    description: 'كاشي',
+    currency: 'IQD',
+  }];
+  const model = ownerModel();
+  model.screen.tab = 'agreements';
+  const html = UI.accountHtml(model, 'p1');
+  const label = 'حسب الإنجاز (الكمية × سعر الوحدة)';
+  assert.equal(html.includes(label), true);
+  assert.equal(html.includes('بسعر الوحدة'), false);
+  assert.equal(label, AccountWork.pendingAmeer.unitByProgress);
+  assert.equal(html.includes(AccountWork.pendingAmeer.unitByProgress), true);
 });
 
 test('install runs when ForemenUI is missing', () => {

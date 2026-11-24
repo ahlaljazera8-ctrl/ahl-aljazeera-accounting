@@ -26,7 +26,7 @@
   /**
    * بانتظار أمير. Not treated as approved.
    * A later wording swap edits this object only.
-   * unitByProgress is not painted. The unit method label stays بسعر الوحدة.
+   * unitByProgress is now the unit method label (EA-relayed).
    * newContract is shown only on the date-gated #subnew path.
    */
   const pendingAmeer = {
@@ -52,7 +52,7 @@
   /** @type {Record<PayMethod, string>} */
   const METHOD_LABEL = {
     lump: 'مبلغ مقطوع',
-    unit: 'بسعر الوحدة',
+    unit: pendingAmeer.unitByProgress,
     daily: 'باليوم',
     milestone: 'مرحلة',
   };

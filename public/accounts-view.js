@@ -385,7 +385,7 @@
    * @param {string} partyId
    */
   function agreementsHtml(model, partyId) {
-    const methodName = { lump: 'مبلغ مقطوع', unit: 'بسعر الوحدة', daily: 'باليوم', milestone: 'مرحلة' };
+    const methodName = { lump: 'مبلغ مقطوع', unit: 'حسب الإنجاز (الكمية × سعر الوحدة)', daily: 'باليوم', milestone: 'مرحلة' };
     const cards = model.agreements.filter(row => row && row.partyId === partyId && !String(row.id).startsWith('rev_'));
     if (!cards.length) return '<div class="card"><div class="note">لا توجد عقود.</div></div>';
     return cards

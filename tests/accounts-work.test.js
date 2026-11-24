@@ -759,10 +759,20 @@ test('a start date on or before today hides the old create form and opens مقا
     assert.equal(tabs.children.length, 1);
     assert.equal(tabs.children[0].dataset.tab, 'contractor');
     const screen = view.views.contractor('new');
-    assert.equal(screen.includes('بسعر الوحدة'), true);
-    assert.equal(screen.includes(Work.pendingAmeer.unitByProgress), false);
+    assert.equal(screen.includes('بسعر الوحدة'), false);
+    assert.equal(screen.includes(Work.pendingAmeer.unitByProgress), true);
   });
   assert.equal(Accounts.CONTRACTOR_COST_START, null);
+});
+
+test('a unit agreement detail shows the progress label', () => {
+  reset();
+  withStart('2026-11-01', () => {
+    store.agreements = [brick()];
+    const html = install().views.contractor(brick().id);
+    assert.equal(html.includes(Work.pendingAmeer.unitByProgress), true);
+    assert.equal(html.includes('بسعر الوحدة'), false);
+  });
 });
 
 test('a start date after today hides the old form and leaves مقاول closed', () => {
