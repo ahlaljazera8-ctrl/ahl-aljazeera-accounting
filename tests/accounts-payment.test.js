@@ -1656,6 +1656,7 @@ test('amount field ids are exactly the grouped set', () => {
     'contract',
     'sub-amount',
     'am-amount',
+    'cc-deduct',
   ]);
 });
 

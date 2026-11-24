@@ -946,6 +946,21 @@ interface AccountPaymentApi {
   readonly amountFieldIds: readonly string[];
 }
 
+interface AccountCorrectApi {
+  install(api: RenderApi): void;
+  deductDoc(input: object): { doc: object | null; errors: string[] };
+  deductPosition(
+    targetId: string,
+    amount: number,
+  ): { id: string; cumAmount: number } | { error: 'full' | 'blocked' | 'spent' | 'cumulative' | 'targetId' };
+  noMoreDeductLine(approvalId: string, cause: 'full' | 'blocked' | 'spent'): string;
+  approveDeductDoc(input: object): { doc: object | null; errors: string[] };
+  rejectDoc(input: object): { doc: object | null; errors: string[] };
+  supersedeDoc(input: object): { doc: object | null; errors: string[] };
+  reversalDoc(input: object): { doc: object | null; errors: string[] };
+  endMeasurementDocs(input: object): { docs: object[]; errors: string[] };
+}
+
 type PayMethod = 'lump' | 'unit' | 'daily' | 'milestone';
 
 interface AgreementDocInput {
@@ -1254,7 +1269,7 @@ interface Window {
   AccountsView?: AccountsViewApi;
   AccountWork?: AccountWorkApi;
   AccountPayment?: AccountPaymentApi;
-  AccountCorrect?: AccountModule;
+  AccountCorrect?: AccountCorrectApi;
   AccountStatement?: AccountModule;
   AccountShare?: AccountModule;
   AccountActions?: AccountAction[];
@@ -1272,6 +1287,7 @@ declare const SyncStatus: Window['SyncStatus'];
 declare const DomSafe: DomSafeApi;
 declare const AppCheck: AppCheckApi;
 declare const AccountsView: AccountsViewApi;
+declare const AccountPayment: AccountPaymentApi;
 declare const ForemenUI: ForemenUiApi;
 declare const PeopleDir: PeopleDirApi;
 declare var AccountActions: AccountAction[];

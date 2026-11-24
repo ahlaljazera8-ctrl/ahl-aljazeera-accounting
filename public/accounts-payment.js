@@ -989,6 +989,7 @@
     'contract',
     'sub-amount',
     'am-amount',
+    'cc-deduct',
   ]);
 
   /**

@@ -58,5 +58,10 @@ Each feature file starts with an H1 and one paragraph of user-visible behaviour,
 - [Return advance](./return-advance.md) returns 30,000 of that advance.
 - [Refund labor](./refund-labor.md) refunds 50,000 of that payment.
 - [Review cash](./review-cash.md) marks that payment `تدقيق`. An unknown id still exits 3.
+- [Supersede](./supersede.md) saves `نسخة جديدة` of one unit measurement.
+- [Reject](./reject.md) saves `رفض السطر` on a measurement that is not approved yet.
+- [Deduct](./deduct.md) saves one deduct position under a counting approval.
+- [Approve deduct](./approve-deduct.md) saves `اعتماد الخصم` on that position.
+- [Reverse](./reverse.md) ends one counting approval with `عكس`. The source binding stays null.
 
 The owner tab «الأشخاص» (`syncPeopleTab` in `public/render.js`) is a real screen and is not in this seed. Add it in a `/maintain-verification-skill` run. Do not claim it was verified. «الرئيسية» is the landing state inside login and the balance check inside the new-entry journey, not a sixth file.

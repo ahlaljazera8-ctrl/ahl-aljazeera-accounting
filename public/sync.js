@@ -79,6 +79,7 @@
   const DEDUCT_APPR_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'targetId', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
   const CASH_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
   const POINTER_CASH_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'ledger', 'currency', 'fxRate', 'amount', 'targetId', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
+  const DEDUCT_REMOTE = POINTER_CASH_REMOTE.concat(['cumAmount']);
   const QTY_REMOTE = ['id', 'kind', 'purpose', 'projectId', 'partyId', 'agreementId', 'ledger', 'currency', 'fxRate', 'qty', 'txnDate', 'description', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
 
   /**
@@ -98,7 +99,8 @@
     if (doc.kind === 'body' && (doc.purpose === 'payLabor' || doc.purpose === 'advanceLabor')) {
       return doc.targetId ? CASH_REMOTE.concat(['targetId']) : CASH_REMOTE;
     }
-    if (doc.kind === 'body' && (doc.purpose === 'returnAdvance' || doc.purpose === 'refundLabor' || doc.purpose === 'deduct')) return POINTER_CASH_REMOTE;
+    if (doc.kind === 'body' && doc.purpose === 'deduct') return DEDUCT_REMOTE;
+    if (doc.kind === 'body' && (doc.purpose === 'returnAdvance' || doc.purpose === 'refundLabor')) return POINTER_CASH_REMOTE;
     return QTY_REMOTE;
   }
 
@@ -824,7 +826,23 @@
       const value = doc && doc[key];
       if (typeof value === 'string' && value && value.indexOf('rev_') !== 0) out.push(value);
     });
+    const id = doc && typeof doc.id === 'string' ? doc.id : '';
+    const ded = /^d([2-9])(appr_.+)$/.exec(id);
+    if (ded) out.push('d' + String(Number(ded[1]) - 1) + ded[2]);
     return out;
+  }
+
+  /**
+   * Earlier rev_/rej_ of the previous deduct position. Not a parent pointer.
+   * @param {SyncDoc | null | undefined} doc
+   * @returns {string[]}
+   */
+  function deductHoldIds(doc) {
+    const id = doc && typeof doc.id === 'string' ? doc.id : '';
+    const ded = /^d([2-9])(appr_.+)$/.exec(id);
+    if (!ded || !doc || doc.docType !== 'accountTxn' || doc.kind !== 'body' || doc.purpose !== 'deduct') return [];
+    const prevId = 'd' + String(Number(ded[1]) - 1) + ded[2];
+    return ['rev_' + prevId, 'rej_' + prevId];
   }
 
   /** @returns {Record<string, { needsApproval?: boolean, effect?: { cash?: number } }> | null} */
@@ -970,6 +988,13 @@
         if (differs) parkSubtree(local);
         return 'adopted';
       }
+      // Deduct position ids only. The slot-body branch above is unchanged from main public/sync.js:967-972.
+      if (local.docType === 'accountTxn' && local.kind === 'body' && local.purpose === 'deduct' && typeof local.id === 'string' && /^d[1-9]appr_/.test(local.id) && remote.kind === 'body') {
+        const differs = Status && Status.payloadDiffers(local, remote);
+        adoptServer(local, remote);
+        if (differs) parkSubtree(local);
+        return 'adopted';
+      }
       if (local.docType === 'accountTxn' && local.kind === 'rev' && remote.kind === 'rev' && local.reversesId && local.reversesId === remote.reversesId) {
         adoptServer(local, remote);
         return 'adopted';
@@ -1018,6 +1043,18 @@
         }
         if (pointers.some(pointer => parkedSet.has(pointer))) { keepId(id); continue; }
         if (pointers.some(pointer => keptSet.has(pointer) || (!syncedSet.has(pointer) && ids.indexOf(pointer) > index))) { keepId(id); continue; }
+        let held = false;
+        for (const holdId of deductHoldIds(local)) {
+          const at = ids.indexOf(holdId);
+          if (at < 0 || at >= index || syncedSet.has(holdId)) continue;
+          if (keptSet.has(holdId)) { keepId(id); held = true; break; }
+          if (failedSet.has(holdId)) {
+            if (await failAccount(local) === 'auth') return pack(true);
+            held = true;
+            break;
+          }
+        }
+        if (held) continue;
       }
       try {
         await write(local);

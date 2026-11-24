@@ -845,7 +845,7 @@
         else if (doc.purpose === 'settle') settlements += amount;
       }
       const purpose = doc.purpose ? PURPOSES[doc.purpose] : undefined;
-      if (live && purpose && purpose.needsApproval && !counts) pendingIds.push(doc.id);
+      if (live && purpose && purpose.needsApproval && !counts && !markerKind(doc)) pendingIds.push(doc.id);
       if (live && doc.purpose === 'refundLabor' && doc.targetId) refundOn[doc.targetId] = (refundOn[doc.targetId] || 0) + amount;
       if (live && doc.purpose === 'deduct' && doc.targetId) deductOn[doc.targetId] = (deductOn[doc.targetId] || 0) + amount;
       if (live && doc.purpose === 'returnAdvance' && doc.targetId) drawOn[doc.targetId] = (drawOn[doc.targetId] || 0) + amount;
