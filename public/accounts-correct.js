@@ -659,8 +659,12 @@
    */
   function lockDeduct(targetId) {
     const current = screen.locks[targetId];
-    if (current && !rowById(current)) return current;
+    const held = !!(current && !rowById(current));
     const probe = deductPosition(targetId, 1);
+    // Keep the id while it is still the next free slot, so two taps write one row.
+    // If an earlier slot was removed after the card opened, follow the slot now on screen.
+    // Holding the later id would refuse the save (saveDeduct) and the rules would deny that later id.
+    if (held && (!('id' in probe) || probe.id === current)) return current;
     if ('id' in probe) {
       screen.locks[targetId] = probe.id;
       return probe.id;
@@ -780,7 +784,7 @@
       if (inErrors(row.id) || !Accounts.rowLive(row, index)) continue;
       if (markerOutside('appr_' + row.id, index)) continue;
       const qtyLabel = agreement.method === 'daily' ? SENTENCE.days : SENTENCE.qty;
-      const qty = typeof row.qty === 'number' ? String(row.qty) : '';
+      const qty = typeof row.qty === 'number' ? grouped(String(row.qty)) : '';
       const slot = SLOT_RE.test(row.id);
       const nextDepth = supDepth('sup_' + row.id);
       const copy = !slot && (agreement.method === 'unit' || agreement.method === 'daily') && nextDepth <= 4;

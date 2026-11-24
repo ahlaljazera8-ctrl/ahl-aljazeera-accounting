@@ -94,13 +94,16 @@ test.before(async () => {
 
 test.after(async () => {
   g.today = previousToday;
+  // cleanup() drops each Firebase app without awaiting delete(). Those
+  // cancellations then make the next file's clearFirestore return CANCELLED.
   const closing = [];
   for (const firestore of contexts.values()) {
     const app = /** @type {{ delete?: () => Promise<void> }} */ (/** @type {any} */ (firestore).app);
-    if (app && app.delete) closing.push(app.delete());
+    if (app && app.delete) closing.push(Promise.resolve(app.delete()).catch(() => {}));
   }
+  contexts.clear();
   await Promise.all(closing);
-  if (testEnv) await testEnv.cleanup();
+  if (testEnv) await testEnv.clearFirestore();
 });
 
 function db(uid) {
