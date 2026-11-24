@@ -239,7 +239,8 @@ const UID_HELP = 'الحساب يُنشأ في وحدة تحكم Firebase، لا
 /** @param {any} project */
 function contractFields(project) {
   const amount = shownContract(project.id, project);
-  const value = amount === null ? '' : String(amount);
+  const pay = window.AccountPayment;
+  const value = amount === null ? '' : (pay && typeof pay.groupThousands === 'function' ? pay.groupThousands(String(amount)) : String(amount));
   return `<div class="kv"><span>قيمة العقد</span>${amount === null ? '<b>غير محددة</b>' : money(amount)}</div>
     <label class="field">تعديل قيمة العقد<input id="contract" class="full" inputmode="numeric" value="${esc(value)}"></label>
     <button type="button" class="btn ghost" id="save-contract">حفظ قيمة العقد</button>

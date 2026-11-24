@@ -207,7 +207,7 @@ let chrome;
     if (role === 'owner' && hash === 'project/p-school') {
       check('o4: rows show the recorder name', info.text.includes('أمير'));
       check('o4: old entry without a name shows a dash', await ev(`(()=>{const row=[...document.querySelectorAll('.entry')].find(el=>el.innerText.includes('إدخال خاطئ')&&!el.innerText.includes('تصحيح'));return !!row&&row.innerText.includes('—')&&!row.innerText.includes('أحمد')})()`));
-      check('o4: owner project shows the contract value', info.text.includes('قيمة العقد') && info.text.includes('60,000,000') && await ev(`document.querySelector('#contract') && document.querySelector('#contract').value==='60000000'`));
+      check('o4: owner project shows the contract value', info.text.includes('قيمة العقد') && info.text.includes('60,000,000') && await ev(`document.querySelector('#contract') && document.querySelector('#contract').value==='60,000,000'`));
       check('o4: all-entries option on the project', info.text.includes('عرض جميع القيود') && await ev(`document.querySelector('#all-entries') && document.querySelector('#all-entries').getAttribute('href')==='#entries/p-school'`));
       check('o4: manage sits below the new-entry button', await ev(`(()=>{const entry=[...document.querySelectorAll('a.btn')].find(a=>a.textContent.includes('قيد لهذا المشروع'));const manage=document.querySelector('#project-manage');const btn=document.querySelector('#manage-project');if(!entry||!manage||!btn)return false;const gap=manage.getBoundingClientRect().top-entry.getBoundingClientRect().bottom;const border=parseFloat(getComputedStyle(manage).borderTopWidth)||0;const text=(manage.innerText||'').trim();return gap>=40&&border>=1&&btn.textContent==='إدارة المشروع'&&text==='إدارة المشروع'&&!document.querySelector('#archive-project')&&!document.querySelector('#delete-project')&&!document.querySelector('#choose-archive')})()`));
     }
@@ -559,6 +559,37 @@ let chrome;
   await ev(`document.querySelector('#contract').value='1234567'; document.querySelector('#save-contract').click(); 1`);
   await sleep(200);
   check('owner save stores the contract away from the project', await ev(`(()=>{const p=AJ.get('projects').find(x=>x.id==='p-school'); const f=(AJ.get('projectFinance')||{})['p-school']; return !!p && !('contractAmount' in p) && f.contractAmount===1234567 && f.pending===true && (AJ.get('outbox')||[]).includes('p-school') && document.querySelector('#main').innerText.includes('1,234,567')})()`));
+  await ev(`(()=>{
+    const el = document.querySelector('#contract');
+    el.value = '١٥٠٠٠٠';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__contractArabic = el.value;
+    el.value = '1,50000';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__contractGrouped = el.value;
+    document.querySelector('#save-contract').click();
+    return 1;
+  })()`);
+  await sleep(200);
+  check('contract 1,50000 groups to 150,000 and saves 150000', await ev(`(()=>{
+    const f = (AJ.get('projectFinance') || {})['p-school'];
+    const el = document.querySelector('#contract');
+    return window.__contractArabic === '150,000' && window.__contractGrouped === '150,000' && f.contractAmount === 150000 && !!el && el.value === '150,000';
+  })()`));
+  await ev(`(()=>{
+    const el = document.querySelector('#contract');
+    el.value = '0';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__contractZero = el.value;
+    document.querySelector('#save-contract').click();
+    return 1;
+  })()`);
+  await sleep(200);
+  check('contract 0 stays 0', await ev(`(()=>{
+    const f = (AJ.get('projectFinance') || {})['p-school'];
+    const el = document.querySelector('#contract');
+    return window.__contractZero === '0' && f.contractAmount === 0 && !!el && el.value === '0';
+  })()`));
   await ev(`document.querySelector('#role').value='site'; location.hash='#project/p-school'; document.querySelector('#role').dispatchEvent(new Event('change')); 1`);
   await sleep(200);
   const hiddenContract = await ev(`document.querySelector('#main').innerText`);

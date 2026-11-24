@@ -138,7 +138,7 @@ Files: `public/accounts-payment.js`, `public/accounts-work.js`, the work behavio
 
 ### 4. قيمة العقد
 
-The sequence heading already places this after slice 0. This section does not restate that. `#contract` is the IQD input this slice assigns. Add `contract` to `isAmountField`. Paint `groupThousands` of the integer so an opened contract shows separators. `0` stays `0`. Save stays `L.parseAmount` with `{ allowZero: true }` (`public/render.js` line 258).
+The sequence heading already places this after slice 0. This section does not restate that. `#contract` is the IQD input this slice assigns. Add `contract` to `isAmountField`. Paint `groupThousands` of the integer so an opened contract shows separators. `0` stays `0`. Save stays `L.parseAmount` with `{ allowZero: true }` (`public/render.js` line 259).
 
 `1,50000` is refused today. This slice regroups it to `150,000` and the save stores `150000`. The slice tests that.
 
@@ -154,9 +154,12 @@ Starts after slice 0 is on main, in sequence after slices 1, 2, 3, and 4. `#sub-
 
 Files: `public/render.js` (both forms), `public/accounts-payment.js` (the ids), and the `VERSION` bump. This pull request does not implement this slice.
 
-## Decided
+## Deferred
 
 - M3. Deferred. Ameer, 2026-11-23 20:03 Asia/Baghdad: «نعم دعها تقبل». Ameer, 2026-11-23 20:04 Asia/Baghdad: «2,5 تتحول الى 2.5». On `#cw-qty` and `#cw-days` only, a comma would be a decimal point and `2,5` would be stored as `2.5`. Ameer, 2026-11-24 06:28 Baghdad: «إي، كمّل الفلوس هسه والكسور خطة منفصلة». Slice 3 does the money fields only. The decimal quantity is a separate plan. It needs a `firestore.rules` `qtyOk` change, the earned-amount math, and Architect and accountant review. This sketch does not make that change.
+
+## Decided
+
 - The question of what «الأسطة» names is dropped. Ameer did not use that word. EA's correction records that, and Ameer said «شوكت قلت الاسطة». `#sub-amount` and `#am-amount` are amount fields under slice 5. That slice number is this plan's sequence, not a decision recorded from Ameer.
 
 ## [OPEN]

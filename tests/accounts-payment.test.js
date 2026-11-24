@@ -1641,3 +1641,60 @@ test('#amt groups a typed amount and a redraw keeps the draft', () => {
   assert.equal(desc.value, '1,50000');
   assert.equal(party.value, '٢,٥');
 });
+
+test('amount field ids are exactly the grouped set', () => {
+  assert.deepEqual(Pay.amountFieldIds.slice(), [
+    'cp-amount',
+    'cp-return',
+    'cp-refund',
+    'amt',
+    'fm-amount',
+    'cw-lump',
+    'cw-rate',
+    'cw-day',
+    'cw-mile',
+    'contract',
+  ]);
+});
+
+test('cw-qty, cw-days, and cw-per stay out of the amount fields', () => {
+  assert.equal(Pay.amountFieldIds.includes('cw-qty'), false);
+  assert.equal(Pay.amountFieldIds.includes('cw-days'), false);
+  assert.equal(Pay.amountFieldIds.includes('cw-per'), false);
+});
+
+test('an opened contract groups the integer and keeps 0', () => {
+  assert.equal(Pay.groupThousands(String(60000000)), '60,000,000');
+  assert.equal(Pay.groupThousands(String(0)), '0');
+  assert.equal(Pay.groupThousands('0'), '0');
+  /**
+   * @param {string} value
+   */
+  function box(value) {
+    return {
+      value,
+      selectionStart: value.length,
+      selectionEnd: value.length,
+      /**
+       * @param {number} start
+       * @param {number} end
+       */
+      setSelectionRange(start, end) {
+        this.selectionStart = start;
+        this.selectionEnd = end;
+      },
+    };
+  }
+  const typed = box('1,50000');
+  Pay.applyGroupedAmount(typed);
+  assert.equal(typed.value, '150,000');
+  const saved = Ledger.parseAmount(typed.value, { allowZero: true });
+  assert.equal(saved.ok, true);
+  assert.equal(saved.amount, 150000);
+  const arabic = box('١٥٠٠٠٠');
+  Pay.applyGroupedAmount(arabic);
+  assert.equal(arabic.value, '150,000');
+  const zero = box('0');
+  Pay.applyGroupedAmount(zero);
+  assert.equal(zero.value, '0');
+});
