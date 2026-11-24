@@ -1349,19 +1349,19 @@ let chrome;
   const overSettle = await ev(`(()=>{
     const text=document.querySelector('#fm-copy').innerText;
     const warn=document.querySelector('#fm-over');
-    return { text, shown:warn&&warn.hidden===false, amt:document.querySelector('#fm-amt-text').textContent };
+    return { text, shown:warn&&warn.hidden===false, amt:document.querySelector('#fm-amt-text').textContent, field:document.querySelector('#fm-amount').value };
   })()`);
-  check('settle text follows the amount and over-settle warns', overSettle && overSettle.amt==='50,000' && overSettle.text.includes('50,000') && !overSettle.text.includes('صفراً') && overSettle.shown);
-  await ev(`(()=>{ const el=document.querySelector('#fm-amount'); el.value='35000'; el.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('[data-fm="save-move"]').click(); document.querySelector('[data-fm="save-move"]').click(); return 1; })()`);
+  check('settle text follows the amount and over-settle warns', overSettle && overSettle.amt==='50,000' && overSettle.field==='50,000' && overSettle.text.includes('50,000') && !overSettle.text.includes('صفراً') && overSettle.shown);
+  await ev(`(()=>{ const el=document.querySelector('#fm-amount'); el.value='35000'; el.dispatchEvent(new Event('input',{bubbles:true})); window.__fmField=el.value; document.querySelector('[data-fm="save-move"]').click(); document.querySelector('[data-fm="save-move"]').click(); return 1; })()`);
   await sleep(200);
   const settled = await ev(`(()=>{
     const moves=get(K.foremanMoves)||[];
     const added=moves.filter(m=>m.foremanId==='fm-hassan' && m.kind==='settle' && m.amount===35000 && !m.isReversal);
     const text=document.querySelector('#main').innerText;
     const fig=Ledger.foremanBalance('fm-hassan', moves, get(K.entries)||[]);
-    return { n:added.length, state:fig.state, held:fig.held, text, note:added[0]&&added[0].note };
+    return { n:added.length, state:fig.state, held:fig.held, text, note:added[0]&&added[0].note, field:window.__fmField };
   })()`);
-  check('one settle of the owed amount zeroes the balance', settled && settled.n===1 && settled.state==='settled' && settled.held===0 && settled.note==='');
+  check('one settle of the owed amount zeroes the balance', settled && settled.n===1 && settled.state==='settled' && settled.held===0 && settled.note==='' && settled.field==='35,000');
   await ev(`location.hash='#project/p-school'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(150);
   await ev(`(async () => {

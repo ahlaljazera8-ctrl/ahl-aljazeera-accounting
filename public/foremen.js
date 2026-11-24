@@ -490,6 +490,12 @@
   function onInput(el) {
     if (!el) return false;
     if (el.id !== 'fm-amount' && el.id !== 'fm-note' && el.id !== 'fm-name' && el.id !== 'fm-person-note' && el.id !== 'fm-project') return false;
+    if (el.id === 'fm-amount') {
+      const host = /** @type {typeof globalThis & { AccountPayment?: { applyGroupedAmount?: (input: HTMLInputElement) => void } }} */ (globalThis);
+      if (typeof host.AccountPayment !== 'undefined' && host.AccountPayment && typeof host.AccountPayment.applyGroupedAmount === 'function') {
+        host.AccountPayment.applyGroupedAmount(/** @type {HTMLInputElement} */ (el));
+      }
+    }
     const value = el instanceof HTMLInputElement || el instanceof HTMLSelectElement ? el.value : '';
     if (el.id === 'fm-amount') {
       draft.amount = value;
