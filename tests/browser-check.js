@@ -1,18 +1,574 @@
 // Headless Chrome via raw CDP (no npm deps). Run: node --experimental-websocket tests/browser-check.js
 const fs = require('fs'); const path = require('path');
+const http = require('http');
 const { openChrome } = require('./chrome-debug.js');
 const { createCdpSession, openCdpSocket, isCdpTimeout, isCdpSocketError } = require('./cdp-session.js');
-const BASE = 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
+const BASE = process.env.AJ_BROWSER_BASE || 'http://127.0.0.1:8765/'; const SHOTS = path.join(__dirname, '..', 'shots');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function assertHashLanded(expected, actual) {
   if (expected !== actual) {
     throw new Error('browser-check: location.href is ' + actual + ', expected ' + expected);
   }
 }
+// Slice 5 guard. Page-side check only: saved amounts show separators on every screen.
+// routeList, checkTokens, SKIP, seedLocal, resetLocal, and guard follow PLAN-r3 §5c.
+const GUARD_PAGE = String.raw`
+(() => {
+  const AMOUNT_IDS = ['cp-amount','cp-return','cp-refund','amt','fm-amount','cw-lump','cw-rate','cw-day','cw-mile','contract','sub-amount','am-amount'];
+  const SEEDED_QTY = 12000;
+  const NON_AMOUNT_IDS = { 'am-date':'date', 'statement-from':'date', 'cw-qty':'qty (M3)', 'cw-days':'days (M3)', 'cw-per':'unit qty', 'cw-unit':'unit name',
+    'person-uid':'uid', 'person-name':'name', 'person-email':'email', 'person-active':'checkbox', 'party':'name', 'party-name':'name', 'sub-name':'name',
+    'fm-name':'name', 'fm-person-note':'note', 'fm-note':'note', 'am-note':'note', 'cw-reason':'reason', 'delete-name':'project name' };
+  const DATE = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/;
+  const TIME = /^\d{2}:\d{2}:\d{2}$/;
+  const ID_SHAPE = /^(?=.*[A-Za-z_-])[A-Za-z0-9_-]{1,64}$/;
+  const label = el => ((el.parentElement && el.parentElement.querySelector(':scope > span')) || {}).textContent;
+  const prevTh = el => (el.previousElementSibling || {}).textContent;
+  const exact = re => t => (re.test(String(t).trim()) ? '' : null);
+  const SKIP = [
+    { why: '«N من M» entry count (render.js:790)', match: el => el.id === 'entry-count', shape: t => {
+      const m = String(t).trim().match(/^(\d+) من (\d+)$/);
+      if (!m) return null;
+      const projectId = (location.hash.slice(1).split('/')[1]) || '';
+      const list = Ledger.projectEntryList(me(), projectId, { projects: get(K.projects, []), entries: get(K.entries, []), syncErrors: get(K.syncErrors, {}) || {}, policy: POLICY }, { limit: 1000000 });
+      if (!list || Number(m[2]) !== list.total) return null;
+      const page = Ledger.PROJECT_ENTRY_PAGE || 50;
+      const shown = Number(m[1]);
+      if (shown !== Math.min(list.total, page) && shown !== list.total) return null;
+      return '';
+    } },
+    { why: 'rejected count (render.js:978)', match: el => el.id === 'rejected-count', shape: t => {
+      if (!/^\d+$/.test(String(t).trim())) return null;
+      const rows = Ledger.deletedProjectEntries(me(), get(K.entries, []), get(K.syncErrors, {}) || {}, SyncStatus.PROJECT_DELETED);
+      return Number(String(t).trim()) === rows.length ? '' : null;
+    } },
+    { why: 'agreement qty «الكمية» (accounts-work.js:967)', match: el => el.matches('.kv > b') && label(el) === 'الكمية', shape: t => (/^\d+$/.test(String(t).trim()) && Number(String(t).trim()) === SEEDED_QTY ? '' : null) },
+    { why: '«المحاولة N من 9» (accounts-work.js:957)', match: el => el.matches('.note') && el.textContent.indexOf('المحاولة') === 0, shape: exact(/^المحاولة \d من 9$/) },
+    { why: 'date: entry .meta small.num, kv span.num, bdi.num', match: el => el.matches('.entry .meta > small.num, .kv > span > span.num, bdi.num'), shape: exact(DATE) },
+    { why: 'date: kv labelled التاريخ / من / إلى', match: el => el.matches('.kv > b') && ['التاريخ','من','إلى'].includes(label(el)), shape: exact(DATE) },
+    { why: 'print: تاريخ القيد date cell', match: el => el.matches('td.num') && prevTh(el) === 'تاريخ القيد', shape: exact(DATE) },
+    { why: 'print: وقت التسجيل time cell', match: el => el.matches('td.num') && prevTh(el) === 'وقت التسجيل', shape: exact(TIME) },
+    { why: 'print/detail: المعرّف id cell', match: el => el.matches('td.num') && prevTh(el) === 'المعرّف', shape: exact(ID_SHAPE) },
+    { why: 'entry row «description · date» (render.js:588): strip trailing date, check the rest', match: el => el.matches('.entry .meta > small:not(.num)') && el.textContent.indexOf(' · ') >= 0,
+      shape: t => { const m = String(t).match(/^([\s\S]*) · (\d{4}-\d{2}-\d{2})$/); return m ? m[1] : null; } },
+    { why: 'rejected «direction · type · date» (render.js:962): strip date, check the rest', match: el => el.tagName === 'DIV' && el.parentElement && el.parentElement.matches('.card') && /^(مقبوض|مصروف) · /.test(el.textContent),
+      shape: t => { const m = String(t).match(/^([\s\S]*) · (\d{4}-\d{2}-\d{2})?$/); return m ? m[1] : null; } },
+  ];
+  const DIG = '0-9\u0660-\u0669\u06F0-\u06F9';
+  const TOK = new RegExp('[' + DIG + '][' + DIG + ',\u066C]*', 'g');
+  function bad(t) {
+    if (/[\u0660-\u0669\u06F0-\u06F9]/.test(t)) return 'arabic-digit';
+    if (/[,\u066C]/.test(t)) return /^\d{1,3}(,\d{3})+$/.test(t) ? '' : 'bad-grouping';
+    return t.length >= 4 ? 'ungrouped' : '';
+  }
+  function checkTokens(text) { return (String(text).match(TOK) || []).map(t => ({ t, why: bad(t) })).filter(x => x.why); }
+  window.__checkTokens = checkTokens;
+  window.__amountIds = AMOUNT_IDS;
+  window.__seededQty = SEEDED_QTY;
+  window.__guard = function (lbl, roots) {
+    const out = [], skips = {}; let grouped = 0; const done = new Set();
+    const push = (where, el, t, why, ctx) => out.push({ label: lbl, hash: location.hash, where, token: t, why, ctx: String(ctx).replace(/\s+/g, ' ').slice(0, 100) });
+    const tag = el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+    for (const sel of roots) {
+      const root = document.querySelector(sel); if (!root) continue;
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const el = n.parentElement; if (!el || el.closest('script,style,[hidden]')) continue;
+        grouped += (String(n.nodeValue).match(/\d{1,3}(,\d{3})+/g) || []).length;
+        const rule = SKIP.find(s => s.match(el));
+        if (!rule) { for (const x of checkTokens(n.nodeValue)) push(sel + ' ' + tag(el), el, x.t, x.why, (el.closest('.kv,.entry,tr,.card') || el).innerText); continue; }
+        if (done.has(el)) continue; done.add(el);
+        const residual = rule.shape(el.textContent);
+        if (residual === null) { push(sel + ' ' + tag(el), el, el.textContent.trim().slice(0, 40), 'skip-shape-mismatch: ' + rule.why, el.textContent); continue; }
+        skips[rule.why] = (skips[rule.why] || 0) + 1;
+        for (const x of checkTokens(residual)) push(sel + ' ' + tag(el) + ' (residual)', el, x.t, x.why, el.textContent);
+      }
+      for (const i of root.querySelectorAll('input')) {
+        if (i.type === 'hidden') continue;
+        if (!i.id && i.type === 'checkbox' && i.hasAttribute('data-assign')) { skips['input non-amount: project-assign checkbox'] = (skips['input non-amount: project-assign checkbox'] || 0) + 1; continue; }
+        if (!i.id) { push('input(no id)', i, '', 'unlisted-input', i.outerHTML); continue; }
+        if (NON_AMOUNT_IDS[i.id]) {
+          if (NON_AMOUNT_IDS[i.id] === 'date') {
+            const value = String(i.value || '').trim();
+            if (value && !DATE.test(value)) { push('input#' + i.id, i, value.slice(0, 40), 'skip-shape-mismatch: date input', value); continue; }
+          }
+          skips['input non-amount: ' + NON_AMOUNT_IDS[i.id]] = (skips['input non-amount: ' + NON_AMOUNT_IDS[i.id]] || 0) + 1;
+          continue;
+        }
+        if (!AMOUNT_IDS.includes(i.id)) { push('input#' + i.id, i, i.value, 'unlisted-input', i.outerHTML); continue; }
+        for (const x of checkTokens(i.value)) push('input#' + i.id, i, x.t, x.why, i.value);
+      }
+    }
+    return { out, skips, grouped };
+  };
+  window.__seedLocal = async function () {
+    await set(K.parties, [{ id: 'p1', name: 'حسن' }]);
+    await set(K.agreements, [
+      { id: 'ag-lump', partyId: 'p1', projectId: 'p-school', method: 'lump', lumpAmount: 1500000, description: 'لبخ', currency: 'IQD' },
+      { id: 'ag-unit', partyId: 'p1', projectId: 'p-school', method: 'unit', unitRate: 25000, unitQty: 1, unitName: 'م2', description: 'كاشي', currency: 'IQD' }]);
+    await set(K.accountTxns, [
+      { id: 'm1', purpose: 'laborQty', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', qty: SEEDED_QTY, txnDate: '2026-11-01', ledger: 'labor' },
+      { id: 'appr_m1', purpose: 'approveLabor', amount: 1500000, targetId: 'm1', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-01', ledger: 'labor' },
+      { id: 'm2', purpose: 'laborQty', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', qty: SEEDED_QTY, txnDate: '2026-11-05', ledger: 'labor' },
+      { id: 'pay1', purpose: 'payLabor', amount: 1250000, partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-02', ledger: 'labor' },
+      { id: 'adv1', purpose: 'advanceLabor', amount: 1100000, partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-03', ledger: 'labor' },
+      { id: 'ret1', purpose: 'returnAdvance', amount: 30000, targetId: 'adv1', partyId: 'p1', projectId: 'p-school', agreementId: 'ag-unit', txnDate: '2026-11-04', ledger: 'labor' }]);
+    const rej = { id: 'rej-del', projectId: 'p-school', direction: 'expense', entryType: 'materials', amount: 1500000, currency: 'IQD', entryDate: '2026-11-03', description: 'سمنت مرفوض', partyName: '', isReversal: false, createdAtDevice: Date.UTC(2026, 10, 3), createdBy: 'u-ameer', createdByName: 'أمير', deviceId: 'phone' };
+    await set(K.entries, get(K.entries, []).concat([rej]));
+    await set(K.syncErrors, Object.assign({}, get(K.syncErrors, {}) || {}, { 'rej-del': SyncStatus.PROJECT_DELETED }));
+  };
+  window.__resetLocal = async function () {
+    Accounts.CONTRACTOR_COST_START = null;
+    await set(K.parties, []);
+    await set(K.agreements, []);
+    await set(K.accountTxns, []);
+    await set(K.entries, get(K.entries, []).filter(e => e.id !== 'rej-del'));
+    const errs = Object.assign({}, get(K.syncErrors, {}) || {});
+    delete errs['rej-del'];
+    await set(K.syncErrors, errs);
+    return {
+      cost: Accounts.CONTRACTOR_COST_START,
+      left: [get(K.parties, []).length, get(K.agreements, []).length, get(K.accountTxns, []).length],
+      rej: get(K.entries, []).some(e => e.id === 'rej-del'),
+    };
+  };
+})();`;
+
+const GUARD_ARGS = {
+  home: [''], entry: ['', 'p-school'], projects: [''], project: ['@links:#project/'], entries: ['p-school'],
+  people: [''], person: ['@links:#person/'], detail: ['seed-1', 'seed-3', '@newEntry'], sub: ['@links:#sub/'], subnew: ['p-school'],
+  amend: ['@links:#amend/'], rejected: [''], foremen: [''], foreman: ['@links:#foreman/'], foremannew: [''], foremanmove: ['@fm'],
+  accounts: [''], account: ['@links:#account/'], contractor: ['', '@links:#contractor/', 'new'],
+};
+const GUARD_FALLBACK = { project: ['p-school'], person: ['u-ahmed'], sub: ['sc-kahraba'], amend: ['sc-kahraba'], foreman: ['none'], account: ['p1'], contractor: [] };
+const GUARD_LINK_SOURCE = { '#project/': '#projects', '#person/': '#people', '#sub/': '#project/p-school', '#amend/': '@sub', '#foreman/': '#foremen', '#account/': '#accounts', '#contractor/': '#contractor' };
+
+function guardDebuggerJson(port, pathname) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 2000 }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(body.replace(/^\)\]\}'\s*/, ''))); }
+        catch (err) { reject(err); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('separator guard: debugger timeout')); });
+  });
+}
+
+function guardSameIds(appIds, testIds) {
+  if (!appIds || !testIds || appIds.length !== testIds.length) return false;
+  const left = appIds.slice().sort();
+  const right = testIds.slice().sort();
+  return left.every((id, index) => id === right[index]);
+}
+
+function guardExpect(role) {
+  return role === 'owner'
+    ? /^(owner (cost-null|cost-open) #(home|projects|project\/|entries|detail|sub\/|amend|rejected|account\/p1( tab (overview|movements|statement))?$|foremen|foreman\/)|owner print|owner cost-open #contractor\/ag-)/
+    : /^site (cost-null|cost-open) #(home|projects|project\/p-(school|road)|entries\/p-school|detail\/seed-3)$/;
+}
+
+function guardRequired(role) {
+  const phases = ['cost-null', 'cost-open'];
+  const tails = role === 'owner'
+    ? ['#home', '#projects', '#project/p-school', '#entries/p-school', '#detail/', '#sub/', '#amend/', '#rejected', '#foremen', '#foreman/', '#account/p1 tab overview', '#account/p1 tab movements', '#account/p1 tab statement']
+    : ['#home', '#projects', '#project/p-school', '#project/p-road', '#entries/p-school', '#detail/seed-3'];
+  const need = [];
+  for (const phase of phases) for (const tail of tails) need.push(role + ' ' + phase + ' ' + tail);
+  if (role === 'owner') {
+    need.push('owner print ');
+    need.push('owner cost-open #contractor/ag-');
+  }
+  return need;
+}
+
+function routeList(viewKeys) {
+  return { keys: viewKeys, unmapped: viewKeys.filter(key => !GUARD_ARGS[key]) };
+}
+
+/**
+ * Isolated browser context. The suite's page, role, and IndexedDB are not this page.
+ * @param {ReturnType<typeof createCdpSession>} browser
+ * @param {number} port
+ * @param {string} url
+ */
+async function openGuardPage(browser, port, url) {
+  const created = await browser.send('Target.createBrowserContext');
+  const browserContextId = created.result && created.result.browserContextId;
+  if (!browserContextId) throw new Error('separator guard: no browser context');
+  const target = await browser.send('Target.createTarget', { url: 'about:blank', browserContextId });
+  const targetId = target.result && target.result.targetId;
+  if (!targetId) throw new Error('separator guard: no target');
+  let info = null;
+  for (let i = 0; i < 50 && !info; i++) {
+    const list = await guardDebuggerJson(port, '/json/list');
+    info = Array.isArray(list) && list.find(row => row && row.id === targetId && row.webSocketDebuggerUrl);
+    if (!info) await new Promise(r => setTimeout(r, 100));
+  }
+  if (!info) throw new Error('separator guard: target did not open');
+  const pageWs = await openCdpSocket(info.webSocketDebuggerUrl);
+  const remote = [];
+  const errors = [];
+  const origin = new URL(url).origin;
+  const page = createCdpSession(pageWs, {
+    onEvent(message) {
+      if (message.method === 'Page.javascriptDialogOpening') {
+        page.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => {});
+      }
+      if (message.method === 'Runtime.exceptionThrown') {
+        const details = message.params && message.params.exceptionDetails;
+        errors.push(String((details && (details.text || details.exception && details.exception.description)) || 'exception'));
+      }
+      if (message.method === 'Network.requestWillBeSent') {
+        const reqUrl = message.params && message.params.request && message.params.request.url;
+        if (!reqUrl || reqUrl.startsWith(origin) || /^(data|blob|devtools):/.test(reqUrl)) return;
+        remote.push(reqUrl);
+      }
+    },
+  });
+  await page.send('Page.enable');
+  await page.send('Runtime.enable');
+  await page.send('Network.enable');
+  await page.send('Page.addScriptToEvaluateOnNewDocument', { source: GUARD_PAGE });
+  await page.send('Page.navigate', { url });
+  for (let i = 0; i < 40; i++) {
+    const ready = await page.ev(`document.body && document.body.dataset.ready === '1' && typeof window.__guard === 'function'`);
+    if (ready) break;
+    if (i === 39) throw new Error('separator guard: document was not ready');
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return {
+    ev: page.ev,
+    send: page.send,
+    remote,
+    errors,
+    async reset() {
+      const reset = await page.ev(`window.__resetLocal()`);
+      return !!reset && reset.cost === null && Array.isArray(reset.left) && reset.left.every(n => n === 0) && reset.rej === false;
+    },
+    async close() {
+      try { pageWs.close(); } catch (err) { /* the context dispose closes the page */ }
+      try { await browser.send('Target.disposeBrowserContext', { browserContextId }); } catch (err) { /* already gone */ }
+    },
+  };
+}
+
+/**
+ * @param {number} port
+ * @param {(name: string, ok: boolean) => void} check
+ */
+async function runSeparatorGuard(port, check) {
+  const sourcePath = process.env.AJ_GUARD_SOURCE || path.join(__dirname, '..', 'public', 'accounts.js');
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  const costNullInSource = /const CONTRACTOR_COST_START = null;/.test(source);
+  check('separator guard: public/accounts.js keeps CONTRACTOR_COST_START null', costNullInSource);
+  const version = await guardDebuggerJson(port, '/json/version');
+  const browserWs = await openCdpSocket(version.webSocketDebuggerUrl);
+  const browser = createCdpSession(browserWs);
+  const reports = [];
+  try {
+    const roles = /** @type {const} */ (['owner', 'site']);
+    for (const role of roles) {
+      let guardPage = null;
+      try {
+        guardPage = await openGuardPage(browser, port, BASE + 'index.html?role=' + role + '#home');
+        const report = await crawlSeparatorGuard(guardPage, role, check);
+        report.costNullInSource = costNullInSource;
+        reports.push(report);
+        const pass = !report.findings.length && !report.unvisited.length && !report.unmapped.length && !report.routeMiss.length && !report.empty.length && !report.missing.length && !report.remote.length && !report.errors.length && report.idsEqual;
+        check('separator guard ' + role + ' amount ids deep-equal the app list', report.idsEqual);
+        check('separator guard ' + role + ' shows separators on every money screen', pass);
+        console.log('GUARD ' + role + ': ' + (pass ? 'GREEN' : 'RED') + ' findings=' + report.findings.length + ' empty=' + report.empty.length + ' idsEqual=' + report.idsEqual + ' routeMiss=' + report.routeMiss.length + ' unvisited=' + report.unvisited.length + ' unmapped=' + report.unmapped.length + ' missing=' + report.missing.length + ' remote=' + report.remote.length + ' errors=' + report.errors.length + ' screens=' + report.screens);
+        const by = {};
+        for (const finding of report.findings) {
+          const key = finding.why + ' | ' + finding.where;
+          by[key] = (by[key] || 0) + 1;
+        }
+        for (const key of Object.keys(by)) console.log('   ' + by[key] + 'x ' + key);
+        if (report.empty.length) console.log('   empty: ' + report.empty.join(', '));
+        if (report.missing.length) console.log('   missing: ' + report.missing.join(', '));
+        if (report.routeMiss.length) console.log('   routeMiss: ' + report.routeMiss.join(', '));
+        if (report.errors.length) console.log('   errors: ' + report.errors.slice(0, 5).join(' | '));
+        console.log('   skips ' + JSON.stringify(report.skips));
+        console.log('   tokenProbes ' + JSON.stringify(report.tokenProbes));
+      } catch (err) {
+        console.error(err);
+        check('separator guard ' + role + ' shows separators on every money screen', false);
+        reports.push({ role, pass: false, error: String(err && err.message || err) });
+      } finally {
+        if (guardPage) {
+          let resetOk = false;
+          try { resetOk = await guardPage.reset(); } catch (err) { resetOk = false; }
+          check('separator guard ' + role + ' resets COST_START, the seed, and the rejected row', resetOk);
+          console.log('GUARD ' + role + ' reset: ' + resetOk);
+          const last = reports[reports.length - 1];
+          if (last && last.role === role) last.resetOk = resetOk;
+          await guardPage.close();
+        }
+      }
+    }
+  } finally {
+    try { browserWs.close(); } catch (err) { /* the browser socket is only for this guard */ }
+    if (process.env.AJ_GUARD_OUT) fs.writeFileSync(process.env.AJ_GUARD_OUT, JSON.stringify(reports, null, 1));
+  }
+  return reports;
+}
+
+/**
+ * @param {{ ev: (expression: string) => Promise<any>, send: (method: string, params?: object) => Promise<any>, remote: string[], errors: string[] }} guardPage
+ * @param {'owner' | 'site'} role
+ * @param {(name: string, ok: boolean) => void} check
+ */
+async function crawlSeparatorGuard(guardPage, role, check) {
+  const ev = guardPage.ev;
+  const findings = [];
+  const skips = {};
+  const seen = [];
+  const routeMiss = [];
+  const fallbacks = [];
+  const ids = { newEntry: role === 'owner' ? '' : 'seed-5', fm: '' };
+  async function nav(hash) {
+    await ev(`(() => { location.hash = ${JSON.stringify(hash)}; dispatchEvent(new HashChangeEvent('hashchange')); return location.hash; })()`);
+  }
+  async function fill(sel, value) {
+    return ev(`(() => {
+      const el = document.querySelector(${JSON.stringify(sel)});
+      if (!el) return null;
+      el.value = ${JSON.stringify(value)};
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return el.value;
+    })()`);
+  }
+  async function click(sel) {
+    return ev(`new Promise(resolve => {
+      const el = document.querySelector(${JSON.stringify(sel)});
+      if (el) el.click();
+      setTimeout(() => resolve(!!el), 80);
+    })`);
+  }
+  async function scan(label, roots) {
+    const result = await ev(`window.__guard(${JSON.stringify(label)}, ${JSON.stringify(roots || ['#main'])})`);
+    if (!result || !Array.isArray(result.out)) throw new Error('separator guard: no result for ' + label);
+    findings.push(...result.out);
+    for (const key of Object.keys(result.skips || {})) skips[key] = (skips[key] || 0) + result.skips[key];
+    seen.push([label, result.grouped]);
+  }
+  async function links(prefix) {
+    const found = await ev(`(() => {
+      const p = ${JSON.stringify(prefix)};
+      const out = [];
+      document.querySelectorAll('#main a[href]').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if (href.indexOf(p) === 0) out.push(href);
+      });
+      return [...new Set(out)];
+    })()`);
+    return found || [];
+  }
+  async function storeCount(key) {
+    return ev(`(AJ.get(${JSON.stringify(key)}) || []).length`);
+  }
+  async function lastStored(kind) {
+    if (kind === 'sub') {
+      return ev(`(() => {
+        const subs = AJ.get('subcontracts') || [];
+        const last = subs[subs.length - 1];
+        const terms = AJ.get('subcontractTerms') || {};
+        return last && terms[last.id] ? terms[last.id].originalAmount : null;
+      })()`);
+    }
+    return ev(`(() => {
+      const rows = AJ.get('subcontractAmendments') || [];
+      const last = rows[rows.length - 1];
+      return last ? last.amount : null;
+    })()`);
+  }
+  const keys = await ev(`(() => {
+    window.__visited = new Set();
+    window.print = () => {};
+    const names = Object.keys(views);
+    for (const key of names) {
+      const fn = views[key];
+      views[key] = arg => { window.__visited.add(key); return fn(arg); };
+    }
+    return names;
+  })()`);
+  const listed = routeList(keys || []);
+  const appIds = await ev(`(window.AccountPayment && AccountPayment.amountFieldIds) ? Array.from(AccountPayment.amountFieldIds) : null`);
+  const testIds = await ev(`window.__amountIds.slice()`);
+  const idsEqual = guardSameIds(appIds, testIds);
+  const tokenProbes = await ev(`Object.fromEntries(['1500000','١٥٠٠٠٠٠','۱۵۰۰۰۰۰','1,50000','15,0000','1٬500٬000','1,500,000','0','999'].map(t => [t, window.__checkTokens(t).length]))`);
+  const probeOk = tokenProbes && tokenProbes['1500000'] > 0 && tokenProbes['١٥٠٠٠٠٠'] > 0 && tokenProbes['۱۵۰۰۰۰۰'] > 0 && tokenProbes['1,50000'] > 0 && tokenProbes['15,0000'] > 0 && tokenProbes['1٬500٬000'] > 0 && tokenProbes['1,500,000'] === 0 && tokenProbes['0'] === 0 && tokenProbes['999'] === 0;
+  check('separator guard ' + role + ' token rules', !!probeOk);
+  if (role === 'owner') {
+    await nav('#entry/p-school');
+    await click('[data-type="materials"]');
+    const entryShown = await fill('#amt', '١٥٠٠٠٠٠');
+    await scan('entry typed ١٥٠٠٠٠٠');
+    await click('#save');
+    ids.newEntry = await ev(`(() => { const rows = AJ.get('entries') || []; const last = rows[rows.length - 1]; return last && last.amount === 1500000 ? last.id : ''; })()`) || '';
+    check('#amt Arabic digits show 1,500,000 and save 1500000', entryShown === '1,500,000' && !!ids.newEntry);
+    await nav('#project/p-school');
+    const beforeContract = await ev(`((AJ.get('projectFinance') || {})['p-school'] || {}).contractAmount`);
+    const contractBad = await fill('#contract', '2,5');
+    await click('#save-contract');
+    const contractState = await ev(`(() => { const fin = (AJ.get('projectFinance') || {})['p-school'] || {}; const el = document.querySelector('#contract'); return { amount: fin.contractAmount, value: el && el.value }; })()`);
+    check('#contract 2,5 is refused', contractBad === '2,5' && contractState && contractState.amount === beforeContract && contractState.value === '2,5');
+    const contractArabic = await fill('#contract', '١٥٠٠٠٠٠');
+    await scan('contract typed ١٥٠٠٠٠٠');
+    await click('#save-contract');
+    await nav('#home');
+    await nav('#project/p-school');
+    await scan('contract reopened after save');
+    check('#contract Arabic digits show 1,500,000', contractArabic === '1,500,000');
+    async function amountCase(route, field, other, otherVal, save, storeKey, kind) {
+      await nav(route);
+      const before = await storeCount(storeKey);
+      const refused = await fill(field, '2,5');
+      await click(save);
+      const refusedField = await ev(`(document.querySelector(${JSON.stringify(field)}) || {}).value`);
+      const afterRefuse = await storeCount(storeKey);
+      check(field + ' 2,5 is refused', refused === '2,5' && refusedField === '2,5' && afterRefuse === before);
+      const misGroup = await fill(field, '1,50000');
+      await ev(`(() => { const el = document.querySelector(${JSON.stringify(other)}); if (el && !String(el.value || '').trim()) el.value = ${JSON.stringify(otherVal)}; return true; })()`);
+      await scan(field + ' typed 1,50000');
+      await click(save);
+      const savedShort = await lastStored(kind);
+      check(field + ' 1,50000 shows 150,000 and saves 150000', misGroup === '150,000' && savedShort === 150000);
+      await nav(route);
+      const beforeArabic = await storeCount(storeKey);
+      const arabic = await fill(field, '١٥٠٠٠٠٠');
+      await ev(`(() => { const el = document.querySelector(${JSON.stringify(other)}); if (el && !String(el.value || '').trim()) el.value = ${JSON.stringify(otherVal)}; return true; })()`);
+      await scan(field + ' typed ١٥٠٠٠٠٠');
+      await click(save);
+      const savedArabic = await lastStored(kind);
+      const afterArabic = await storeCount(storeKey);
+      check(field + ' Arabic digits show 1,500,000 and save 1500000', arabic === '1,500,000' && savedArabic === 1500000 && afterArabic === beforeArabic + 1);
+      await nav(route);
+      const beforeRepaint = await storeCount(storeKey);
+      const again = await fill(field, '١٥٠٠٠٠٠');
+      await ev(`(() => { const el = document.querySelector(${JSON.stringify(other)}); if (el) el.value = ''; return true; })()`);
+      await click(save);
+      const kept = await ev(`(document.querySelector(${JSON.stringify(field)}) || {}).value`);
+      const afterRepaint = await storeCount(storeKey);
+      check(field + ' repaint after a refused save keeps 1,500,000', again === '1,500,000' && kept === '1,500,000' && afterRepaint === beforeRepaint);
+      await scan(field + ' repaint after refused save');
+    }
+    await amountCase('#subnew/p-school', '#sub-amount', '#sub-name', 'فحص فوارز', '#save-sub', 'subcontracts', 'sub');
+    await amountCase('#amend/sc-kahraba', '#am-amount', '#am-date', '2026-10-28', '#save-amend', 'subcontractAmendments', 'am');
+    await nav('#foremannew');
+    await fill('#fm-name', 'حسن فحص');
+    await click('[data-fm="save-foreman"]');
+    ids.fm = await ev(`((((AJ.get('foremen') || []).slice(-1)[0]) || {}).id) || ''`) || '';
+    if (ids.fm) {
+      await nav('#foreman/' + ids.fm);
+      await click('[data-fm="advance"]');
+      const fmShown = await fill('#fm-amount', '١٥٠٠٠٠٠');
+      if (fmShown != null) {
+        await scan('#fm-amount typed ١٥٠٠٠٠٠');
+        await click('[data-fm="save-move"]');
+      }
+      check('#fm-amount Arabic digits show 1,500,000', fmShown === '1,500,000');
+    } else check('#fm-amount Arabic digits show 1,500,000', false);
+  }
+  await ev(`window.__seedLocal()`);
+  for (const phase of ['cost-null', 'cost-open']) {
+    if (phase === 'cost-open') await ev(`Accounts.CONTRACTOR_COST_START = '2026-10-01'`);
+    const scanned = new Set();
+    for (const key of listed.keys) {
+      let args = [];
+      for (const arg of GUARD_ARGS[key] || []) {
+        if (arg === '@newEntry') { if (ids.newEntry) args.push(ids.newEntry); }
+        else if (arg === '@fm') { if (ids.fm) args.push(ids.fm); }
+        else if (String(arg).startsWith('@links:')) {
+          const prefix = String(arg).slice(7);
+          const sources = GUARD_LINK_SOURCE[prefix] === '@sub' ? (await nav('#project/p-school'), await links('#sub/')) : [GUARD_LINK_SOURCE[prefix]];
+          for (const source of sources) {
+            await nav(source);
+            for (const href of await links(prefix)) args.push(href.slice(prefix.length));
+          }
+        } else args.push(arg);
+      }
+      args = [...new Set(args)];
+      if ((GUARD_ARGS[key] || []).some(arg => String(arg).startsWith('@links:')) && args.filter(Boolean).length === 0 && GUARD_FALLBACK[key] && GUARD_FALLBACK[key].length) {
+        args = args.concat(GUARD_FALLBACK[key]);
+        fallbacks.push(phase + ' ' + key + ' -> ' + GUARD_FALLBACK[key].join(','));
+      }
+      if (key === 'foremanmove' && !args.length) {
+        args = ['none'];
+        fallbacks.push(phase + ' foremanmove -> none');
+      }
+      for (const arg of args) {
+        const hash = '#' + key + (arg ? '/' + arg : '');
+        await nav(hash);
+        scanned.add(hash);
+        await scan(role + ' ' + phase + ' ' + hash);
+        if (key === 'detail' && role === 'owner') {
+          const printed = await ev(`(() => { const b = document.querySelector('#entry-print'); if (b) b.click(); return !!b; })()`);
+          if (printed) await scan(role + ' print ' + hash, ['#print-root']);
+        }
+        if (key === 'account') {
+          const tabs = await ev(`[...document.querySelectorAll('[data-acctab]')].map(b => b.dataset.acctab)`) || [];
+          for (const tab of tabs) {
+            await nav(hash);
+            await ev(`(() => { const b = document.querySelector(${JSON.stringify('[data-acctab="' + tab + '"]')}); if (b) b.click(); return !!b; })()`);
+            scanned.add(hash + ' tab ' + tab);
+            await scan(role + ' ' + phase + ' ' + hash + ' tab ' + tab);
+            if (tab === 'statement') {
+              await guardPage.send('Emulation.setEmulatedMedia', { media: 'print' });
+              await scan(role + ' ' + phase + ' ' + hash + ' statement print media');
+              await guardPage.send('Emulation.setEmulatedMedia', { media: 'screen' });
+            }
+          }
+          const seenTabs = await ev(`[...document.querySelectorAll('[data-acctab]')].map(b => b.dataset.acctab)`) || [];
+          for (const tab of seenTabs) if (!scanned.has(hash + ' tab ' + tab)) routeMiss.push(phase + ' ' + hash + ' tab ' + tab);
+        }
+        if (key === 'contractor' && role === 'owner' && arg && arg !== 'new') {
+          await ev(`(() => { const b = document.querySelector('[data-ctarget]'); if (b) b.click(); return !!b; })()`);
+          const hasAmount = await ev(`!!document.querySelector('#cp-amount')`);
+          if (hasAmount) {
+            await fill('#cp-amount', '١٥٠٠٠٠٠');
+            await scan(role + ' ' + phase + ' ' + hash + ' cp-amount typed');
+          }
+        }
+      }
+    }
+    for (const pair of [['#contractor/', '#contractor'], ['#account/', '#accounts']]) {
+      await nav(pair[1]);
+      for (const href of await links(pair[0])) if (!scanned.has(href)) routeMiss.push(phase + ' ' + href);
+    }
+  }
+  const expect = guardExpect(role);
+  const empty = seen.filter(row => expect.test(row[0]) && row[1] === 0).map(row => row[0]);
+  const visited = await ev(`window.__visited ? [...window.__visited] : []`) || [];
+  const unvisited = listed.keys.filter(key => !visited.includes(key));
+  const labels = seen.map(row => row[0]);
+  const missing = guardRequired(role).filter(prefix => !labels.some(label => label.startsWith(prefix)));
+  return {
+    role, idsEqual, appIds, testIds, tokenProbes, findings, skips, empty, missing, routeMiss, fallbacks,
+    unmapped: listed.unmapped, unvisited, remote: guardPage.remote.slice(), errors: guardPage.errors.slice(),
+    screens: seen.length, seen: labels,
+  };
+}
+
 let chrome;
 (async () => {
   const opened = await openChrome({ userDataDir: '/tmp/aj-chrome-' + Date.now() });
   chrome = opened.chrome;
+  const debugPort = opened.port;
+  if (process.env.AJ_GUARD_ONLY === '1') {
+    const guardResults = [];
+    const guardCheck = (name, ok) => { guardResults.push([name, !!ok]); console.log((ok ? 'PASS ' : 'FAIL ') + name); };
+    await runSeparatorGuard(debugPort, guardCheck);
+    const guardPassed = guardResults.filter(row => row[1]).length;
+    console.log('browser checks: ' + guardPassed + '/' + guardResults.length + ' passed');
+    chrome.kill();
+    process.exit(guardPassed === guardResults.length ? 0 : 1);
+  }
   const tgt = opened.page;
   const ws = await openCdpSocket(tgt.webSocketDebuggerUrl);
   const navLoaders = [];
@@ -1978,6 +2534,7 @@ let chrome;
     };
   })()`);
   check('a hash of an open project does not clear a blocked entry', hashed && hashed.selected === false && hashed.disabled === true && hashed.text.includes(goneSentence));
+  await runSeparatorGuard(debugPort, check);
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
