@@ -169,6 +169,34 @@ jobs:
           test -x "$DEST/pw_run.sh"
           test -x "$DEST/minibrowser-wpe/MiniBrowser"
           export DEBIAN_FRONTEND=noninteractive
+          # AWS-hosted ubuntu-24.04 runners list us-east-2.ec2.archive.ubuntu.com first in
+          # apt's mirror list. On 2026-11-23/24 it ran at 80-350 kB/s and the ~100 MB of WebKit
+          # deps overran this step. Drop only that line; the image's https archive (priority 2)
+          # and security (priority 3) entries stay. Azure runners have no ec2 line: no change.
+          mirrors=/etc/apt/apt-mirrors.txt
+          if [[ -r "$mirrors" && -s "$mirrors" ]]; then
+            cat "$mirrors"
+            if grep -q '\.ec2\.archive\.ubuntu\.com' "$mirrors"; then
+              others=$(grep -v '\.ec2\.archive\.ubuntu\.com' "$mirrors" | grep -Ec '^https?://' || true)
+              if [[ "${others:-0}" -ge 1 ]]; then
+                sudo sed -i '/\.ec2\.archive\.ubuntu\.com/d' "$mirrors"
+                echo "::notice::apt mirror override applied: $(head -n1 "$mirrors")"
+              else
+                echo "::warning::$mirrors has only the ec2 mirror; override not applied"
+              fi
+            else
+              echo "apt mirror override not needed: no ec2 mirror in $mirrors"
+            fi
+          elif [[ -r "$mirrors" ]]; then
+            echo "::warning::$mirrors is empty; apt mirror override not applied"
+          else
+            echo "::warning::$mirrors is missing or unreadable; apt mirror override not applied"
+          fi
+          if grep -rqs '\.ec2\.archive\.ubuntu\.com' /etc/apt/sources.list /etc/apt/sources.list.d/; then
+            echo "::warning::an ec2 apt mirror is listed outside $mirrors; override not applied there"
+          fi
+          echo "apt Acquire settings (no lines = apt defaults):"
+          apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout || true
           # Headless WebKit is the WPE build; Playwright also ldd-checks the GTK build.
           sudo --preserve-env=DEBIAN_FRONTEND bash "$DEST/minibrowser-wpe/install-dependencies.sh" --autoinstall
           sudo --preserve-env=DEBIAN_FRONTEND bash "$DEST/minibrowser-gtk/install-dependencies.sh" --autoinstall
