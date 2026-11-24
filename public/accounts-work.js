@@ -141,22 +141,6 @@
   }
 
   /**
-   * Quantity and days: Arabic digits fold, and a comma is a decimal point.
-   * 2,5 and ٢,٥ are 2.5. They are not 25.
-   * @param {string} raw
-   * @returns {number | null}
-   */
-  function decimalQty(raw) {
-    let text = String(raw || '').trim();
-    text = text.replace(/[٠-٩]/g, ch => String(ch.charCodeAt(0) - 0x0660));
-    text = text.replace(/[۰-۹]/g, ch => String(ch.charCodeAt(0) - 0x06f0));
-    text = text.replace(/[\u066C,]/g, '.').replace(/\u066B/g, '.');
-    if (!/^\d+(\.\d+)?$/.test(text)) return null;
-    const n = Number(text);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  /**
    * @param {string} id
    * @returns {number | null}
    */
@@ -385,7 +369,7 @@
       } else if (method === 'unit' || method === 'daily') {
         if (typeof src.id !== 'string' || !UUID_RE.test(src.id)) return { doc: null, errors: ['method'] };
         const qty = typeof src.approvedQty === 'number' ? src.approvedQty : src.qty;
-        if (typeof qty !== 'number' || !Number.isFinite(qty) || qty < 1 || qty > 100000000) {
+        if (typeof qty !== 'number' || !Number.isInteger(qty) || qty < 1 || qty > 100000000) {
           return { doc: null, errors: ['range'] };
         }
       } else return { doc: null, errors: ['method'] };
@@ -398,9 +382,8 @@
       id: action === 'approveLabor' ? id : src.id,
       agreement,
     };
-    const recordDecimal = action === 'laborQty' && ((typeof src.approvedQty === 'number' && !Number.isInteger(src.approvedQty)) || (typeof src.qty === 'number' && !Number.isInteger(src.qty) && typeof src.approvedQty !== 'number'));
-    if (!recordDecimal && typeof src.approvedQty === 'number') postBody.approvedQty = src.approvedQty;
-    if (!recordDecimal && typeof src.qty === 'number' && typeof src.approvedQty !== 'number') postBody.approvedQty = src.qty;
+    if (typeof src.approvedQty === 'number') postBody.approvedQty = src.approvedQty;
+    if (typeof src.qty === 'number' && typeof src.approvedQty !== 'number') postBody.approvedQty = src.qty;
     if (action === 'approveLabor') {
       const targetId = typeof src.targetId === 'string' ? src.targetId : '';
       postBody.targetId = targetId;
@@ -538,7 +521,7 @@
   function saveMeasure(agreement) {
     if (!costOpen() || !agreement) return;
     const needsQty = agreement.method === 'unit' || agreement.method === 'daily';
-    const qty = decimalQty(field('cw-qty') || field('cw-days'));
+    const qty = digits(field('cw-qty') || field('cw-days'));
     if (needsQty && (qty == null || qty < 1 || qty > 100000000)) {
       screen.msg = sentence(['range']);
       return;

@@ -1122,7 +1122,7 @@ function fakeTabs() {
   };
 }
 
-test('IQD agreement fields group and refuse 2,5; qty and days store 2.5', () => {
+test('IQD agreement fields group and refuse 2,5', () => {
   /**
    * @param {string} id
    */
@@ -1194,34 +1194,5 @@ test('IQD agreement fields group and refuse 2,5; qty and days store 2.5', () => 
     const per = store.agreements[store.agreements.length - 1];
     assert.equal(per.unitRate, 1000);
     assert.equal(per.unitQty, 25);
-    const id = brick().id;
-    store.agreements = [Object.assign(brick(), { createdBy: 'u-ameer', deviceId: 'phone' })];
-    const view = install();
-    view.views.contractor(id);
-    setFields({ 'cw-qty': '2,5' });
-    UI.onClick(/** @type {any} */ ({ id: 'act-labor-qty', disabled: false, dataset: {} }));
-    setFields({ 'cw-qty': '٢,٥' });
-    UI.onClick(/** @type {any} */ ({ id: 'act-labor-qty', disabled: false, dataset: {} }));
-    const qtyRows = store.accountTxns.filter(row => row.purpose === 'laborQty');
-    assert.deepEqual(qtyRows.map(row => row.qty), [2.5, 2.5]);
-    store.accountTxns = [];
-    store.agreements = [{
-      id: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee',
-      method: 'daily',
-      partyId: 'party-1',
-      projectId: 'job',
-      description: 'يوم',
-      currency: 'IQD',
-      dayRate: 1000,
-      createdBy: 'u-ameer',
-      deviceId: 'phone',
-    }];
-    view.views.contractor('bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee');
-    setFields({ 'cw-days': '2,5' });
-    UI.onClick(/** @type {any} */ ({ id: 'act-labor-qty', disabled: false, dataset: {} }));
-    setFields({ 'cw-days': '٢,٥' });
-    UI.onClick(/** @type {any} */ ({ id: 'act-labor-qty', disabled: false, dataset: {} }));
-    const dayRows = store.accountTxns.filter(row => row.purpose === 'laborQty');
-    assert.deepEqual(dayRows.map(row => row.qty), [2.5, 2.5]);
   });
 });

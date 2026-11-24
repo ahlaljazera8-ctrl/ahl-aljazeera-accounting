@@ -16,7 +16,7 @@ Ameer, 2026-11-23 12:36: «إذا كتبت أرقام عربية، تبين أر
 
 The comma rules already shipped on `cp-amount`, `cp-return`, and `cp-refund` stay identical:
 
-- A short group is refused. `2,5`, `٢,٥`, `٢\u066C٥`, and `1,0,0` stay refused. They are not stored as a shorter number (`2,5` is not stored as `25`). This refusal is the amount-field rule. `#cw-qty` and `#cw-days` do not use it. On those two fields only, a comma is a decimal point (M3, closed).
+- A short group is refused. `2,5`, `٢,٥`, `٢\u066C٥`, and `1,0,0` stay refused. They are not stored as a shorter number (`2,5` is not stored as `25`). This refusal is the amount-field rule. `#cw-qty` and `#cw-days` do not use it. M3, a decimal comma on those two fields, is deferred to a separate plan.
 - A long mis-group, typed or pasted, is regrouped on screen. `1,50000` and `١` + U+066C + `٥٠٠٠٠` show `150,000` and save as `150000`. `plainAmount('1,50000')` is `null` (`public/accounts-payment.js` lines 189-194 and the test at `tests/accounts-payment.test.js` line 1257). The save reads the field after `groupThousands` has rewritten it.
 - U+066C is a comma, the same replacement `L.parseAmount` does at `public/ledger.js` line 171.
 
@@ -52,13 +52,13 @@ The open values `1,500,000` and `200,000` are the hard-coded samples at `public/
 
 These are numeric inputs on «مقاول». They are counts. This sketch does not put thousand separators on them, and slice 4 does not pick them up.
 
-| Field      | Label       | Where                              | Stored as                                                     |
-| ---------- | ----------- | ---------------------------------- | ------------------------------------------------------------- |
-| `#cw-per`  | لكل كم      | `public/accounts-work.js` line 899 | `unitQty`, cap `1000000` (lines 243-244 and 488)              |
-| `#cw-qty`  | كمية منجزة  | line 977                           | the reader stores `2,5` as `2.5`. Cap `100000000` (line 541). |
-| `#cw-days` | أيام معتمدة | line 979                           | the same reader. A comma is a decimal point.                  |
+| Field      | Label       | Where                              | Stored as                                                                    |
+| ---------- | ----------- | ---------------------------------- | ---------------------------------------------------------------------------- |
+| `#cw-per`  | لكل كم      | `public/accounts-work.js` line 899 | `unitQty`, cap `1000000` (lines 243-244 and 488)                             |
+| `#cw-qty`  | كمية منجزة  | line 961                           | `qty` via `digits` (line 524). `2,5` stays `25`. Cap `100000000` (line 525). |
+| `#cw-days` | أيام معتمدة | line 963                           | the same `digits` call. A decimal comma is deferred with M3.                 |
 
-`#cw-per` stays a count on `digits`. `#cw-qty` and `#cw-days` do not take thousand separators. M3 is closed under Decided: those two accept Arabic digits, and a comma is a decimal point, so `2,5` is stored as `2.5`. It is not refused, and it is not stored as `25`. Slice 3 is that reader. The «حسابات» pill `السلف` (`public/accounts-view.js` line 410) filters rows. It is not an input. `AccountsView.onInput` only reads `#statement-from` (lines 609-614).
+`#cw-per` stays a count on `digits`. `#cw-qty` and `#cw-days` do not take thousand separators. They stay on `digits`, so `2,5` is `25` and Arabic digits are refused. M3 is deferred: Ameer, 2026-11-24 06:28 Baghdad, said «إي، كمّل الفلوس هسه والكسور خطة منفصلة». A decimal comma on those two, `2,5` stored as `2.5`, waits for a separate plan. That plan needs a `firestore.rules` `qtyOk` change, the earned-amount math, and Architect and accountant review. The «حسابات» pill `السلف` (`public/accounts-view.js` line 410) filters rows. It is not an input. `AccountsView.onInput` only reads `#statement-from` (lines 609-614).
 
 ## Reuse
 
@@ -77,7 +77,7 @@ A key the shared listener cancels is followed by a bubbling `input` event on tha
 
 `render.js` registers its `input` listener first (line 1618) and calls `ForemenUI.onInput` (line 1621). The payment listener is registered later, inside `install`. On a normal keystroke, `onInput` copies the value before `applyGroupedAmount` runs. Slice 2 calls `applyGroupedAmount` at the start of `onInput`, then copies, and the call is inside the guard. Calling it twice is safe: the second call sees an unchanged value and returns (line 243).
 
-`digits` in `public/accounts-work.js` (lines 136-141) strips every comma, so `2,5` becomes `25`, and it refuses Arabic digits. Slice 3 reads the four IQD fields with `plainAmount` in the same pull request that adds them to `isAmountField`. `#cw-per` stays on `digits`. `#cw-qty` and `#cw-days` do not use that amount-field comma rule. M3 is closed: on those two only, Arabic digits are accepted and a comma is a decimal point, so `2,5` is stored as `2.5`. That reader lands in slice 3, not in slice 0.
+`digits` in `public/accounts-work.js` (lines 136-141) strips every comma, so `2,5` becomes `25`, and it refuses Arabic digits. Slice 3 reads the four IQD fields with `plainAmount` in the same pull request that adds them to `isAmountField`. `#cw-per`, `#cw-qty`, and `#cw-days` stay on `digits`. M3, a decimal comma on the last two, is deferred to a separate plan.
 
 Screens that already save through `L.parseAmount` keep that call, on the field text. `parseAmount` already accepts a proper group and a plain integer, folds Arabic digits, refuses a short group, and carries the ceiling and `allowZero`. `plainAmount` replaces `digits` on the four IQD fields, because `digits` does not refuse `2,5`.
 
@@ -130,7 +130,7 @@ Files: `public/accounts-payment.js`, `public/foremen.js`, the behavior test, and
 
 ### 3. المقاول, leftover IQD fields
 
-Starts after slice 0 is on main. H already grouped `#cp-amount`, `#cp-return`, and `#cp-refund`. This slice adds `cw-lump`, `cw-rate`, `cw-day`, and `cw-mile` to `isAmountField`. `saveAgreement` (`public/accounts-work.js` lines 512-517) reads those four with `plainAmount`. `#cw-per` stays on `digits`. `#cw-qty` and `#cw-days` are not amount fields and are not added to `isAmountField`. This same later slice, not slice 0, is where M3 is implemented: those two accept Arabic digits, and a comma is a decimal point. `2,5` is stored as `2.5`. It is not refused, and it is not stored as `25`. They do not use the amount-field comma rule. Both IQD edits for the four amount fields land in this pull request: a listener that leaves `2,5` on those amount fields, read by `digits`, would store `25`.
+Starts after slice 0 is on main. H already grouped `#cp-amount`, `#cp-return`, and `#cp-refund`. This slice adds `cw-lump`, `cw-rate`, `cw-day`, and `cw-mile` to `isAmountField`. `saveAgreement` (`public/accounts-work.js` lines 496-501) reads those four with `plainAmount`. `#cw-per` stays on `digits`. `#cw-qty` and `#cw-days` are not amount fields and are not added to `isAmountField`. They stay on `digits`. M3, storing `2,5` as `2.5` on those two, is deferred to a separate plan. It needs a `firestore.rules` `qtyOk` change, the earned-amount math, and Architect and accountant review. Slice 3 does not do that. Both IQD edits for the four amount fields land in this pull request: a listener that leaves `2,5` on those amount fields, read by `digits`, would store `25`.
 
 `digits('1,50000')` is already `150000`, because `digits` strips every comma. This slice is not the refuse-to-save change. The four IQD fields go through `groupThousands` and then `plainAmount`, and the slice tests that `2,5` is refused.
 
@@ -156,7 +156,7 @@ Files: `public/render.js` (both forms), `public/accounts-payment.js` (the ids), 
 
 ## Decided
 
-- M3. Closed. Ameer, 2026-11-23 20:03 Asia/Baghdad: «نعم دعها تقبل». `#cw-qty` and `#cw-days` accept Arabic digits. Ameer, 2026-11-23 20:04 Asia/Baghdad, a correction that supersedes any reading of the 20:03 exchange as refusing `2,5` the way an amount field does: «2,5 تتحول الى 2.5». On these two fields only, a comma is a decimal point. `2,5` is stored as `2.5`. It is not refused, and it is not stored as `25`. Amount fields keep the H rule: a short group is refused, a long mis-group is regrouped, and Arabic digits show as Western grouped amounts. The code lands in the later work / مقاول slice that already touches `#cw-qty` and `#cw-days` (slice 3, `public/accounts-work.js`), not in slice 0. Slice 0 does not edit that file and does not add a field id.
+- M3. Deferred. Ameer, 2026-11-23 20:03 Asia/Baghdad: «نعم دعها تقبل». Ameer, 2026-11-23 20:04 Asia/Baghdad: «2,5 تتحول الى 2.5». On `#cw-qty` and `#cw-days` only, a comma would be a decimal point and `2,5` would be stored as `2.5`. Ameer, 2026-11-24 06:28 Baghdad: «إي، كمّل الفلوس هسه والكسور خطة منفصلة». Slice 3 does the money fields only. The decimal quantity is a separate plan. It needs a `firestore.rules` `qtyOk` change, the earned-amount math, and Architect and accountant review. This sketch does not make that change.
 - The question of what «الأسطة» names is dropped. Ameer did not use that word. EA's correction records that, and Ameer said «شوكت قلت الاسطة». `#sub-amount` and `#am-amount` are amount fields under slice 5. That slice number is this plan's sequence, not a decision recorded from Ameer.
 
 ## [OPEN]
