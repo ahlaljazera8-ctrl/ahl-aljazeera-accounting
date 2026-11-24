@@ -141,6 +141,32 @@
   }
 
   /**
+   * Quantity and days: Arabic digits fold, and a comma is a decimal point.
+   * 2,5 and ٢,٥ are 2.5. They are not 25.
+   * @param {string} raw
+   * @returns {number | null}
+   */
+  function decimalQty(raw) {
+    let text = String(raw || '').trim();
+    text = text.replace(/[٠-٩]/g, ch => String(ch.charCodeAt(0) - 0x0660));
+    text = text.replace(/[۰-۹]/g, ch => String(ch.charCodeAt(0) - 0x06f0));
+    text = text.replace(/[\u066C,]/g, '.').replace(/\u066B/g, '.');
+    if (!/^\d+(\.\d+)?$/.test(text)) return null;
+    const n = Number(text);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /**
+   * @param {string} id
+   * @returns {number | null}
+   */
+  function plainField(id) {
+    const host = /** @type {typeof globalThis & { AccountPayment?: { plainAmount?: (value: string) => number | null } }} */ (globalThis);
+    if (typeof host.AccountPayment === 'undefined' || !host.AccountPayment || typeof host.AccountPayment.plainAmount !== 'function') return null;
+    return host.AccountPayment.plainAmount(field(id));
+  }
+
+  /**
    * @param {string} id
    */
   function field(id) {
@@ -359,7 +385,7 @@
       } else if (method === 'unit' || method === 'daily') {
         if (typeof src.id !== 'string' || !UUID_RE.test(src.id)) return { doc: null, errors: ['method'] };
         const qty = typeof src.approvedQty === 'number' ? src.approvedQty : src.qty;
-        if (typeof qty !== 'number' || !Number.isInteger(qty) || qty < 1 || qty > 100000000) {
+        if (typeof qty !== 'number' || !Number.isFinite(qty) || qty < 1 || qty > 100000000) {
           return { doc: null, errors: ['range'] };
         }
       } else return { doc: null, errors: ['method'] };
@@ -372,8 +398,9 @@
       id: action === 'approveLabor' ? id : src.id,
       agreement,
     };
-    if (typeof src.approvedQty === 'number') postBody.approvedQty = src.approvedQty;
-    if (typeof src.qty === 'number' && typeof src.approvedQty !== 'number') postBody.approvedQty = src.qty;
+    const recordDecimal = action === 'laborQty' && ((typeof src.approvedQty === 'number' && !Number.isInteger(src.approvedQty)) || (typeof src.qty === 'number' && !Number.isInteger(src.qty) && typeof src.approvedQty !== 'number'));
+    if (!recordDecimal && typeof src.approvedQty === 'number') postBody.approvedQty = src.approvedQty;
+    if (!recordDecimal && typeof src.qty === 'number' && typeof src.approvedQty !== 'number') postBody.approvedQty = src.qty;
     if (action === 'approveLabor') {
       const targetId = typeof src.targetId === 'string' ? src.targetId : '';
       postBody.targetId = targetId;
@@ -483,12 +510,12 @@
       projectId: screen.projectId,
       method: screen.method,
       description: field('cw-desc'),
-      lumpAmount: /** @type {number} */ (digits(field('cw-lump'))),
-      unitRate: /** @type {number} */ (digits(field('cw-rate'))),
+      lumpAmount: /** @type {number} */ (plainField('cw-lump')),
+      unitRate: /** @type {number} */ (plainField('cw-rate')),
       unitQty: /** @type {number} */ (digits(field('cw-per'))),
       unitName: field('cw-unit'),
-      dayRate: /** @type {number} */ (digits(field('cw-day'))),
-      milestoneAmount: /** @type {number} */ (digits(field('cw-mile'))),
+      dayRate: /** @type {number} */ (plainField('cw-day')),
+      milestoneAmount: /** @type {number} */ (plainField('cw-mile')),
       createdBy: who.createdBy,
       deviceId: who.deviceId,
     });
@@ -511,7 +538,7 @@
   function saveMeasure(agreement) {
     if (!costOpen() || !agreement) return;
     const needsQty = agreement.method === 'unit' || agreement.method === 'daily';
-    const qty = digits(field('cw-qty') || field('cw-days'));
+    const qty = decimalQty(field('cw-qty') || field('cw-days'));
     if (needsQty && (qty == null || qty < 1 || qty > 100000000)) {
       screen.msg = sentence(['range']);
       return;

@@ -320,6 +320,7 @@ test('a grouped foreman amount follows the sentence and the saved number', () =>
   amountText.textContent = '';
   for (const ch of '1,50000') typeChar(ch);
   assert.equal(input.value, '150,000');
+  assert.equal(amountText.textContent, '150,000');
   sandbox.ForemenUI.onClick({ disabled: false, dataset: { fm: 'save-move', id: 'fm-hassan' } });
   const regrouped = box.foremanMoves.filter(row => row && row.amount === 150000);
   assert.equal(regrouped.length, 1);
