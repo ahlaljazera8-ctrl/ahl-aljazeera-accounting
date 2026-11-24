@@ -975,11 +975,25 @@
     setHtml(document.querySelector('#' + slotId), pointerPreviewInner(field(inputId)));
   }
 
+  /** Ids the shared listener groups. #cw-qty, #cw-days, and #cw-per stay out. */
+  const AMOUNT_FIELD_IDS = Object.freeze([
+    'cp-amount',
+    'cp-return',
+    'cp-refund',
+    'amt',
+    'fm-amount',
+    'cw-lump',
+    'cw-rate',
+    'cw-day',
+    'cw-mile',
+    'contract',
+  ]);
+
   /**
    * @param {{ id?: string } | null} target
    */
   function isAmountField(target) {
-    return !!target && (target.id === 'cp-amount' || target.id === 'cp-return' || target.id === 'cp-refund' || target.id === 'amt' || target.id === 'fm-amount' || target.id === 'cw-lump' || target.id === 'cw-rate' || target.id === 'cw-day' || target.id === 'cw-mile');
+    return !!target && typeof target.id === 'string' && AMOUNT_FIELD_IDS.includes(target.id);
   }
 
   /**
@@ -1178,5 +1192,6 @@
     groupThousands,
     plainAmount,
     applyGroupedAmount,
+    amountFieldIds: AMOUNT_FIELD_IDS,
   };
 });

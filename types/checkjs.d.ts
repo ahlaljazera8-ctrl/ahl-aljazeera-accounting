@@ -942,6 +942,8 @@ interface AccountPaymentApi {
   plainAmount(raw: string): number | null;
   /** Group the field and keep the caret on the same digit. */
   applyGroupedAmount(input: GroupedAmountInput): void;
+  /** Ids the shared listener groups. #cw-qty, #cw-days, and #cw-per stay out. */
+  readonly amountFieldIds: readonly string[];
 }
 
 type PayMethod = 'lump' | 'unit' | 'daily' | 'milestone';
