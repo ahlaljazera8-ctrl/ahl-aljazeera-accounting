@@ -987,6 +987,8 @@
     'cw-day',
     'cw-mile',
     'contract',
+    'sub-amount',
+    'am-amount',
   ]);
 
   /**

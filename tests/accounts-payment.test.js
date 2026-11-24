@@ -1654,6 +1654,8 @@ test('amount field ids are exactly the grouped set', () => {
     'cw-day',
     'cw-mile',
     'contract',
+    'sub-amount',
+    'am-amount',
   ]);
 });
 
@@ -1663,8 +1665,17 @@ test('cw-qty, cw-days, and cw-per stay out of the amount fields', () => {
   assert.equal(Pay.amountFieldIds.includes('cw-per'), false);
 });
 
-test('an opened contract groups the integer and keeps 0', () => {
-  assert.equal(Pay.groupThousands(String(60000000)), '60,000,000');
+test('an opened contract paints the grouped integer and keeps 0', () => {
+  const renderSrc = fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8');
+  const start = renderSrc.indexOf('function contractFields');
+  const end = renderSrc.indexOf('function saveContract');
+  const paint = renderSrc.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(paint, /groupThousands\(String\(amount\)\)/);
+  assert.equal(paint.includes('value="${esc(String(amount))}"'), false);
+  const opened = Pay.groupThousands(String(60000000));
+  assert.equal(opened, '60,000,000');
+  assert.match(paint, /id="contract"/);
   assert.equal(Pay.groupThousands(String(0)), '0');
   assert.equal(Pay.groupThousands('0'), '0');
   /**

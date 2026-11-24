@@ -234,7 +234,11 @@ test('browser-check owns network emulation and document loads', () => {
   const reloadBody = sliceBetween(src, 'const reload = async', 'const results = []');
   assert.equal(reloadBody.includes("send('Page.reload'"), true);
   assert.equal(reloadBody.includes("send('Page.navigate'"), false);
-  const outside = src.replace(goBody, '').replace(reloadBody, '');
+  const guardBody = sliceBetween(src, 'async function openGuardPage', 'async function runSeparatorGuard');
+  assert.equal(guardBody.includes("page.send('Page.navigate'"), true);
+  assert.equal(guardBody.includes('Network.emulateNetworkConditions'), false);
+  assert.equal(guardBody.includes("send('Page.reload'"), false);
+  const outside = src.replace(goBody, '').replace(reloadBody, '').replace(guardBody, '');
   assert.equal(outside.includes("send('Page.navigate'"), false);
   assert.equal(outside.includes("send('Page.reload'"), false);
 });
