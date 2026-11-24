@@ -84,6 +84,7 @@ g.document = {
 const UI = require('../public/accounts-view.js');
 g.AccountsView = UI;
 const Work = require('../public/accounts-work.js');
+g.AccountPayment = require('../public/accounts-payment.js');
 
 const AG_UNIT = ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'unitRate', 'unitQty', 'unitName'];
 const AG_LUMP = ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'lumpAmount'];
@@ -1120,3 +1121,78 @@ function fakeTabs() {
     },
   };
 }
+
+test('IQD agreement fields group and refuse 2,5', () => {
+  /**
+   * @param {string} id
+   */
+  function group(id) {
+    const el = /** @type {any} */ (fields[id]);
+    el.selectionStart = String(el.value).length;
+    el.selectionEnd = el.selectionStart;
+    el.setSelectionRange = (start, end) => {
+      el.selectionStart = start;
+      el.selectionEnd = end;
+    };
+    g.AccountPayment.applyGroupedAmount(el);
+  }
+  /**
+   * @param {'lump'|'unit'|'daily'|'milestone'} method
+   */
+  function begin(method) {
+    const view = install();
+    view.views.contractor('');
+    UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cparty: 'party-1' } }));
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cproj: 'job' } }));
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cmethod: method } }));
+    return view;
+  }
+  reset();
+  withStart('2026-11-22', () => {
+    store.parties = [{ id: 'party-1', name: 'حسن' }];
+    store.projects = [{ id: 'job', name: 'مشروع', status: 'active' }];
+    const cases = [
+      ['lump', 'cw-lump', 'lumpAmount'],
+      ['unit', 'cw-rate', 'unitRate'],
+      ['daily', 'cw-day', 'dayRate'],
+      ['milestone', 'cw-mile', 'milestoneAmount'],
+    ];
+    for (const [method, id, key] of cases) {
+      begin(/** @type {'lump'|'unit'|'daily'|'milestone'} */ (method));
+      const values = { 'cw-desc': 'عمل' };
+      values[id] = '1,50000';
+      if (method === 'unit') {
+        values['cw-per'] = '4000';
+        values['cw-unit'] = 'طوبة';
+      }
+      setFields(values);
+      group(id);
+      assert.equal(fields[id].value, '150,000', id);
+      const before = store.agreements.length;
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      assert.equal(store.agreements.length, before + 1, id);
+      assert.equal(store.agreements[store.agreements.length - 1][key], 150000, id);
+      begin(/** @type {'lump'|'unit'|'daily'|'milestone'} */ (method));
+      const refused = { 'cw-desc': 'رفض' };
+      refused[id] = '2,5';
+      if (method === 'unit') {
+        refused['cw-per'] = '4000';
+        refused['cw-unit'] = 'طوبة';
+      }
+      setFields(refused);
+      group(id);
+      assert.equal(fields[id].value, '2,5', id);
+      const held = store.agreements.length;
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      assert.equal(store.agreements.length, held, id);
+    }
+    begin('unit');
+    setFields({ 'cw-desc': 'لكل', 'cw-rate': '1000', 'cw-per': '2,5', 'cw-unit': 'طوبة' });
+    group('cw-rate');
+    UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+    const per = store.agreements[store.agreements.length - 1];
+    assert.equal(per.unitRate, 1000);
+    assert.equal(per.unitQty, 25);
+  });
+});

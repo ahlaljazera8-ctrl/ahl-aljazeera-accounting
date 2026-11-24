@@ -142,6 +142,16 @@
 
   /**
    * @param {string} id
+   * @returns {number | null}
+   */
+  function plainField(id) {
+    const host = /** @type {typeof globalThis & { AccountPayment?: { plainAmount?: (value: string) => number | null } }} */ (globalThis);
+    if (typeof host.AccountPayment === 'undefined' || !host.AccountPayment || typeof host.AccountPayment.plainAmount !== 'function') return null;
+    return host.AccountPayment.plainAmount(field(id));
+  }
+
+  /**
+   * @param {string} id
    */
   function field(id) {
     const el = document.querySelector('#' + id);
@@ -483,12 +493,12 @@
       projectId: screen.projectId,
       method: screen.method,
       description: field('cw-desc'),
-      lumpAmount: /** @type {number} */ (digits(field('cw-lump'))),
-      unitRate: /** @type {number} */ (digits(field('cw-rate'))),
+      lumpAmount: /** @type {number} */ (plainField('cw-lump')),
+      unitRate: /** @type {number} */ (plainField('cw-rate')),
       unitQty: /** @type {number} */ (digits(field('cw-per'))),
       unitName: field('cw-unit'),
-      dayRate: /** @type {number} */ (digits(field('cw-day'))),
-      milestoneAmount: /** @type {number} */ (digits(field('cw-mile'))),
+      dayRate: /** @type {number} */ (plainField('cw-day')),
+      milestoneAmount: /** @type {number} */ (plainField('cw-mile')),
       createdBy: who.createdBy,
       deviceId: who.deviceId,
     });
