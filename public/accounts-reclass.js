@@ -509,7 +509,7 @@
   function rowFacts(entry) {
     const name = entry.partyName ? '<div>' + esc(entry.partyName) + '</div>' : '';
     const description = entry.description ? '<div>' + esc(entry.description) + '</div>' : '';
-    return '<div>' + esc(money(entry.amount)) + '</div><div>' + DATE_LABEL + ' ' + esc(entry.entryDate) + '</div><code>' + esc(entry.id) + '</code>' + name + description;
+    return '<div>' + esc(money(entry.amount)) + '</div><div>' + DATE_LABEL + ' <bdi class="num">' + esc(entry.entryDate) + '</bdi></div><code>' + esc(entry.id) + '</code>' + name + description;
   }
 
   /** @param {string} projectId */
@@ -528,7 +528,7 @@
       const entry = state.expense;
       let extra = '';
       if (state.kind === 'bothFacts') {
-        extra = '<div>' + DEDUCTED + ' ' + esc(state.review.reviewedOn) + ' ' + esc(state.review.createdByName) + '</div><div>' + STRINGS.cancel + ' <code>' + esc(state.revId) + '</code></div>' +
+        extra = '<div>' + DEDUCTED + ' <bdi class="num">' + esc(state.review.reviewedOn) + '</bdi> ' + esc(state.review.createdByName) + '</div><div>' + STRINGS.cancel + ' <code>' + esc(state.revId) + '</code></div>' +
           state.advanceIds.map(id => '<code>' + esc(id) + '</code>').join('');
       } else if (state.kind === 'open') {
         const cancel = state.canCancel
@@ -540,7 +540,7 @@
       } else if (state.kind === 'reviewed') {
         const rev = revOf(String(entry.id || ''), /** @type {LedgerEntry[]} */ (get(K.entries, []) || []));
         const note = rev && Object.prototype.hasOwnProperty.call(/** @type {Record<string, unknown>} */ (get(K.syncErrors, {}) || {}), String(rev.id || '')) ? '<div>' + REFUSED + '</div>' : '';
-        extra = '<div>' + DEDUCTED + ' ' + esc(state.review.reviewedOn) + ' ' + esc(state.review.createdByName) + '</div>' + note;
+        extra = '<div>' + DEDUCTED + ' <bdi class="num">' + esc(state.review.reviewedOn) + '</bdi> ' + esc(state.review.createdByName) + '</div>' + note;
       } else if (state.kind === 'reviewRefused' || state.kind === 'revRefused') {
         extra = '<div>' + REFUSED + '</div>';
       }
@@ -604,7 +604,7 @@
     if (!state || state.kind !== 'open' || !state.canCancel) return '';
     const entry = state.expense;
     const amount = money(entry.amount);
-    return '<div class="card" data-rc-cancel-card="' + esc(entry.id) + '"><div>' + DATE_LABEL + ' ' + esc(entry.entryDate) + '</div><code>' + esc(entry.id) + '</code><div>' + WARN + '</div>' +
+    return '<div class="card" data-rc-cancel-card="' + esc(entry.id) + '"><div>' + DATE_LABEL + ' <bdi class="num">' + esc(entry.entryDate) + '</bdi></div><code>' + esc(entry.id) + '</code><div>' + WARN + '</div>' +
       '<div class="kv"><span>' + STRINGS.cancel + '</span> ' + esc(amount) + '</div><div class="kv"><span>' + STRINGS.corrected + '</span> ' + esc(amount) + '</div>' +
       '<label>' + REASON_LABEL + '</label><input id="rc-reason" maxlength="500"><button type="button" data-rc-save-rev="' + esc(entry.id) + '" disabled>' + SAVE + '</button></div>';
   }

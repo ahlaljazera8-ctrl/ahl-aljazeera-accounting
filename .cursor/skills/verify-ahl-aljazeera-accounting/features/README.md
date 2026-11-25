@@ -65,5 +65,6 @@ Each feature file starts with an H1 and one paragraph of user-visible behaviour,
 - [Reverse](./reverse.md) ends one counting approval with `عكس`. The source binding stays null.
 - [Settle](./settle.md) saves `تسوية سلفة` against one advance. The id is `stl_` plus the measurement id plus the generation.
 - [Statement approval](./statement-approval.md) issues `إصدار كشف حساب` for a week that has already ended.
+- [Reclass](./reclass.md) marks one legacy labour row `انخصم` and turns another into an advance. The source binding stays null.
 
 The owner tab «الأشخاص» (`syncPeopleTab` in `public/render.js`) is a real screen and is not in this seed. Add it in a `/maintain-verification-skill` run. Do not claim it was verified. «الرئيسية» is the landing state inside login and the balance check inside the new-entry journey, not a sixth file.

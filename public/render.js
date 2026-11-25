@@ -116,6 +116,7 @@ function accountStores() {
     agreements: get(K.agreements, []),
     accountTxns: get(K.accountTxns, []),
     statementApprovals: get(K.statementApprovals, []),
+    laborReviews: get(K.laborReviews, []),
   };
 }
 /** @param {any} id */
@@ -146,6 +147,7 @@ function refusalDocs() {
   fromList(get(K.agreements, []));
   fromList(get(K.parties, []));
   fromList(get(K.statementApprovals, []));
+  fromList(get(K.laborReviews, []));
   const losers = get(K.slotLosers, {}) || {};
   Object.keys(losers).forEach(key => {
     rows.push({ id: key, doc: losers[key] || {}, message: typeof errors[key] === 'string' ? errors[key] : SyncStatus.CONFLICT });
@@ -1694,8 +1696,8 @@ if (window.AccountsView) {
     saveCsvFiles,
   };
   AccountsView.install(accountsApi);
-  /** @type {Array<'AccountWork' | 'AccountPayment' | 'AccountCorrect' | 'AccountStatement' | 'AccountShare'>} */
-  const accountInstalls = ['AccountWork', 'AccountPayment', 'AccountCorrect', 'AccountStatement', 'AccountShare'];
+  /** @type {Array<'AccountWork' | 'AccountPayment' | 'AccountCorrect' | 'AccountStatement' | 'AccountReclass' | 'AccountShare'>} */
+  const accountInstalls = ['AccountWork', 'AccountPayment', 'AccountCorrect', 'AccountStatement', 'AccountReclass', 'AccountShare'];
   for (const name of accountInstalls) {
     const mod = window[name];
     if (mod && mod.install) mod.install(accountsApi);

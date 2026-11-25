@@ -2624,6 +2624,87 @@ let chrome;
   })()`);
   check('a hash of an open project does not clear a blocked entry', hashed && hashed.selected === false && hashed.disabled === true && hashed.text.includes(goneSentence));
   await runSeparatorGuard(debugPort, check);
+  const reclass = await ev(`(async () => {
+    const errors = [];
+    const previous = console.error;
+    console.error = function () { errors.push(Array.prototype.join.call(arguments, ' ')); return previous.apply(console, arguments); };
+    try {
+      const projects = AJ.get('projects') || [];
+      const job = projects.find(row => row && row.status !== 'archived') || projects[0];
+      if (!job) return { ok: false };
+      const entries = AJ.get('entries') || [];
+      entries.push({ id: 'e80', projectId: job.id, direction: 'expense', entryType: 'labour', amount: 80000, currency: 'IQD', entryDate: '2026-03-04', isReversal: false, description: 'أجر', partyName: 'حسن', createdAtDevice: 1, createdBy: 'u-ameer', createdAtServer: 1, deviceId: 'dev' });
+      await set(K.entries, entries);
+      const parties = AJ.get('parties') || [];
+      if (!parties.some(row => row && row.id === 'p1')) parties.push({ id: 'p1', name: 'حسن' });
+      await set(K.parties, parties);
+      Accounts.CONTRACTOR_COST_START = null;
+      location.hash = '#accounts';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const main = document.querySelector('#main');
+      const list = document.querySelector('[data-rc-list]');
+      const owner = {
+        list: !!list,
+        count: !!(list && /\\(\\d+\\)/.test(list.textContent || '')),
+        row: !!document.querySelector('[data-rc-row="e80"]'),
+        rtl: document.documentElement.dir === 'rtl',
+        hz: document.documentElement.scrollWidth > window.innerWidth,
+        errors: errors.length,
+      };
+      await set(K.role, 'site');
+      render();
+      const site = { list: !!document.querySelector('[data-rc-list]'), owed: !!document.querySelector('[data-rc-owed]') };
+      await set(K.role, 'owner');
+      const users = AJ.get('users') || [];
+      const ameer = users.find(row => row && row.uid === 'u-ameer');
+      const prevActive = ameer && ameer.active;
+      if (ameer) ameer.active = false;
+      await set(K.users, users);
+      render();
+      const off = { list: !!document.querySelector('[data-rc-list]'), owed: !!document.querySelector('[data-rc-owed]') };
+      if (ameer) ameer.active = prevActive;
+      await set(K.users, users);
+      Accounts.CONTRACTOR_COST_START = '2026-10-01';
+      const rev = { id: 'rev_e80', projectId: job.id, direction: 'expense', entryType: 'labour', amount: 80000, currency: 'IQD', entryDate: '2026-11-25', isReversal: true, reversesEntryId: 'e80', reversalReason: 'سبب', description: 'L:e80;تصحيح: أجر', createdAtDevice: 2, createdBy: 'u-ameer', createdAtServer: 1700000000000, deviceId: 'dev' };
+      const nextEntries = AJ.get('entries') || [];
+      nextEntries.push(rev);
+      await set(K.entries, nextEntries);
+      await set(K.accountTxns, [{ id: 'aaaaaaaa-bbbb-4ccc-8ddd-0000000000b3', docType: 'accountTxn', kind: 'body', purpose: 'advanceLabor', projectId: job.id, partyId: 'p1', ledger: 'labor', currency: 'IQD', fxRate: 1, amount: 80000, txnDate: '2026-11-25', description: 'L:e80;2026-03-04 e80', createdBy: 'u-ameer', createdByName: 'أمير', createdAtServer: 1700000000001, deviceId: 'dev' }]);
+      AccountsView.writeAccountScope({ scope: 'project', projectId: job.id, periodKind: 'week', anchorDate: '2026-10-28' });
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const statement = document.querySelector('[data-acctab="statement"]');
+      if (statement) statement.click();
+      const card = !!document.querySelector('[data-st-reclass]');
+      const person = (main && document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const overview = document.querySelector('[data-acctab="overview"]');
+      if (overview) overview.click();
+      const labels = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+      Accounts.CONTRACTOR_COST_START = null;
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: today() });
+      return { ok: true, owner, site, off, card, labels, person };
+    } catch (err) {
+      Accounts.CONTRACTOR_COST_START = null;
+      return { ok: false, error: String(err) };
+    } finally {
+      console.error = previous;
+    }
+  })()`);
+  check(
+    'B1 owner accounts list shows the labour reclass count',
+    !!(reclass && reclass.ok && reclass.owner && reclass.owner.list && reclass.owner.count && reclass.owner.row && reclass.owner.rtl && reclass.owner.hz === false && reclass.owner.errors === 0),
+  );
+  check(
+    'B2 a site user and an inactive owner do not see the reclass lists',
+    !!(reclass && reclass.site && reclass.site.list === false && reclass.site.owed === false && reclass.off && reclass.off.list === false && reclass.off.owed === false),
+  );
+  check('B3 the statement totals name the reclassified advance', !!(reclass && reclass.card === true));
+  check(
+    'B4 the person page uses the approved work and payment labels',
+    !!(reclass && typeof reclass.labels === 'string' && reclass.labels.includes('مجموع العمل المعتمد') && reclass.labels.includes('مجموع المدفوع للعمل')),
+  );
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
