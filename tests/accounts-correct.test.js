@@ -73,7 +73,8 @@ const M2 = '22222222-2222-3333-4444-555555555555';
 const M3 = '33333333-2222-3333-4444-555555555555';
 const WHO = { createdBy: 'u-ameer', deviceId: 'phone', createdByName: 'أمير' };
 const REFUSED = 'رُفض الإرسال';
-const S5 = 'اعكس الاسترداد أو الإرجاع أو الخصم المرتبط أولاً';
+const S5 = 'اعكس الاسترداد أو الإرجاع أو التسوية أو الخصم المرتبط أولاً';
+const S5_OLD = 'اعكس الاسترداد أو الإرجاع أو الخصم المرتبط أولاً';
 const S10 = 'هذا القياس وصل حد 9 خصومات.';
 const S11 = 'رُفض إرسال خصم على هذا القياس.';
 const S12 = 'ما بقى مجال خصم على هذا القياس.';
@@ -687,6 +688,7 @@ test('T-I15 a payment with a live refund explains instead of reversing', () => {
     const blocked = open(view);
     assert.equal(blocked.includes('id="act-reverse-pay1"'), false);
     assert.equal(blocked.includes(S5), true);
+    assert.equal(blocked.includes(S5_OLD), false);
     store.accountTxns = store.accountTxns.concat([{
       id: 'rev_refund1', docType: 'accountTxn', kind: 'rev', purpose: 'refundLabor', ledger: 'labor', amount: 1000,
       reversesId: 'refund1', reversalReason: 'سبب', partyId: 'party-1', projectId: 'p-school', currency: 'IQD', fxRate: 1,
@@ -751,6 +753,7 @@ test('T-I18 a live deduct blocks the approval reversal and a reversed deduct is 
     const html = open(view);
     assert.equal(html.includes('id="act-reverse-appr_m1"'), false);
     assert.equal(html.includes(S5), true);
+    assert.equal(html.includes(S5_OLD), false);
     assert.equal(html.includes('id="act-reverse-d1appr_m1"'), true);
     assert.equal(html.includes('id="act-reverse-appr_d1appr_m1"'), false);
     store.accountTxns = store.accountTxns.concat([{
@@ -1009,6 +1012,7 @@ test('T-I27 a live return blocks the advance reversal', () => {
     const blocked = open(view);
     assert.equal(blocked.includes('id="act-reverse-adv1"'), false);
     assert.equal(blocked.includes(S5), true);
+    assert.equal(blocked.includes(S5_OLD), false);
     store.accountTxns = store.accountTxns.concat([{
       id: 'rev_back1', docType: 'accountTxn', kind: 'rev', purpose: 'returnAdvance', ledger: 'labor', amount: 1000,
       reversesId: 'back1', reversalReason: 'سبب', partyId: 'party-1', projectId: 'p-school', currency: 'IQD', fxRate: 1,

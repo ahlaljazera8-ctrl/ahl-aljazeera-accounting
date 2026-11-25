@@ -51,7 +51,7 @@
     over: 'الخصم أكبر من العمل المعتمد',
     owedLead: 'بعد العكس يصير مستحق عليه ',
     dinar: ' د.ع',
-    dependent: 'اعكس الاسترداد أو الإرجاع أو الخصم المرتبط أولاً',
+    dependent: 'اعكس الاسترداد أو الإرجاع أو التسوية أو الخصم المرتبط أولاً',
     full: 'هذا القياس وصل حد 9 خصومات.',
     blocked: 'رُفض إرسال خصم على هذا القياس.',
     spent: 'ما بقى مجال خصم على هذا القياس.',
@@ -711,6 +711,7 @@
     if (inErrors(row.id)) return '';
     if (row.purpose === 'payLabor' && livePointer('refundLabor', row.id, index)) return 'dependent';
     if (row.purpose === 'advanceLabor' && livePointer('returnAdvance', row.id, index)) return 'dependent';
+    if (row.purpose === 'advanceLabor' && liveSettle(row.id, index)) return 'dependent';
     if (row.purpose === 'approveLabor' && liveDeductOn(row.id, index)) return 'dependent';
     if (!Accounts.rowLive(row, index) && !recoveryLink(row, index)) return '';
     if (row.purpose === 'payLabor' || row.purpose === 'advanceLabor' || row.purpose === 'returnAdvance' || row.purpose === 'refundLabor') {
@@ -725,6 +726,18 @@
       if (Accounts.rowCounts(row, index)) return 'deduct';
     }
     return '';
+  }
+
+  /**
+   * @param {string} advanceId
+   * @param {RowIndex} index
+   */
+  function liveSettle(advanceId, index) {
+    for (const row of Object.values(index.byId)) {
+      if (!row || row.purpose !== 'settle' || row.settlesId !== advanceId) continue;
+      if (Accounts.rowLive(row, index)) return true;
+    }
+    return false;
   }
 
   /**

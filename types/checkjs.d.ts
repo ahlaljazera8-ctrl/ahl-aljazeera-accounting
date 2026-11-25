@@ -961,6 +961,144 @@ interface AccountCorrectApi {
   endMeasurementDocs(input: object): { docs: object[]; errors: string[] };
 }
 
+type BookedFigure =
+  'approvedLabor' | 'payments' | 'refunds' | 'advancesPaid' | 'cashReturned' | 'deductions' | 'settlements';
+interface CorrectionRow {
+  key: BookedFigure;
+  label: string;
+  part: 'late' | 'reversed';
+  kind: 'window' | 'tail';
+  amount: number;
+  effect: 1 | -1 | 0;
+  source: { periodStart: string; periodEnd: string };
+}
+interface BookedStatement {
+  periodStart: string;
+  periodEnd: string;
+  opening: number;
+  lines: readonly StatementLine[];
+  corrections: readonly CorrectionRow[];
+  closing: number;
+  issuedAt: number | null;
+  queuedIds: readonly string[];
+  pendingIds: readonly string[];
+  unreviewedCashIds: readonly string[];
+  overLimitIds: readonly string[];
+  orphanDrawIds: readonly string[];
+}
+interface Mustakhlas {
+  work: number;
+  deductions: number;
+  advancesNet: number;
+  corrections: readonly CorrectionRow[];
+  net: number;
+}
+interface ContractorTotals {
+  cost: number;
+  paidToContractors: number;
+  oldPaid: number;
+  unlinked: number;
+  newApproved: number;
+  newCash: number;
+  reclassAdvance: 0;
+}
+type IssueGateError = 'offline' | 'queued' | 'pull' | 'changed' | 'review' | 'period' | 'open' | 'inactive' | 'epoch';
+interface IssueGateResult {
+  ok: boolean;
+  errors: readonly IssueGateError[];
+}
+interface BookContext {
+  byId: Readonly<Record<string, FoldDoc>>;
+  approvals: readonly StatementApprovalRow[];
+  syncErrors: Readonly<Record<string, unknown>>;
+  today: string;
+}
+interface PeriodStatementInput {
+  docs: readonly FoldDoc[];
+  approvals: readonly StatementApprovalRow[];
+  syncErrors: Readonly<Record<string, unknown>>;
+  outbox: readonly string[];
+  partyId: string;
+  projectId?: string;
+  periodKind: 'week' | 'month';
+  periodStart: string;
+  periodEnd: string;
+  today: string;
+}
+interface IssueGateInput {
+  shown: BookedStatement;
+  recompute: () => BookedStatement | null;
+  online: () => boolean;
+  inFlight: () => Promise<unknown> | null;
+  flush: () => Promise<unknown>;
+  timeoutMs: number;
+  epoch: () => number;
+  lastSyncAt: () => number;
+  outbox: () => readonly string[];
+  now: () => number;
+  demo: boolean;
+  projectActive: boolean;
+  today: string;
+}
+interface StatementApprovalRow {
+  id: string;
+  partyId: string;
+  projectId?: string;
+  periodKind: 'week' | 'month';
+  periodStart: string;
+  periodEnd: string;
+  createdBy: string;
+  createdAtServer: number | null;
+}
+interface SettleInput {
+  measurementId: string;
+  settlesId: string;
+  amount: number;
+  gen: string;
+  txnDate: string;
+  createdBy: string;
+  deviceId: string;
+  createdByName?: string;
+}
+interface StatementApprovalInput {
+  id: string;
+  partyId: string;
+  projectId?: string;
+  periodKind: 'week' | 'month';
+  periodStart: string;
+  periodEnd: string;
+  createdBy: string;
+}
+interface AccountStatementApi extends AccountModule {
+  bookDay(doc: FoldDoc, ctx: BookContext): string;
+  bookedBy(docs: readonly FoldDoc[], day: string, ctx: BookContext): FoldDoc[];
+  periodStatement(input: PeriodStatementInput): BookedStatement | null;
+  mustakhlas(statement: BookedStatement): Mustakhlas;
+  contractorTotals(
+    entries: readonly LedgerEntry[],
+    txns: readonly FoldDoc[],
+    syncErrors: Readonly<Record<string, unknown>>,
+    filter: { projectId: string },
+  ): ContractorTotals;
+  approvedUnitQty(
+    txns: readonly FoldDoc[],
+    agreements: readonly object[],
+    partyId: string,
+    index: RowIndex,
+    projectId?: string,
+  ): number;
+  balanceSentence(net: number): { label: string; direction: string; amountText: string };
+  settleDoc(input: SettleInput): { doc: object | null; errors: string[] };
+  statementApprovalDoc(input: StatementApprovalInput): { doc: object | null; errors: string[] };
+  issueGate(input: IssueGateInput): Promise<IssueGateResult>;
+  statementCardHtml(statement: BookedStatement): string;
+  mustakhlasHtml(statement: BookedStatement): string;
+  totalsCardHtml(totals: ContractorTotals): string;
+  correctionText(row: CorrectionRow): string;
+  renderedShown(): BookedStatement | null;
+  settleGen(measurementId: string, index: RowIndex): string;
+}
+
 type PayMethod = 'lump' | 'unit' | 'daily' | 'milestone';
 
 interface AgreementDocInput {
@@ -1270,7 +1408,7 @@ interface Window {
   AccountWork?: AccountWorkApi;
   AccountPayment?: AccountPaymentApi;
   AccountCorrect?: AccountCorrectApi;
-  AccountStatement?: AccountModule;
+  AccountStatement?: AccountStatementApi;
   AccountShare?: AccountModule;
   AccountActions?: AccountAction[];
   __loginSeen?: boolean;

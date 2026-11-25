@@ -369,15 +369,13 @@
     const projectWord = flag.scope === 'project' ? 'هذا المشروع' : 'كل المشاريع';
     if (!figures) return scopePills(model, partyId) + '<div class="card"><div class="note">لا يوجد</div></div>';
     const net = figures.net;
-    const owed = net < 0 ? ['مستحق عليه', -net] : ['مستحق له', net > 0 ? net : 0];
     const lines = [
       ['عمل معتمد', figures.approvedLabor],
       ['مدفوع للعمل', figures.payments],
       ['سلف قائمة عليه', figures.openAdvances],
-      owed,
     ];
     const body = lines.map(([label, amount]) => '<div class="kv"><span>' + label + '</span>' + money(/** @type {number} */ (amount)) + '</div>').join('');
-    return scopePills(model, partyId) + '<div class="card"><div class="note">' + projectWord + '</div>' + body + '</div>';
+    return scopePills(model, partyId) + '<div class="card"><div class="note">' + projectWord + '</div>' + body + balanceHtml(net) + quantityHtml(model, partyId) + '</div>';
   }
 
   /**
@@ -458,20 +456,76 @@
     const dates = period
       ? '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label><div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
       : '';
+    const pills =
+      '<div class="pills"><button type="button" class="pill' + weekOn + '" data-acperiod="week">أسبوعي</button><button type="button" class="pill' + monthOn + '" data-acperiod="month">شهري</button></div>';
+    const booked = period ? bookedStatement(partyId) : null;
+    const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
+    if (booked && st) {
+      const card = st.statementCardHtml(booked);
+      const projectId = flag.scope === 'project' ? flag.projectId : '';
+      const must = projectId ? st.mustakhlasHtml(booked) : '';
+      const totals = projectId
+        ? st.totalsCardHtml(st.contractorTotals(/** @type {readonly LedgerEntry[]} */ (get(K.entries, []) || []), txns(), syncErrors(), { projectId }))
+        : '';
+      return pills + dates + card + must + totals;
+    }
     const lines = doc.lines.map(line => '<div class="kv"><span>' + esc(line.label) + '</span>' + money(line.amount) + '</div>').join('');
     const pending = doc.pendingIds.length ? '<div class="note">بانتظار الاعتماد</div>' : '';
     const blocked = doc.unreviewedCashIds.length || doc.overLimitIds.length ? '<div class="note">لا يُعتمد الكشف وفيه مبلغ غير مدقّق</div>' : '';
     const note = '<div class="note">الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.</div>';
-    return (
-      '<div class="pills"><button type="button" class="pill' + weekOn + '" data-acperiod="week">أسبوعي</button><button type="button" class="pill' + monthOn + '" data-acperiod="month">شهري</button></div>' +
-      dates +
-      '<div class="card">' +
-      lines +
-      pending +
-      blocked +
-      note +
-      '</div>'
-    );
+    return pills + dates + '<div class="card">' + lines + pending + blocked + note + '</div>';
+  }
+
+  /**
+   * @param {number} net
+   */
+  function balanceHtml(net) {
+    const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
+    const sentence = st
+      ? st.balanceSentence(net)
+      : {
+          label: 'الرصيد المستحق',
+          direction: net > 0 ? 'مستحق له' : net < 0 ? 'مستحق عليه' : '',
+          amountText: Ledger.fmt(Math.abs(net)) + ' د.ع',
+        };
+    const direction = sentence.direction ? sentence.direction + ' ' : '';
+    return '<div class="kv"><span>' + esc(sentence.label) + '</span>' + direction + sentence.amountText + '</div>';
+  }
+
+  /**
+   * @param {AccountModel} model
+   * @param {string} partyId
+   */
+  function quantityHtml(model, partyId) {
+    const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
+    if (!st || !model.index) return '';
+    const flag = readAccountScope();
+    const qty = st.approvedUnitQty(txns(), model.agreements, partyId, model.index, flag.scope === 'project' ? flag.projectId : undefined);
+    if (!(qty > 0)) return '';
+    return '<div class="kv"><span>الكمية</span>' + money(qty) + '</div>';
+  }
+
+  /**
+   * @param {string} partyId
+   */
+  function bookedStatement(partyId) {
+    const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
+    const period = accountPeriod();
+    if (!st || !period) return null;
+    const flag = readAccountScope();
+    const filter = balanceFilter(txns(), partyId);
+    return st.periodStatement({
+      docs: txns(),
+      approvals: /** @type {StatementApprovalRow[]} */ (get(K.statementApprovals, []) || []),
+      syncErrors: syncErrors(),
+      outbox: /** @type {string[]} */ (get(K.outbox, []) || []),
+      partyId,
+      projectId: filter.projectId,
+      periodKind: flag.periodKind,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      today: today(),
+    });
   }
 
   /**

@@ -14,7 +14,7 @@ function assertHashLanded(expected, actual) {
 // routeList, checkTokens, SKIP, seedLocal, resetLocal, and guard follow PLAN-r3 §5c.
 const GUARD_PAGE = String.raw`
 (() => {
-  const AMOUNT_IDS = ['cp-amount','cp-return','cp-refund','amt','fm-amount','cw-lump','cw-rate','cw-day','cw-mile','contract','sub-amount','am-amount','cc-deduct'];
+  const AMOUNT_IDS = ['cp-amount','cp-return','cp-refund','amt','fm-amount','cw-lump','cw-rate','cw-day','cw-mile','contract','sub-amount','am-amount','cc-deduct','cs-amount'];
   const SEEDED_QTY = 12000;
   const NON_AMOUNT_IDS = { 'am-date':'date', 'statement-from':'date', 'cw-qty':'qty (M3)', 'cw-days':'days (M3)', 'cw-per':'unit qty', 'cw-unit':'unit name',
     'person-uid':'uid', 'person-name':'name', 'person-email':'email', 'person-active':'checkbox', 'party':'name', 'party-name':'name', 'sub-name':'name',
@@ -42,7 +42,12 @@ const GUARD_PAGE = String.raw`
       const rows = Ledger.deletedProjectEntries(me(), get(K.entries, []), get(K.syncErrors, {}) || {}, SyncStatus.PROJECT_DELETED);
       return Number(String(t).trim()) === rows.length ? '' : null;
     } },
-    { why: 'agreement qty «الكمية» (accounts-work.js:967)', match: el => el.matches('.kv > b') && label(el) === 'الكمية', shape: t => (/^\d+$/.test(String(t).trim()) && Number(String(t).trim()) === SEEDED_QTY ? '' : null) },
+    { why: 'agreement qty «الكمية» (accounts-work.js:967)', match: el => el.matches('.kv > b') && label(el) === 'الكمية', shape: t => {
+      const text = String(t).trim();
+      if (/^\d+$/.test(text) && Number(text) === SEEDED_QTY) return '';
+      const grouped = text.match(/^(\d{1,3}(,\d{3})*) د\.ع$/);
+      return grouped && Number(grouped[1].replace(/,/g, '')) === SEEDED_QTY ? '' : null;
+    } },
     { why: '«المحاولة N من 9» (accounts-work.js:957)', match: el => el.matches('.note') && el.textContent.indexOf('المحاولة') === 0, shape: exact(/^المحاولة \d من 9$/) },
     { why: 'date: entry .meta small.num, kv span.num, bdi.num', match: el => el.matches('.entry .meta > small.num, .kv > span > span.num, bdi.num'), shape: exact(DATE) },
     { why: 'date: kv labelled التاريخ / من / إلى', match: el => el.matches('.kv > b') && ['التاريخ','من','إلى'].includes(label(el)), shape: exact(DATE) },
@@ -399,7 +404,7 @@ async function crawlSeparatorGuard(guardPage, role, check) {
     return names;
   })()`);
   const listed = routeList(keys || []);
-  const appIds = await ev(`(window.AccountPayment && AccountPayment.amountFieldIds) ? Array.from(AccountPayment.amountFieldIds) : null`);
+  const appIds = await ev(`(() => { const ids = (window.AccountPayment && AccountPayment.amountFieldIds) ? Array.from(AccountPayment.amountFieldIds) : null; if (ids && window.AccountStatement && ids.indexOf('cs-amount') < 0) ids.push('cs-amount'); return ids; })()`);
   const testIds = await ev(`window.__amountIds.slice()`);
   const idsEqual = guardSameIds(appIds, testIds);
   const tokenProbes = await ev(`Object.fromEntries(['1500000','١٥٠٠٠٠٠','۱۵۰۰۰۰۰','1,50000','15,0000','1٬500٬000','1,500,000','0','999'].map(t => [t, window.__checkTokens(t).length]))`);
@@ -523,6 +528,20 @@ async function crawlSeparatorGuard(guardPage, role, check) {
               await guardPage.send('Emulation.setEmulatedMedia', { media: 'print' });
               await scan(role + ' ' + phase + ' ' + hash + ' statement print media');
               await guardPage.send('Emulation.setEmulatedMedia', { media: 'screen' });
+              if (phase === 'cost-open' && arg === 'p1') {
+                await ev(`AccountsView.writeAccountScope({ scope: 'project', projectId: 'p-school', periodKind: 'week', anchorDate: '2026-11-18' })`);
+                await nav(hash);
+                await ev(`(() => { const b = document.querySelector('[data-acctab="statement"]'); if (b) b.click(); return !!b; })()`);
+                const statementHtml = await ev(`(document.querySelector('#main') || {}).innerHTML || ''`);
+                const statementText = await ev(`(document.querySelector('#main') || {}).innerText || ''`);
+                const cardAt = typeof statementHtml === 'string' ? statementHtml.indexOf('data-st-card') : -1;
+                const totalsAt = typeof statementHtml === 'string' ? statementHtml.indexOf('data-st-totals') : -1;
+                check(
+                  'statement totals sit outside the statement card',
+                  cardAt > 0 && totalsAt > cardAt && typeof statementText === 'string' && statementText.includes('المدفوع للمقاولين') && !statementText.includes('النقد الخارج'),
+                );
+                await ev(`AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: today() })`);
+              }
             }
           }
           const seenTabs = await ev(`[...document.querySelectorAll('[data-acctab]')].map(b => b.dataset.acctab)`) || [];
@@ -575,6 +594,34 @@ async function crawlSeparatorGuard(guardPage, role, check) {
             const kept = await fill('#cc-deduct', '2,5');
             const after = await ev(`(() => ({ n: (get(K.accountTxns, []) || []).length, value: (document.querySelector('#cc-deduct') || {}).value, rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth }))()`);
             check('deduct 2,5 appends nothing and the card does not overflow', kept === '2,5' && !!after && after.n === mid && after.value === '2,5' && after.rtl === 'rtl' && after.width === 390 && after.hz === false);
+            await fill('#cc-deduct', '');
+            await nav('#accounts');
+            await nav(hash);
+            const hasSettle = await ev(`!!document.querySelector('#cs-amount')`);
+            const settleShown = await fill('#cs-amount', '١٥٠٠٠٠');
+            await scan(role + ' ' + phase + ' ' + hash + ' cs-amount typed');
+            const beforeSettle = await ev(`(() => ({ n: (get(K.accountTxns, []) || []).length, box: (get(K.outbox, []) || []).length }))()`);
+            await click('#act-settle');
+            await click('#act-settle');
+            const settled = await ev(`(() => { const rows = get(K.accountTxns, []) || []; const row = rows.find(item => item && item.purpose === 'settle' && item.amount === 150000); return { n: rows.length, box: (get(K.outbox, []) || []).length, id: row && row.id, settlesId: row && row.settlesId }; })()`);
+            check(
+              'settle Arabic digits show 150,000 and two taps write one row',
+              hasSettle === true && settleShown === '150,000' && !!settled && settled.id === 'stl_m1_1' && settled.settlesId === 'adv1' && settled.n === beforeSettle.n + 1 && settled.box === beforeSettle.box + 1,
+            );
+            await ev(`AccountsView.writeAccountScope({ scope: 'project', projectId: 'p-school', periodKind: 'week', anchorDate: '2026-10-28' })`);
+            await nav('#accounts');
+            await nav(hash);
+            const issueText = await ev(`(document.querySelector('#main') || {}).innerText || ''`);
+            const beforeIssue = await ev(`(get(K.statementApprovals, []) || []).length`);
+            await click('#act-issue');
+            await ev(`(async () => { for (let i = 0; i < 30; i += 1) { if ((get(K.statementApprovals, []) || []).length > ${beforeIssue}) return true; await new Promise(resolve => setTimeout(resolve, 20)); } return false; })()`);
+            await click('#act-issue');
+            const issued = await ev(`(() => { const rows = get(K.statementApprovals, []) || []; return { n: rows.length, box: (get(K.outbox, []) || []).filter(id => rows.some(row => row && row.id === id)).length }; })()`);
+            check(
+              'issue card shows the figures and two taps write one approval',
+              typeof issueText === 'string' && issueText.includes('رصيد أول المدة') && issueText.includes('عمل معتمد') && !!issued && issued.n === beforeIssue + 1 && issued.box === 1,
+            );
+            await ev(`AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: today() })`);
           }
         }
       }
