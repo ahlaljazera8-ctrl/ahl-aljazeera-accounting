@@ -94,6 +94,30 @@ function row(uid, fields) {
 function send(uid, col, id, fields) {
   return setDoc(doc(db(uid), col, id), row(uid, Object.assign({ id }, fields)));
 }
+function capBody(advance, opId, drawn, uid, over) {
+  return Object.assign({
+    advanceId: advance.id,
+    partyId: advance.partyId,
+    projectId: advance.projectId,
+    currency: advance.currency,
+    cap: advance.amount,
+    drawn,
+    lastOpId: opId,
+    updatedBy: uid,
+    updatedAtServer: serverTimestamp(),
+  }, over || {});
+}
+function sendCapped(uid, op, advance, drawn, overCap) {
+  const fs = db(uid);
+  const batch = writeBatch(fs);
+  batch.set(doc(fs, 'accountTxns', op.id), row(uid, Object.assign({ id: op.id }, op)));
+  batch.set(doc(fs, 'advanceCaps', advance.id), capBody(advance, op.id, drawn, uid, overCap));
+  return batch.commit();
+}
+async function denyDrawn(uid, op, advance, drawn) {
+  await deny(send(uid, 'accountTxns', op.id, op));
+  await deny(sendCapped(uid, op, advance, drawn));
+}
 const allow = p => assertSucceeds(p);
 const deny = p => assertFails(p);
 
@@ -492,10 +516,10 @@ testSeq('project: laborStlCreate denies a missing project', async () => {
   await allow(send(OWNER_A, 'accountTxns', firstAdvance.id, firstAdvance));
   await allow(send(OWNER_A, 'accountTxns', secondAdvance.id, secondAdvance));
   const first = settle(firstBody.id, firstAdvance.id, 1, 500, { projectId: ISO });
-  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await allow(sendCapped(OWNER_A, first, firstAdvance, 500));
   await dropIso();
   const second = settle(secondBody.id, secondAdvance.id, 1, 500, { projectId: ISO });
-  await deny(send(OWNER_A, 'accountTxns', second.id, second));
+  await denyDrawn(OWNER_A, second, secondAdvance, 500);
 });
 
 testSeq('project: returnAdvanceCreate denies a missing project', async () => {
@@ -504,10 +528,10 @@ testSeq('project: returnAdvanceCreate denies a missing project', async () => {
   const advance = cash(uuid(1), 'advanceLabor', 1000, { projectId: ISO });
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const first = cash(uuid(2), 'returnAdvance', 100, { targetId: advance.id, projectId: ISO });
-  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await allow(sendCapped(OWNER_A, first, advance, 100));
   await dropIso();
   const second = cash(uuid(3), 'returnAdvance', 100, { targetId: advance.id, projectId: ISO });
-  await deny(send(OWNER_A, 'accountTxns', second.id, second));
+  await denyDrawn(OWNER_A, second, advance, 200);
 });
 
 testSeq('project: refundLaborCreate denies a missing project', async () => {
@@ -1090,7 +1114,7 @@ testSeq('s7.5 update and delete of a labor stl_ fail', async () => {
   const advance = cash(uuid(21), 'advanceLabor', 600000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const row1 = settle(body.id, advance.id, 1, 600000);
-  await allow(send(OWNER_A, 'accountTxns', row1.id, row1));
+  await allow(sendCapped(OWNER_A, row1, advance, 600000));
   await deny(updateDoc(doc(db(OWNER_A), 'accountTxns', row1.id), { amount: 1 }));
   await deny(deleteDoc(doc(db(OWNER_A), 'accountTxns', row1.id)));
   await deny(send(OWNER_A, 'accountTxns', row1.id, row1));
@@ -1102,7 +1126,7 @@ testSeq('s7.6 generation-1 labor stl_ is allowed when its 8 documents are in the
   const advance = cash(uuid(21), 'advanceLabor', 600000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const row1 = settle(body.id, advance.id, 1, 600000);
-  await allow(send(OWNER_A, 'accountTxns', row1.id, row1));
+  await allow(sendCapped(OWNER_A, row1, advance, 600000));
   assert.equal((await getDoc(doc(db(OWNER_A), 'accountTxns', 'rev_appr_' + body.id))).exists(), false);
   assert.equal((await getDoc(doc(db(OWNER_A), 'accountTxns', 'rev_' + advance.id))).exists(), false);
   assert.equal((await getDoc(doc(db(OWNER_A), 'accountTxns', 'rej_' + body.id))).exists(), false);
@@ -1114,7 +1138,7 @@ testSeq('s7.6 generation-1 labor stl_ denies an amount above the advance', async
   const advance = cash(uuid(21), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const over = settle(body.id, advance.id, 1, 1001);
-  await deny(send(OWNER_A, 'accountTxns', over.id, over));
+  await denyDrawn(OWNER_A, over, advance, 1001);
 });
 
 testSeq('s7.6 generation-1 labor stl_ denies a party, project, or currency mismatch', async () => {
@@ -1123,10 +1147,9 @@ testSeq('s7.6 generation-1 labor stl_ denies a party, project, or currency misma
   const { body } = await putApprovedUnit(uuid(1), uuid(11), 8000, 600000);
   const advance = cash(uuid(21), 'advanceLabor', 600000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
-  const id = settle(body.id, advance.id, 1, 1000).id;
-  await deny(send(OWNER_A, 'accountTxns', id, settle(body.id, advance.id, 1, 1000, { partyId: 'party-2' })));
-  await deny(send(OWNER_A, 'accountTxns', id, settle(body.id, advance.id, 1, 1000, { projectId: 'p2' })));
-  await deny(send(OWNER_A, 'accountTxns', id, settle(body.id, advance.id, 1, 1000, { currency: 'USD' })));
+  await denyDrawn(OWNER_A, settle(body.id, advance.id, 1, 1000, { partyId: 'party-2' }), advance, 1000);
+  await denyDrawn(OWNER_A, settle(body.id, advance.id, 1, 1000, { projectId: 'p2' }), advance, 1000);
+  await denyDrawn(OWNER_A, settle(body.id, advance.id, 1, 1000, { currency: 'USD' }), advance, 1000);
 });
 
 testSeq('s7.6 generation-2 labor stl_ succeeds only when all 9 documents are in the allowing state', async () => {
@@ -1135,12 +1158,13 @@ testSeq('s7.6 generation-2 labor stl_ succeeds only when all 9 documents are in 
   const advance = cash(uuid(21), 'advanceLabor', 600000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const first = settle(body.id, advance.id, 1, 1000);
-  await allow(send(OWNER_A, 'accountTxns', first.id, first));
-  await deny(send(OWNER_A, 'accountTxns', settle(body.id, advance.id, 2, 1000).id, settle(body.id, advance.id, 2, 1000)));
+  await allow(sendCapped(OWNER_A, first, advance, 1000));
+  const early = settle(body.id, advance.id, 2, 1000);
+  await denyDrawn(OWNER_A, early, advance, 2000);
   const rev = txnRev(first);
-  await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
+  await allow(sendCapped(OWNER_A, rev, advance, 0));
   const second = settle(body.id, advance.id, 2, 1000);
-  await allow(send(OWNER_A, 'accountTxns', second.id, second));
+  await allow(sendCapped(OWNER_A, second, advance, 1000));
 });
 
 testSeq('s7.6 dropping the measurement, the appr_, the advance, or the previous stl_ reversal denies', async () => {
@@ -1149,16 +1173,16 @@ testSeq('s7.6 dropping the measurement, the appr_, the advance, or the previous 
   const advance = cash(uuid(21), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const missingMeasure = settle(uuid(99), advance.id, 1, 1000);
-  await deny(send(OWNER_A, 'accountTxns', missingMeasure.id, missingMeasure));
+  await denyDrawn(OWNER_A, missingMeasure, advance, 1000);
   const noApprBody = await putUnit(uuid(2), uuid(12), 8);
   const noAppr = settle(noApprBody.id, advance.id, 1, 1000);
-  await deny(send(OWNER_A, 'accountTxns', noAppr.id, noAppr));
+  await denyDrawn(OWNER_A, noAppr, advance, 1000);
   const noAdvance = settle(body.id, uuid(98), 1, 1000);
-  await deny(send(OWNER_A, 'accountTxns', noAdvance.id, noAdvance));
+  await denyDrawn(OWNER_A, noAdvance, { id: uuid(98), partyId: PARTY, projectId: P1, currency: 'IQD', amount: 1000 }, 1000);
   const first = settle(body.id, advance.id, 1, 1000);
-  await allow(send(OWNER_A, 'accountTxns', first.id, first));
+  await allow(sendCapped(OWNER_A, first, advance, 1000));
   const second = settle(body.id, advance.id, 2, 1000);
-  await deny(send(OWNER_A, 'accountTxns', second.id, second));
+  await denyDrawn(OWNER_A, second, advance, 2000);
   assert.equal(mark.purpose, 'approveLabor');
 });
 
@@ -1169,20 +1193,20 @@ testSeq('s7.6 a rev_ of the approval, a rev_ of the advance, or a rej_ of the me
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const revAppr = txnRev(mark);
   await allow(send(OWNER_A, 'accountTxns', revAppr.id, revAppr));
-  await deny(send(OWNER_A, 'accountTxns', settle(body.id, advance.id, 1, 500).id, settle(body.id, advance.id, 1, 500)));
+  await denyDrawn(OWNER_A, settle(body.id, advance.id, 1, 500), advance, 500);
 
   const second = await putApprovedUnit(uuid(2), uuid(12), 8000, 600000);
   const advance2 = cash(uuid(22), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance2.id, advance2));
   const revAdv = txnRev(advance2);
   await allow(send(OWNER_A, 'accountTxns', revAdv.id, revAdv));
-  await deny(send(OWNER_A, 'accountTxns', settle(second.body.id, advance2.id, 1, 500).id, settle(second.body.id, advance2.id, 1, 500)));
+  await denyDrawn(OWNER_A, settle(second.body.id, advance2.id, 1, 500), advance2, 500);
 
   const third = await putApprovedUnit(uuid(3), uuid(13), 8000, 600000);
   const advance3 = cash(uuid(23), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance3.id, advance3));
   await adminSet('accountTxns', 'rej_' + third.body.id, { id: 'rej_' + third.body.id, kind: 'rej', targetId: third.body.id });
-  await deny(send(OWNER_A, 'accountTxns', settle(third.body.id, advance3.id, 1, 500).id, settle(third.body.id, advance3.id, 1, 500)));
+  await denyDrawn(OWNER_A, settle(third.body.id, advance3.id, 1, 500), advance3, 500);
 });
 
 testSeq('s7.7 a ledger row with partyId still fails', async () => {
@@ -1355,7 +1379,7 @@ testSeq('s7.11 returnAdvance against a live advanceLabor succeeds', async () => 
   const advance = cash(uuid(1), 'advanceLabor', 5000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const back = cash(uuid(2), 'returnAdvance', 5000, { targetId: advance.id });
-  await allow(send(OWNER_A, 'accountTxns', back.id, back));
+  await allow(sendCapped(OWNER_A, back, advance, 5000));
 });
 
 testSeq('s7.11 returnAdvance above that advance fails; a party, project, or currency mismatch fails; a rev_ of the advance fails', async () => {
@@ -1363,13 +1387,13 @@ testSeq('s7.11 returnAdvance above that advance fails; a party, project, or curr
   await allow(send(OWNER_A, 'parties', 'party-2', { id: 'party-2', name: 'Other' }));
   const advance = cash(uuid(1), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
-  await deny(send(OWNER_A, 'accountTxns', uuid(2), cash(uuid(2), 'returnAdvance', 1001, { targetId: advance.id })));
-  await deny(send(OWNER_A, 'accountTxns', uuid(3), cash(uuid(3), 'returnAdvance', 10, { targetId: advance.id, partyId: 'party-2' })));
-  await deny(send(OWNER_A, 'accountTxns', uuid(4), cash(uuid(4), 'returnAdvance', 10, { targetId: advance.id, projectId: 'p2' })));
-  await deny(send(OWNER_A, 'accountTxns', uuid(5), cash(uuid(5), 'returnAdvance', 10, { targetId: advance.id, currency: 'USD' })));
+  await denyDrawn(OWNER_A, cash(uuid(2), 'returnAdvance', 1001, { targetId: advance.id }), advance, 1001);
+  await denyDrawn(OWNER_A, cash(uuid(3), 'returnAdvance', 10, { targetId: advance.id, partyId: 'party-2' }), advance, 10);
+  await denyDrawn(OWNER_A, cash(uuid(4), 'returnAdvance', 10, { targetId: advance.id, projectId: 'p2' }), advance, 10);
+  await denyDrawn(OWNER_A, cash(uuid(5), 'returnAdvance', 10, { targetId: advance.id, currency: 'USD' }), advance, 10);
   const rev = txnRev(advance);
   await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
-  await deny(send(OWNER_A, 'accountTxns', uuid(6), cash(uuid(6), 'returnAdvance', 10, { targetId: advance.id })));
+  await denyDrawn(OWNER_A, cash(uuid(6), 'returnAdvance', 10, { targetId: advance.id }), advance, 10);
 });
 
 testSeq('s7.11 refundLabor against a live payLabor succeeds and has no entryType', async () => {
@@ -1444,7 +1468,7 @@ testSeq('s7.13 revw_ of refundLabor, advanceLabor, and returnAdvance succeed; re
   const advance = cash(uuid(1), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const back = cash(uuid(2), 'returnAdvance', 100, { targetId: advance.id });
-  await allow(send(OWNER_A, 'accountTxns', back.id, back));
+  await allow(sendCapped(OWNER_A, back, advance, 100));
   const pay = cash(uuid(3), 'payLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', pay.id, pay));
   const refund = cash(uuid(4), 'refundLabor', 100, { targetId: pay.id });
@@ -1602,8 +1626,8 @@ testSeq('two owners: the same slot id, appr_, rej_, sup_, rev_, labor stl_, and 
   const advance = cash(uuid(22), 'advanceLabor', 1000);
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const stl = settle(body.id, advance.id, 1, 1000);
-  await allow(send(OWNER_A, 'accountTxns', stl.id, stl));
-  await deny(send(OWNER_B, 'accountTxns', stl.id, stl));
+  await allow(sendCapped(OWNER_A, stl, advance, 1000));
+  await denyDrawn(OWNER_B, stl, advance, 1000);
 
   const mark = revwOf(pay);
   await allow(send(OWNER_A, 'accountTxns', mark.id, mark));
@@ -1699,7 +1723,7 @@ testSeq('a settlement whose settlesId is a rev_ of an advanceLabor is denied', a
   const rev = txnRev(advance);
   await allow(send(OWNER_A, 'accountTxns', rev.id, rev));
   const bad = settle(body.id, rev.id, 1, 500);
-  await deny(send(OWNER_A, 'accountTxns', bad.id, bad));
+  await denyDrawn(OWNER_A, bad, { id: rev.id, partyId: PARTY, projectId: P1, currency: 'IQD', amount: 1000 }, 500);
 });
 
 testSeq('a deduct whose targetId is a rev_ of an approveLabor is denied', async () => {
@@ -1868,11 +1892,12 @@ testSeq('length table', () => {
   assert.equal(RULES.includes('hashing.sha256'), false);
 });
 
-testSeq('source: laborStlCreate contains one user get, one project get, and the nine access call sites. No function has more than 10 let bindings. accountTxnCreate contains no get and no exists. Every create leaf contains one user get', () => {
+testSeq('source: laborStlCreate contains one user get, one project get, and ten access call sites, at the per-operation limit (the next read in this leaf must take the A-1 fallback). No function has more than 10 let bindings. accountTxnCreate contains no get and no exists. Every create leaf contains one user get', () => {
   const body = fnBody(RULES, 'laborStlCreate');
   const gets = body.match(/get\(\/databases\//g) || [];
+  const getAfters = body.match(/getAfter\(\/databases\//g) || [];
   const exists = body.match(/exists\(\/databases\//g) || [];
-  assert.equal(gets.length + exists.length, 9);
+  assert.equal(gets.length + getAfters.length + exists.length, 10, 'at the per-operation limit; the next read in this leaf must take the A-1 fallback');
   assert.equal((body.match(/documents\/users\//g) || []).length, 1);
   assert.equal((body.match(/documents\/projects\//g) || []).length, 1);
   for (const item of eachFunction(RULES)) {
@@ -1886,10 +1911,11 @@ testSeq('source: laborStlCreate contains one user get, one project get, and the 
     'partyCreate', 'agreementCreate', 'agreementReversalCreate', 'slotBodyCreate', 'laborQtyCreate',
     'supCreate', 'approveLaborCreate', 'laborStlCreate', 'cashBodyCreate', 'returnAdvanceCreate',
     'refundLaborCreate', 'deductCreate', 'approveDeductCreate', 'rejCreate', 'revCreate', 'revwCreate',
-    'statementWithProjectCreate', 'statementConsolidatedCreate',
+    'statementWithProjectCreate', 'statementConsolidatedCreate', 'capCreate', 'capUpdate',
   ];
   for (const name of leaves) {
-    const leaf = fnBody(RULES, name);
+    let leaf = fnBody(RULES, name);
+    if (name === 'capCreate' || name === 'capUpdate') leaf += fnBody(RULES, 'capWrite');
     const users = leaf.match(/get\(\/databases\/\$\(database\)\/documents\/users\//g) || [];
     assert.equal(users.length, 1, name);
     assert.equal(leaf.includes('isOwner('), false, name);
@@ -1930,10 +1956,14 @@ testSeq('source: firestore.rules contains no hashing.sha256, no lockId, and no i
   }
 });
 
-testSeq('source: exactly six existsAfter calls, on approveLabor rej_ and sup_, approveDeduct rej_ and sup_, rejCreate appr_, and supCreate appr_', () => {
+testSeq('source: exactly six existsAfter calls, on approveLabor rej_ and sup_, approveDeduct rej_ and sup_, rejCreate appr_, and supCreate appr_, and exactly four getAfter calls: laborStlCreate, returnAdvanceCreate and revCreate on advanceCaps, and capWrite on the op', () => {
   const added = RULES.slice(RULES.indexOf('function ownerOk'));
   assert.equal((added.match(/existsAfter\(/g) || []).length, 6);
-  assert.equal(added.includes('getAfter('), false);
+  assert.equal((added.match(/getAfter\(/g) || []).length, 4);
+  assert.match(fnBody(RULES, 'laborStlCreate'), /getAfter\(\/databases\/\$\(database\)\/documents\/advanceCaps\//);
+  assert.match(fnBody(RULES, 'returnAdvanceCreate'), /getAfter\(\/databases\/\$\(database\)\/documents\/advanceCaps\//);
+  assert.match(fnBody(RULES, 'revCreate'), /getAfter\(\/databases\/\$\(database\)\/documents\/advanceCaps\//);
+  assert.match(fnBody(RULES, 'capWrite'), /getAfter\(txnPath\(d\(\)\.lastOpId\)\)/);
   assert.equal((RULES.match(/existsAfter\(/g) || []).length, 7);
   assert.equal((fnBody(RULES, 'projectGone').match(/existsAfter\(/g) || []).length, 1);
   const counts = {

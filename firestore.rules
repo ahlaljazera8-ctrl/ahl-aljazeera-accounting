@@ -365,6 +365,7 @@ service cloud.firestore {
     }
 
     // Contractor PR D. Create-only parties, agreements, accountTxns, statementApprovals.
+    // advanceCaps is the single mutable exception. Each of its transitions is bound to one new immutable op.
     // Each create leaf's first line is one user get. No isOwner(), me(), allowlisted(), or projectOpen().
     // accountTxnCreate and agreementsCreate do not get or exists. They call one leaf.
 
@@ -812,8 +813,10 @@ service cloud.firestore {
       }
       /**
        * @returns {boolean}
-       * Call sites: 9. Generation 1 requires 8. Generation past 1 requires all 9.
+       * Call sites: 10. Generation 1 requires 9. Generation past 1 requires all 10.
        * The ninth is exists of rev_ of the previous stl_, not a get.
+       * The tenth is getAfter of advanceCaps. At the per-operation limit.
+       * The next read in this leaf must take the A-1 fallback: drop advanceLive, because capWrite enforces it for every positive delta.
        */
       function laborStlCreate() {
         let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
@@ -856,6 +859,7 @@ service cloud.firestore {
           && d().currency == advance.data.currency
           && moneyOk(d())
           && d().amount <= advance.data.amount
+          && getAfter(/databases/$(database)/documents/advanceCaps/$(request.resource.data.settlesId)).data.lastOpId == id
           && optDate(d())
           && optDesc(d());
       }
@@ -888,7 +892,7 @@ service cloud.firestore {
       }
       /**
        * @returns {boolean}
-       * Reads: 5. user, project, party, the named advanceLabor, exists of rev_ of that advance.
+       * Reads: 6. user, project, party, the named advanceLabor, exists of rev_ of that advance, getAfter of advanceCaps.
        */
       function returnAdvanceCreate() {
         let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
@@ -912,6 +916,7 @@ service cloud.firestore {
           && named.data.kind == 'body'
           && named.data.purpose == 'advanceLabor'
           && d().amount <= named.data.amount
+          && getAfter(/databases/$(database)/documents/advanceCaps/$(request.resource.data.targetId)).data.lastOpId == id
           && d().partyId == named.data.partyId
           && d().projectId == named.data.projectId
           && d().currency == named.data.currency
@@ -1065,10 +1070,15 @@ service cloud.firestore {
           && target.data.kind in ['body', 'sup']
           && noAppr;
       }
+      function isDraw(o) {
+        return (o.kind == 'stl' && o.purpose == 'settle')
+            || (o.kind == 'body' && o.purpose == 'returnAdvance');
+      }
       /**
        * @returns {boolean}
-       * Reads: 3. user, the row named by reversesId, project. No separate party get.
-       * agreementId presence matches the original. No extra get.
+       * Reads: 4 when the original is a draw, else 3. user, the row named by reversesId, project,
+       * and getAfter of advanceCaps for a settle or a returnAdvance. A rev_ of a revw_ is not a draw.
+       * No separate party get. agreementId presence matches the original. No extra get.
        */
       function revCreate() {
         let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
@@ -1096,7 +1106,8 @@ service cloud.firestore {
           && d().reversalReason.size() >= 1
           && d().reversalReason.size() <= 500
           && d().currency == 'IQD'
-          && d().fxRate == 1;
+          && d().fxRate == 1
+          && (!isDraw(original.data) || getAfter(/databases/$(database)/documents/advanceCaps/$(original.data.purpose == 'settle' ? original.data.settlesId : original.data.targetId)).data.lastOpId == id);
       }
       /**
        * @returns {boolean}
@@ -1152,6 +1163,71 @@ service cloud.firestore {
       allow read: if accountRead();
       allow create: if accountTxnCreate();
       allow update, delete: if false;
+    }
+
+    match /advanceCaps/{advId} {
+      // Keys: advanceId, partyId, projectId, currency, cap, drawn, lastOpId, updatedBy, updatedAtServer.
+      function d() { return request.resource.data; }
+      function txnPath(id) { return /databases/$(database)/documents/accountTxns/$(id); }
+      function capKeysOk() {
+        return d().keys().hasOnly(['advanceId', 'partyId', 'projectId', 'currency', 'cap', 'drawn', 'lastOpId', 'updatedBy', 'updatedAtServer'])
+          && d().keys().hasAll(['advanceId', 'partyId', 'projectId', 'currency', 'cap', 'drawn', 'lastOpId', 'updatedBy', 'updatedAtServer']);
+      }
+      // origin: the draw itself, or for a rev_ the draw it reverses.
+      function drawsHere(o) {
+        return (o.kind == 'stl' && o.purpose == 'settle' && o.settlesId == advId)
+            || (o.kind == 'body' && o.purpose == 'returnAdvance' && o.targetId == advId);
+      }
+      /**
+       * Reads: user, getAfter of the op, exists of the op, get of the original only for a rev_, exists of rev_ of the advance. Max 5.
+       * advanceLive is checked only for delta > 0, so a rev_ on a dead advance passes.
+       * prevDrawn is 0-based on create (seed unknown) and resource.data.drawn on update.
+       */
+      function capWrite(prevDrawn, isCreate) {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let op = getAfter(txnPath(d().lastOpId));
+        let opIsNew = !exists(txnPath(d().lastOpId));
+        let isRev = op.data.kind == 'rev';
+        let origin = isRev ? get(txnPath(op.data.reversesId)).data : op.data;
+        let delta = isRev ? -op.data.amount : op.data.amount;
+        let advanceLive = !exists(txnPath('rev_' + advId));
+        return ownerOk(user)
+          && idOk(advId) && d().advanceId == advId
+          && capKeysOk()
+          && idOk(d().lastOpId)
+          && opIsNew
+          && drawsHere(origin)
+          && (!isRev || (op.data.purpose == origin.purpose && op.data.amount == origin.amount))
+          && op.data.amount is int && op.data.amount >= 1
+          && d().drawn is int && d().drawn >= 0 && d().drawn <= MAX_AMOUNT_IQD()
+          && (delta > 0
+                ? ((isCreate ? d().drawn - delta >= 0 : d().drawn == prevDrawn + delta)
+                   && advanceLive && d().drawn <= d().cap)
+                : (isCreate ? true
+                            : d().drawn == (prevDrawn + delta < 0 ? 0 : prevDrawn + delta)))
+          && d().updatedBy == request.auth.uid
+          && d().updatedAtServer == request.time;
+      }
+      /**
+       * Reads: capWrite plus get(advance). Copies are checked once here and frozen by capUpdate.
+       */
+      function capCreate() {
+        let advance = get(txnPath(advId)).data;
+        return advance.kind == 'body' && advance.purpose == 'advanceLabor'
+          && d().cap == advance.amount && d().partyId == advance.partyId
+          && d().projectId == advance.projectId && d().currency == advance.currency
+          && capWrite(0, true);
+      }
+      function capUpdate() {
+        let r = resource.data;
+        return d().advanceId == r.advanceId && d().partyId == r.partyId && d().projectId == r.projectId
+          && d().currency == r.currency && d().cap == r.cap
+          && capWrite(r.drawn, false);
+      }
+      allow read: if accountRead();
+      allow create: if capCreate();
+      allow update: if capUpdate();
+      allow delete: if false;
     }
 
     match /statementApprovals/{id} {
