@@ -593,7 +593,9 @@ test('U24 registry and حسابات', () => {
   const added = g.AccountActions.slice(before);
   assert.equal(added.length, 4);
   assert.equal(added.every(row => row.tab === 'contractor'), true);
-  for (const tab of ['agreements', 'movements', 'statement']) {
+  /** @type {readonly AccountTab[]} */
+  const tabs = ['agreements', 'movements', 'statement'];
+  for (const tab of tabs) {
     const model = UI.modelFor(g.me());
     model.screen.tab = tab;
     const body = UI.accountHtml(model, 'p1');

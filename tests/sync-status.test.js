@@ -720,7 +720,7 @@ test('E23 accountReads and toRemote', () => {
 
 test('U34 laborReview sync', async () => {
   const local = {
-    id: 'lrv_e80', docType: 'laborReview', entryId: 'e80', projectId: 'JOB', decision: 'deducted',
+    id: 'lrv_e80', docType: /** @type {'laborReview'} */ ('laborReview'), entryId: 'e80', projectId: 'JOB', decision: 'deducted',
     reviewedOn: '2026-11-24', createdBy: 'owner-b', createdByName: 'ب', createdAtServer: 10, deviceId: 'phone-b', extra: 1,
   };
   const server = {
