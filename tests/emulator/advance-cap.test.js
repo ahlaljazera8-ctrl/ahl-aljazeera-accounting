@@ -814,3 +814,28 @@ testSeq('C21 the first write on a dead advance with no counter may be a reversal
   const after = cash(uuid(9), 'returnAdvance', 1, { targetId: aid('twin') });
   await deny(sendCapped(OWNER_A, after, twin, 1));
 });
+
+testSeq('C22 a stale over-cap read whose re-read moved is retried, not refused', async () => {
+  await seed();
+  await putAdvance('adv', 100000);
+  const full = localReturn(uuid(2), aid('adv'), 100000, OWNER_A);
+  const filled = await flushCap(OWNER_A, full);
+  assert.deepEqual(filled.synced, [full.id]);
+  assert.equal(await drawnOf(aid('adv')), 100000);
+  const rev = localRev({ id: full.id, purpose: 'returnAdvance', amount: 100000 }, OWNER_A);
+  let freed = null;
+  const b = localReturn(uuid(3), aid('adv'), 30000, OWNER_B);
+  const hooks = {
+    onReread: async () => {
+      freed = await flushCap(OWNER_A, rev, {
+        locals: [{ id: full.id, kind: 'body', purpose: 'returnAdvance', targetId: aid('adv'), amount: 100000 }],
+      });
+    },
+  };
+  const result = await flushCap(OWNER_B, b, hooks);
+  assert.deepEqual(freed.synced, [rev.id]);
+  assert.equal(result.failed.length, 0, 'stale over refused: ' + JSON.stringify(result.failed));
+  assert.deepEqual(result.synced, [b.id]);
+  assert.equal(hooks.attempts.n, 2);
+  assert.equal(await drawnOf(aid('adv')), 30000);
+});

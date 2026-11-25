@@ -374,6 +374,32 @@ test('U8 a changed counter is retried, a true over-cap is refused with the advan
   assert.equal(denied.state.attempts, 1);
 });
 
+test('U8(d) a stale over-cap read whose re-read moved is retried, not refused', async () => {
+  const stale = fakeFs({
+    counter: {
+      advanceId: 'adv', partyId: 'person', projectId: 'job', currency: 'IQD',
+      cap: 100000, drawn: 100000, lastOpId: 'full',
+    },
+  });
+  const originalRun = stale.fsMod.runTransaction;
+  stale.fsMod.runTransaction = async (db, fn) => {
+    try {
+      await originalRun(db, fn);
+    } catch (err) {
+      if (stale.state.attempts === 1 && err && err.capRefused === 'over') {
+        stale.state.counter = Object.assign({}, stale.state.counter, { drawn: 0, lastOpId: 'rev-full' });
+      }
+      throw err;
+    }
+  };
+  const box = await client(stale.fsMod);
+  const local = localReturn(30000);
+  const result = await flush(box.real, local);
+  assert.deepEqual(result.synced, [local.id]);
+  assert.equal(result.failed.length, 0);
+  assert.equal(stale.state.attempts, 2);
+});
+
 test('U9 an op already on the server is adopted, and the thrown value is not a Firestore error', async () => {
   const seen = fakeFs({ opExists: true });
   const box = await client(seen.fsMod);

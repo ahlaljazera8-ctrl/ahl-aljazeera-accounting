@@ -79,9 +79,10 @@ No script and no admin write. The first capped op on an advance with no counter 
 - U3–U6 `capSeed`.
 - U7 offline `unavailable` and exhausted `aborted` both stay queued with `SEND_RETRY`.
 - U8 retry on a changed counter, true over-cap shows «المُرجَع والتسوية أكبر من السلفة», a dead refusal still shows «رُفض الإرسال», and an unchanged `permission-denied` goes through `readDependency`.
+- U8(d) a stale over-cap read is retried when the re-read moved. The row syncs. The advance sentence is not shown.
 - U9 an op already on the server is adopted, `tx.set` is not called, `tx.get(opRef)` runs once, and the thrown value is not a `FirestoreError`.
 
-`tests/emulator/advance-cap.test.js` (C1–C21, C16b, C17b, emulator CI list and `npm run test:emulator`). Legacy rows are written with the rules disabled. C7 does not count attempts. C8 counts loop passes.
+`tests/emulator/advance-cap.test.js` (C1–C22, C16b, C17b, emulator CI list and `npm run test:emulator`). Legacy rows are written with the rules disabled. C7 does not count attempts. C8 counts loop passes. C22 fills the advance, then the other phone's first read is over the cap and the re-read sees a reversal; that phone syncs, with two attempts and `drawn` 30000.
 
 `tests/emulator/account-rules.test.js` writes settle, return, and rev-of-draw fixtures through `sendCapped`. The `laborStlCreate` access count is 10, with the A-1 note in the title. `getAfter(` is exactly 4. `capCreate` and `capUpdate` are in the one-user-get list.
 
@@ -131,27 +132,32 @@ These steps apply to this deploy and to any later hosting deploy from main after
 
 Run on the PR head, each change reverted.
 
-| #                                                                | Must turn red                     | Result                      |
-| ---------------------------------------------------------------- | --------------------------------- | --------------------------- |
-| M1 drop `drawn <= cap`                                           | C2, C9                            | red                         |
-| M2 drop `opIsNew`                                                | C4                                | red                         |
-| M3 drop the return conjunct                                      | C3                                | red                         |
-| M4 drop the settle conjunct                                      | C3 stl twin                       | red                         |
-| M5 drop the rev conjunct                                         | C9                                | red                         |
-| M6 flip the rev sign                                             | C9                                | red                         |
-| M7 drop the `kind` test                                          | C14                               | red                         |
-| M8 drop the field freeze                                         | C5                                | red                         |
-| M9 drop `advanceLive` in `capWrite`                              | expected survivor while A-1 holds | green (survivor)            |
-| M10 `capSeed` counts reversed draws                              | U3, C10                           | red                         |
-| M11 `writeLocal` skips the cap branch                            | C15                               | red                         |
-| M12 `capStep` ignores over                                       | U2                                | red                         |
-| M13 drop the op-exists check                                     | U9, C16                           | red                         |
-| M14 one attempt, no retry                                        | U8, C8                            | red                         |
-| M15 drop the clamp                                               | U2, C20                           | red                         |
-| M16 `advanceLive` required for reversals                         | C19, C21                          | red                         |
-| M17 create path requires `drawn − delta >= 0` for a reversal too | C21 twin                          | green (equivalent survivor) |
+| #                                                                | Must turn red                      | Result                      |
+| ---------------------------------------------------------------- | ---------------------------------- | --------------------------- |
+| M1 drop `drawn <= cap`                                           | C2, C9                             | red                         |
+| M2 drop `opIsNew`                                                | C4                                 | red                         |
+| M3 drop the return conjunct                                      | C3                                 | red                         |
+| M4 drop the settle conjunct                                      | C3 stl twin                        | red                         |
+| M5 drop the rev conjunct                                         | C9                                 | red                         |
+| M6 flip the rev sign                                             | C9                                 | red                         |
+| M7 drop the `kind` test                                          | C14                                | red                         |
+| M8 drop the field freeze                                         | C5                                 | red                         |
+| M9 drop `advanceLive` in `capWrite`                              | expected survivor while A-1 holds  | green (survivor)            |
+| M10 `capSeed` counts reversed draws                              | U3, C10                            | red                         |
+| M11 `writeLocal` skips the cap branch                            | C15                                | red                         |
+| M12 `capStep` ignores over                                       | U2, and also U8, C7, C10, C11, C15 | red                         |
+| M13 drop the op-exists check                                     | U9, C16/C16b, C17/C17b, E27        | red                         |
+| M14 one attempt, no retry                                        | U8, C8                             | red                         |
+| M15 drop the clamp                                               | U2, C20                            | red                         |
+| M16 `advanceLive` required for reversals                         | C19, C21                           | red                         |
+| M17 create path requires `drawn − delta >= 0` for a reversal too | C21 twin                           | green (equivalent survivor) |
+| M18 check `capRefused === 'over'` before `capChanged`            | C22, U8(d)                         | red                         |
+
+M12 still leaves `drawn` at or under the cap, because the rules deny the over-cap write. The row goes red on the message: it shows «رُفض الإرسال» instead of the advance sentence.
 
 M17 does not change the accepted set. For a reversal `delta` is negative and `drawn ≥ 0`, so `drawn − delta ≥ 0` is already implied by `drawn >= 0`. The honest client and the low-seed twin both send `drawn` 0. The rules cannot tell them apart. Recorded as an equivalent survivor, same class as M9.
+
+M18 swaps the two checks in `writeCapped`, so a stale over-read shows the advance sentence without looking at whether the counter moved. C22 and U8(d) turn red. The production order is unchanged: `capChanged` is tested first, and the sentence is thrown only when the final re-read is unchanged.
 
 ## 12. Service worker
 
