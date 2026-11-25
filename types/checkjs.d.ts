@@ -1075,17 +1075,36 @@ interface AdvanceAfterInput {
 interface AccountReclassApi extends AccountModule {
   token(expenseId: string): string;
   tokenOf(description: unknown): string;
-  misbookedCandidates(entries: readonly LedgerEntry[], syncErrors: Readonly<Record<string, unknown>>): readonly LedgerEntry[];
+  misbookedCandidates(
+    entries: readonly LedgerEntry[],
+    syncErrors: Readonly<Record<string, unknown>>,
+  ): readonly LedgerEntry[];
   rowState(expense: LedgerEntry, ctx: ReclassCtx): ReclassState;
   stillOwedReversal(input: StillOwedInput): { doc: LedgerEntry | null; errors: string[] };
   advanceAfterReversal(input: AdvanceAfterInput): { doc: object | null; errors: string[] };
-  advanceStillOwed(entries: readonly LedgerEntry[], txns: readonly FoldDoc[], syncErrors: Readonly<Record<string, unknown>>): readonly LedgerEntry[];
+  advanceStillOwed(
+    entries: readonly LedgerEntry[],
+    txns: readonly FoldDoc[],
+    syncErrors: Readonly<Record<string, unknown>>,
+  ): readonly LedgerEntry[];
   coveringAdvances(expenseId: string, txns: readonly FoldDoc[], index: RowIndex): readonly FoldDoc[];
   duplicatePlan(covering: readonly FoldDoc[], index: RowIndex): DuplicatePlan;
   hasLiveDraw(advanceId: string, index: RowIndex): boolean;
-  refusedAdvanceIds(expenseId: string, txns: readonly FoldDoc[], syncErrors: Readonly<Record<string, unknown>>): readonly string[];
-  reclassTotal(entries: readonly LedgerEntry[], txns: readonly FoldDoc[], syncErrors: Readonly<Record<string, unknown>>, projectId: string): number;
-  reviewDoc(input: { entry: LedgerEntry; user: LedgerUser; deviceId: string; day: string }): { doc: LaborReview | null; errors: string[] };
+  refusedAdvanceIds(
+    expenseId: string,
+    txns: readonly FoldDoc[],
+    syncErrors: Readonly<Record<string, unknown>>,
+  ): readonly string[];
+  reclassTotal(
+    entries: readonly LedgerEntry[],
+    txns: readonly FoldDoc[],
+    syncErrors: Readonly<Record<string, unknown>>,
+    projectId: string,
+  ): number;
+  reviewDoc(input: { entry: LedgerEntry; user: LedgerUser; deviceId: string; day: string }): {
+    doc: LaborReview | null;
+    errors: string[];
+  };
 }
 type IssueGateError = 'offline' | 'queued' | 'pull' | 'changed' | 'review' | 'period' | 'open' | 'inactive' | 'epoch';
 interface IssueGateResult {
