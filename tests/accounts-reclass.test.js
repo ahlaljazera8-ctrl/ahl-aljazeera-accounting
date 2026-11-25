@@ -767,3 +767,55 @@ test('U37 first match and legacy shape', () => {
   assert.equal(page.includes('data-rc-cancel="bare"'), false);
   assert.equal(page.includes('data-rc-closed="bare"'), false);
 });
+
+test('K1 M32: a stale cancel form does not write after a queued «انخصم» on the same row', () => {
+  reset();
+  boot();
+  click({ rcCancel: 'e80' });
+  nodes['rc-reason'] = { value: 'سبب' };
+  store.laborReviews = [review('e80')];
+  const count = store.entries.length;
+  click({ rcSaveRev: 'e80' });
+  assert.equal(store.entries.length, count);
+});
+
+test('K2 M32: a forced save on a legacy row (canCancel false) writes nothing', () => {
+  reset();
+  const legacy = labour('e80');
+  delete legacy.isReversal;
+  store.entries = [legacy, labour('e30')];
+  boot();
+  nodes['rc-reason'] = { value: 'سبب' };
+  const count = store.entries.length;
+  click({ rcSaveRev: 'e80' });
+  assert.equal(store.entries.length, count);
+});
+
+test('K3 M32: a forced save on an archived-project row writes nothing', () => {
+  reset();
+  store.entries = [labour('e80', { projectId: OLD }), labour('e30')];
+  boot();
+  nodes['rc-reason'] = { value: 'سبب' };
+  const count = store.entries.length;
+  click({ rcSaveRev: 'e80' });
+  assert.equal(store.entries.length, count);
+});
+
+test('K4 A10: a stale «سلفة» form writes nothing after another phone\'s advance arrives', () => {
+  reset();
+  store.entries = [labour('e80'), labour('e30'), lrev('e80')];
+  boot();
+  click({ rcAdvance: 'e80' });
+  click({ rcParty: 'p1', rcFor: 'e80' });
+  store.accountTxns = [advance('aaaaaaaa-bbbb-cccc-dddd-00000000ffff', { createdAtServer: 5 })];
+  click({ rcSaveAdv: 'e80' });
+  assert.equal(store.accountTxns.length, 1);
+});
+
+test('K5 A5: a live review plus an ordinary «عكس» is kind other (table order 7 before 8)', () => {
+  reset();
+  store.entries = [labour('e80'), labour('e30'), lrev('e80', { description: 'تصحيح: أجر' })];
+  store.laborReviews = [review('e80', { createdAtServer: 8 })];
+  boot();
+  assert.equal(state('e80').kind, 'other');
+});
