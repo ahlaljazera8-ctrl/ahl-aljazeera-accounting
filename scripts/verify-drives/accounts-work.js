@@ -355,7 +355,7 @@ async function drive(featureId, run, tools) {
     );
     await tools.waitUntil(
       session,
-      `(document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes('عمل معتمد') && document.querySelector('#main').innerText.includes(${JSON.stringify(AMOUNT_TEXT)})`,
+      `(document.querySelector('#main') || {}).innerText && document.querySelector('#main').innerText.includes('مجموع العمل المعتمد') && document.querySelector('#main').innerText.includes(${JSON.stringify(AMOUNT_TEXT)})`,
       10000,
     );
     await tools.shoot(session, path.join(dir, 'person.png'));

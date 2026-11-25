@@ -370,8 +370,8 @@
     if (!figures) return scopePills(model, partyId) + '<div class="card"><div class="note">لا يوجد</div></div>';
     const net = figures.net;
     const lines = [
-      ['عمل معتمد', figures.approvedLabor],
-      ['مدفوع للعمل', figures.payments],
+      ['مجموع العمل المعتمد', figures.approvedLabor],
+      ['مجموع المدفوع للعمل', figures.payments],
       ['سلف قائمة عليه', figures.openAdvances],
     ];
     const body = lines.map(([label, amount]) => '<div class="kv"><span>' + label + '</span>' + money(/** @type {number} */ (amount)) + '</div>').join('');

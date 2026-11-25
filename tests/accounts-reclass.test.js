@@ -697,6 +697,17 @@ test('U32 description date and id', () => {
   assert.equal(doc.description.includes('e80'), true);
 });
 
+test('U33 L5 labels', () => {
+  reset();
+  const model = UI.modelFor(g.me());
+  model.screen.tab = 'overview';
+  const page = UI.accountHtml(model, 'p1');
+  assert.match(page, /<span>مجموع العمل المعتمد<\/span>/);
+  assert.match(page, /<span>مجموع المدفوع للعمل<\/span>/);
+  assert.equal(/<span>عمل معتمد<\/span>/.test(page), false);
+  assert.equal(/<span>مدفوع للعمل<\/span>/.test(page), false);
+});
+
 test('U35 bothFacts', () => {
   reset();
   store.entries = [labour('e30'), labour('e80'), lrev('e80')];
