@@ -31,6 +31,7 @@
     refused: 'رُفض الإرسال',
     queued: 'لا يُعتمد الكشف وفيه قيد لم يُرسل بعد',
     dependent: 'اعكس الاسترداد أو الإرجاع أو التسوية أو الخصم المرتبط أولاً',
+    reclass: 'أُعيد تصنيفها',
     unchecked: 'لا يُعتمد الكشف وفيه مبلغ غير مدقّق',
     note: 'الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.',
     save: 'حفظ التسوية',
@@ -681,12 +682,14 @@
       const delta = doc.purpose ? CASH_DELTA[/** @type {'payLabor'} */ (doc.purpose)] : 0;
       if (delta) newCash += delta * counted(doc.amount);
     }
+    const reclass = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountReclass;
+    const reclassAdvance = reclass ? reclass.reclassTotal(entries || [], txns || [], syncErrors || {}, filter.projectId) : 0;
     return {
       oldPaid,
       unlinked,
       newApproved,
       newCash,
-      reclassAdvance: /** @type {0} */ (0),
+      reclassAdvance,
       cost: oldPaid + unlinked + newApproved,
       paidToContractors: oldPaid + unlinked + newCash,
     };
@@ -1024,7 +1027,9 @@
     return (
       '<div class="card" data-st-totals="1"><div class="kv"><span>' + SENTENCE.cost + '</span>' + money(totals.cost) + '</div>' +
       '<div class="kv"><span>' + SENTENCE.unlinked + '</span>' + money(totals.unlinked) + '</div>' +
-      '<div class="kv"><span>' + SENTENCE.paid + '</span>' + money(totals.paidToContractors) + '</div></div>'
+      '<div class="kv"><span>' + SENTENCE.paid + '</span>' + money(totals.paidToContractors) + '</div>' +
+      (totals.reclassAdvance > 0 ? '<div class="kv" data-st-reclass="1"><span>' + SENTENCE.reclass + '</span>' + money(totals.reclassAdvance) + '</div>' : '') +
+      '</div>'
     );
   }
 

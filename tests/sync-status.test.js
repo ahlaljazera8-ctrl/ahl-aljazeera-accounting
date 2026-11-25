@@ -708,7 +708,7 @@ test('E22 queueRefusal', () => {
 test('E23 accountReads and toRemote', () => {
   assert.deepEqual(Sync.accountReads({ role: 'site', active: true, uid: 'site-1' }, null), []);
   const reads = Sync.accountReads({ role: 'owner', active: true, uid: 'owner-a' }, null);
-  assert.deepEqual(reads.map(spec => spec.collection), ['parties', 'agreements', 'accountTxns', 'statementApprovals']);
+  assert.deepEqual(reads.map(spec => spec.collection), ['parties', 'agreements', 'accountTxns', 'statementApprovals', 'laborReviews']);
   const remote = Sync.toRemote(Object.assign(txn(), { attachmentIds: ['a'], unitName: 'brick', unitPrice: 5, qty: 3 }));
   assert.equal(remote.docType, undefined);
   assert.equal(remote.attachmentIds, undefined);
@@ -716,6 +716,47 @@ test('E23 accountReads and toRemote', () => {
   assert.equal(remote.unitPrice, undefined);
   const untagged = Object.assign({}, remote);
   assert.equal(Status.sameContent(Object.assign(txn(), { qty: 3 }), untagged), true);
+});
+
+test('U34 laborReview sync', async () => {
+  const local = {
+    id: 'lrv_e80', docType: /** @type {'laborReview'} */ ('laborReview'), entryId: 'e80', projectId: 'JOB', decision: 'deducted',
+    reviewedOn: '2026-11-24', createdBy: 'owner-b', createdByName: 'ب', createdAtServer: 10, deviceId: 'phone-b', extra: 1,
+  };
+  const server = {
+    id: 'lrv_e80', entryId: 'e80', projectId: 'JOB', decision: 'deducted', reviewedOn: '2026-11-25',
+    createdBy: 'owner-a', createdByName: 'أمير', createdAtServer: 1700000000000, deviceId: 'phone-a',
+  };
+  assert.equal(Sync.collectionFor(local), 'laborReviews');
+  assert.equal(Sync.usesPutIfMissing('laborReviews'), true);
+  assert.equal(Sync.queueRefusal(local), null);
+  const sent = Sync.toRemote(local);
+  assert.equal(sent.docType, undefined);
+  assert.equal(sent.extra, undefined);
+  assert.deepEqual(Object.keys(sent).sort(), ['createdAtServer', 'createdBy', 'createdByName', 'decision', 'deviceId', 'entryId', 'id', 'projectId', 'reviewedOn']);
+  assert.equal(Sync.accountReads({ role: 'site', active: true, uid: 'site-1' }, null).length, 0);
+  assert.equal(Sync.accountReads({ role: 'owner', active: true, uid: 'owner-a' }, null).some(spec => spec.collection === 'laborReviews'), true);
+  assert.equal(Sync.localDoc('lrv_e80', { laborReviews: [local] }).entryId, 'e80');
+  const pulled = await Sync.pullAccounts({
+    user: { role: 'owner', active: true, uid: 'owner-a' },
+    since: null,
+    read: async spec => (spec.collection === 'laborReviews' ? [{ id: 'lrv_e80', entryId: 'e80', projectId: 'JOB', decision: 'deducted' }] : []),
+  });
+  assert.equal(pulled.laborReviews[0].docType, 'laborReview');
+  assert.equal(pulled.laborReviews[0].entryId, 'e80');
+  assert.equal(Status.sameContent(local, server), true);
+  assert.equal(Status.sameContent(local, Object.assign({}, server, { entryId: 'e1' })), false);
+  assert.equal(Status.sameContent(local, Object.assign({}, server, { decision: 'other' })), false);
+  const { result } = await runFlush([local], { read: () => ({ status: 'found', doc: server }) });
+  assert.equal(result.failed.length, 0);
+  assert.equal(result.synced.includes(local.id), true);
+  const shown = listed([local], result)[0];
+  assert.equal(shown.createdBy, 'owner-a');
+  assert.equal(shown.createdByName, 'أمير');
+  assert.equal(Status.applyFlush([local.id], {}, result).errors[local.id], undefined);
+  const clash = await runFlush([local], { read: () => ({ status: 'found', doc: Object.assign({}, server, { decision: 'other' }) }) });
+  assert.equal(clash.result.synced.includes(local.id), false);
+  assert.equal(clash.result.failed.length, 1);
 });
 
 test('E24 payload', () => {

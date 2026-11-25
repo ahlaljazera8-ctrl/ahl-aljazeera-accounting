@@ -12,6 +12,7 @@ service cloud.firestore {
     function isSite() { return allowlisted() && me().role == 'site' && me().active == true; }
     function assigned(pid) { return pid in me().get('assignedProjectIds', []); }
     function entryPath(id) { return /databases/$(database)/documents/ledgerEntries/$(id); }
+    function laborReviewPath(id) { return /databases/$(database)/documents/laborReviews/$(id); }
     function projectPath(id) { return /databases/$(database)/documents/projects/$(id); }
     function foremanPath(id) { return /databases/$(database)/documents/foremen/$(id); }
     function foremanMovePath(id) { return /databases/$(database)/documents/foremanMoves/$(id); }
@@ -143,7 +144,10 @@ service cloud.firestore {
           && d().reversalReason.size() > 0
           && d().reversalReason.size() <= 500
           && (isOwner() || (isSite() && orig.createdBy == request.auth.uid))
-          && (('foremanId' in orig) ? (d().foremanId == orig.foremanId) : !('foremanId' in d()));
+          && (('foremanId' in orig) ? (d().foremanId == orig.foremanId) : !('foremanId' in d()))
+          && !(('description' in d()) && d().description is string
+               && d().description.split(';')[0] == 'L:' + d().reversesEntryId
+               && existsAfter(laborReviewPath('lrv_' + d().reversesEntryId)));
       }
       function foremanOk() {
         return !('foremanId' in d())
@@ -1277,6 +1281,37 @@ service cloud.firestore {
       }
       allow read: if accountRead();
       allow create: if statementCreate();
+      allow update, delete: if false;
+    }
+
+    match /laborReviews/{id} {
+      function d() { return request.resource.data; }
+      /**
+       * @returns {boolean}
+       * Reads: 3. user, the ledger entry (get and exists on the same doc), rev_ of the entry (existsAfter).
+       */
+      function reviewCreate() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        let orig = get(entryPath(d().entryId)).data;
+        return ownerOk(user)
+          && headerOk(d(), user)
+          && 'createdByName' in d()
+          && d().keys().hasOnly(['id', 'entryId', 'projectId', 'decision', 'reviewedOn', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'])
+          && idOk(d().entryId)
+          && id == 'lrv_' + d().entryId
+          && d().id == id
+          && d().decision == 'deducted'
+          && entryDateOk(d().reviewedOn)
+          && exists(entryPath(d().entryId))
+          && orig.entryType == 'labour'
+          && orig.direction == 'expense'
+          && orig.get('isReversal', false) == false
+          && orig.get('foremanId', null) == null
+          && orig.projectId == d().projectId
+          && !existsAfter(entryPath('rev_' + d().entryId));
+      }
+      allow read: if accountRead();
+      allow create: if reviewCreate();
       allow update, delete: if false;
     }
   }

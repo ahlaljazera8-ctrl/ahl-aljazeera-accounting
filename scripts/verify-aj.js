@@ -1432,6 +1432,28 @@ async function drive(run, featureId) {
     });
     return;
   }
+  if (featureId === 'reclass') {
+    const reclass = require('./verify-drives/accounts-reclass');
+    await reclass.drive(featureId, run, {
+      connectCdp,
+      evaluate,
+      waitUntil,
+      shoot,
+      finishSession,
+      readCollection,
+      kvText,
+      fail: message => {
+        throw new VerifyError(message);
+      },
+      EMAIL,
+      PASSWORD,
+      DISPLAY,
+      PROJECT_ID,
+      PROJECT_NAME,
+      PROJECT,
+    });
+    return;
+  }
   const name = featureId || '(missing)';
   throw new VerifyError('not proved in this run: ' + name + '. See features/' + (featureId || 'README') + '.md', 3);
 }

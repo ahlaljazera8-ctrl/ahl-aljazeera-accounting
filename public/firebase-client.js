@@ -406,6 +406,7 @@ async function createFirebaseClient(mods, generation) {
             agreements: get(K.agreements, []),
             accountTxns: get(K.accountTxns, []),
             statementApprovals: get(K.statementApprovals, []),
+            laborReviews: get(K.laborReviews, []),
           });
           if (!original) {
             const found = await fsMod.getDocFromServer(fsMod.doc(fdb, 'accountTxns', clean.reversesId));
@@ -461,6 +462,7 @@ async function createFirebaseClient(mods, generation) {
         agreements: get(K.agreements, []),
         accountTxns: get(K.accountTxns, []),
         statementApprovals: get(K.statementApprovals, []),
+        laborReviews: get(K.laborReviews, []),
       });
       const col = (local && S.collectionFor(local)) || 'accountTxns';
       try {
@@ -559,6 +561,7 @@ async function createFirebaseClient(mods, generation) {
       set(K.agreements, S.mergeById(get(K.agreements, []), accounts.agreements, pendingAccounts));
       set(K.accountTxns, S.mergeById(get(K.accountTxns, []), accounts.accountTxns, pendingAccounts));
       set(K.statementApprovals, S.mergeById(get(K.statementApprovals, []), accounts.statementApprovals, pendingAccounts));
+      set(K.laborReviews, S.mergeById(get(K.laborReviews, []), accounts.laborReviews, pendingAccounts));
       set(K.pullWatermark, Object.assign({}, get(K.pullWatermark, {}) || {}, { [S.ACCOUNTS_MARK]: accounts.watermark }));
       if (Ledger.can(user, 'owner')) {
       for (const sub of names) {
@@ -682,6 +685,7 @@ function cacheSnapshot() {
     agreements: get(K.agreements, []),
     accountTxns: get(K.accountTxns, []),
     statementApprovals: get(K.statementApprovals, []),
+    laborReviews: get(K.laborReviews, []),
     slotLosers: get(K.slotLosers, {}) || {},
     linkRefusals: get(K.linkRefusals, {}) || {},
     finance: get(K.finance, {}) || {},
@@ -769,6 +773,7 @@ function writeCache(next, before) {
   set(K.agreements, next.agreements || []);
   set(K.accountTxns, next.accountTxns || []);
   set(K.statementApprovals, next.statementApprovals || []);
+  set(K.laborReviews, next.laborReviews || []);
   set(K.slotLosers, next.slotLosers || {});
   set(K.linkRefusals, next.linkRefusals || {});
   set(K.finance, next.finance);
@@ -906,7 +911,7 @@ function commitAccountFlush(result) {
   }
   if (adoptedRows.length) {
     const byId = new Map(adoptedRows.map(row => [row.id, row.remote]));
-    [[K.accountTxns, 'accountTxn'], [K.agreements, 'agreement'], [K.parties, 'party'], [K.statementApprovals, 'statementApproval']].forEach(pair => {
+    [[K.accountTxns, 'accountTxn'], [K.agreements, 'agreement'], [K.parties, 'party'], [K.statementApprovals, 'statementApproval'], [K.laborReviews, 'laborReview']].forEach(pair => {
       const key = /** @type {string} */ (pair[0]);
       const docType = /** @type {string} */ (pair[1]);
       const rows = /** @type {SyncDoc[]} */ (get(key, []));
@@ -1077,6 +1082,7 @@ async function performFlush(token, run) {
           agreements: get(K.agreements, []),
           accountTxns: get(K.accountTxns, []),
           statementApprovals: get(K.statementApprovals, []),
+          laborReviews: get(K.laborReviews, []),
         }),
         write: async local => {
           const id = String((local && local.id) || '');

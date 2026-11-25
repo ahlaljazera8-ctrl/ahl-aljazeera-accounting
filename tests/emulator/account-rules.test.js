@@ -1956,16 +1956,20 @@ testSeq('source: firestore.rules contains no hashing.sha256, no lockId, and no i
   }
 });
 
-testSeq('source: exactly six existsAfter calls, on approveLabor rej_ and sup_, approveDeduct rej_ and sup_, rejCreate appr_, and supCreate appr_, and exactly four getAfter calls: laborStlCreate, returnAdvanceCreate and revCreate on advanceCaps, and capWrite on the op', () => {
+testSeq('source: exactly seven existsAfter calls, on approveLabor rej_ and sup_, approveDeduct rej_ and sup_, rejCreate appr_, supCreate appr_, reviewCreate rev_, and reversalOk laborReview, and exactly four getAfter calls: laborStlCreate, returnAdvanceCreate and revCreate on advanceCaps, and capWrite on the op', () => {
   const added = RULES.slice(RULES.indexOf('function ownerOk'));
-  assert.equal((added.match(/existsAfter\(/g) || []).length, 6);
+  assert.equal((added.match(/existsAfter\(/g) || []).length, 7);
   assert.equal((added.match(/getAfter\(/g) || []).length, 4);
   assert.match(fnBody(RULES, 'laborStlCreate'), /getAfter\(\/databases\/\$\(database\)\/documents\/advanceCaps\//);
   assert.match(fnBody(RULES, 'returnAdvanceCreate'), /getAfter\(\/databases\/\$\(database\)\/documents\/advanceCaps\//);
   assert.match(fnBody(RULES, 'revCreate'), /getAfter\(\/databases\/\$\(database\)\/documents\/advanceCaps\//);
   assert.match(fnBody(RULES, 'capWrite'), /getAfter\(txnPath\(d\(\)\.lastOpId\)\)/);
-  assert.equal((RULES.match(/existsAfter\(/g) || []).length, 7);
+  assert.equal((RULES.match(/existsAfter\(/g) || []).length, 9);
   assert.equal((fnBody(RULES, 'projectGone').match(/existsAfter\(/g) || []).length, 1);
+  assert.equal((fnBody(RULES, 'reviewCreate').match(/existsAfter\(/g) || []).length, 1);
+  assert.match(fnBody(RULES, 'reviewCreate'), /existsAfter\(entryPath\('rev_'/);
+  assert.equal((fnBody(RULES, 'reversalOk').match(/existsAfter\(/g) || []).length, 1);
+  assert.match(fnBody(RULES, 'reversalOk'), /existsAfter\(laborReviewPath\(/);
   const counts = {
     approveLaborCreate: 2,
     approveDeductCreate: 2,
