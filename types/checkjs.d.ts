@@ -1004,7 +1004,7 @@ interface ContractorTotals {
   unlinked: number;
   newApproved: number;
   newCash: number;
-  reclassAdvance: 0;
+  reclassAdvance: number;
 }
 
 /** One «انخصم» answer (ameer:10, ameer:11). Synced doc in collection laborReviews, id 'lrv_' + entryId (§4.4). */

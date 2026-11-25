@@ -452,11 +452,26 @@ test('U18 duplicate reversal', () => {
 
 test('U19 reclassTotal', () => {
   reset();
+  const Statement = require('../public/accounts-statement.js');
+  g.AccountStatement = Statement;
+  g.AccountReclass = Reclass;
   store.entries.push(lrev('e80'));
   store.accountTxns = [advance('a')];
   assert.equal(Reclass.reclassTotal(store.entries, store.accountTxns, store.syncErrors, JOB), 80000);
+  const totals = Statement.contractorTotals(store.entries, store.accountTxns, store.syncErrors, { projectId: JOB });
+  assert.equal(totals.reclassAdvance, 80000);
+  assert.equal(totals.paidToContractors, totals.oldPaid + totals.unlinked + totals.newCash);
+  assert.equal(totals.cost, totals.oldPaid + totals.unlinked + totals.newApproved);
+  assert.equal(totals.paidToContractors, 80000);
+  const card = Statement.totalsCardHtml(totals);
+  assert.match(card, /data-st-reclass="1"/);
+  assert.match(card, /أُعيد تصنيفها/);
+  assert.match(card, /80,000/);
   store.accountTxns = [advance('a', { description: 'L:e1;2026-03-01 e1' })];
   assert.equal(Reclass.reclassTotal(store.entries, store.accountTxns, {}, JOB), 0);
+  const quiet = Statement.contractorTotals(store.entries, store.accountTxns, {}, { projectId: JOB });
+  assert.equal(quiet.reclassAdvance, 0);
+  assert.equal(Statement.totalsCardHtml(quiet).includes('data-st-reclass'), false);
   store.accountTxns = [advance('a', { projectId: OLD })];
   store.entries[store.entries.length - 1].projectId = OLD;
   assert.equal(Reclass.reclassTotal(store.entries, store.accountTxns, {}, JOB), 0);
