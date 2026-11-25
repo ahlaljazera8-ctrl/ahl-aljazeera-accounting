@@ -117,6 +117,7 @@ function reset() {
   g.demoRole = () => '';
   g.uuid = () => 'aaaaaaaa-bbbb-cccc-dddd-000000000001';
   UI.writeAccountScope({ scope: 'project', projectId: JOB, periodKind: 'month', anchorDate: '2026-11-16' });
+  UI.modelFor(g.me()).screen.tab = 'overview';
 }
 
 /**
@@ -620,6 +621,38 @@ test('B16 a later older issue does not change an issued card', () => {
   const wideBefore = view([p1, p2], base, '2026-11-01', '2026-11-30', { projectId: undefined });
   const wideAfter = view([p1, p2], base.concat([approval('late-week', '2026-10-18', '2026-10-24', '2026-12-05')]), '2026-11-01', '2026-11-30', { projectId: undefined });
   assert.equal(Statement.statementCardHtml(wideBefore), Statement.statementCardHtml(wideAfter));
+  const projectOnly = base.filter(item => item.id !== 'n1');
+  const openBefore = view([p1, p2], projectOnly, '2026-11-01', '2026-11-30', { projectId: undefined });
+  const openAfter = view([p1, p2], projectOnly.concat([approval('late-open', '2026-10-18', '2026-10-24', '2026-12-05')]), '2026-11-01', '2026-11-30', { projectId: undefined });
+  assert.equal(openBefore.opening, openAfter.opening);
+  assert.equal(openBefore.closing, openAfter.closing);
+  const amounts = statement => Object.fromEntries(statement.lines.map(line => [line.key, line.amount]));
+  assert.deepEqual(amounts(openBefore), amounts(openAfter));
+  const sums = statement => {
+    /** @type {Record<string, number>} */
+    const out = {};
+    for (const item of statement.corrections) out[item.key] = (out[item.key] || 0) + item.amount;
+    return out;
+  };
+  assert.deepEqual(sums(openBefore), sums(openAfter));
+});
+
+test('ARCH-M4 a later row in another project keeps its natural day', () => {
+  reset();
+  const late = labor('y', 300000, '2026-10-12', JOB2).map(doc => Object.assign({}, doc, { createdAtServer: stamp('2026-11-05') }));
+  const approvals = [approval('ax', '2026-10-01', '2026-10-31', '2026-11-02', { periodKind: 'month' })];
+  const ctx = { byId: Object.fromEntries(late.map(doc => [doc.id, doc])), approvals, syncErrors: {}, today: '2026-11-25' };
+  assert.equal(Statement.bookDay(late[1], ctx), '2026-10-12');
+  const nov = view(late, approvals, '2026-11-01', '2026-11-30', { projectId: JOB2 });
+  assert.equal(nov.lines.find(line => line.key === 'approvedLabor').amount, 0);
+});
+
+test('ARCH-M5 a row that arrives on the issued period end books the next day', () => {
+  reset();
+  const approvals = [approval('oct', '2026-10-01', '2026-10-31', '2026-10-31', { periodKind: 'month' })];
+  const late = labor('m', 100000, '2026-10-31').map(doc => Object.assign({}, doc, { createdAtServer: stamp('2026-10-31') + 3600000 }));
+  const ctx = { byId: Object.fromEntries(late.map(doc => [doc.id, doc])), approvals, syncErrors: {}, today: '2026-11-25' };
+  assert.equal(Statement.bookDay(late[1], ctx), '2026-11-01');
 });
 
 test('B17 equal period ends collapse to one window', () => {
@@ -854,7 +887,7 @@ test('B20 the printed rows and the raw parts stay one identity', () => {
   }
 });
 
-test('G1 to G12 the issue gate', async () => {
+test('G1 to G12 the issue gate', { timeout: 5000 }, async () => {
   reset();
   const shown = view(labor('m', 1000, '2026-11-02'), [], '2026-11-01', '2026-11-30');
   let flushed = 0;
@@ -1082,6 +1115,7 @@ test('D2 D2b D2c D2d D14 D15 D16 the statement and mustakhlas text', () => {
     row('appr_d', { purpose: 'approveDeduct', kind: 'appr', targetId: 'd', txnDate: '2026-11-12' }),
   ]), [], '2026-11-01', '2026-11-30');
   assert.equal(Statement.mustakhlasHtml(owing).includes('الصافي 80,000 د.ع مستحق عليه'), true);
+  assert.equal(visible(Statement.mustakhlasHtml(view([], [], '2026-11-01', '2026-11-30'))).includes('الصافي 0 د.ع مستحق له'), true);
   const card = visible(Statement.statementCardHtml(Object.assign({}, statement, { opening: -100000, closing: -100000 })));
   assert.equal(card.includes('رصيد أول المدة 100,000 د.ع مستحق عليه'), true);
   assert.equal(card.includes('رصيد آخر المدة 100,000 د.ع مستحق عليه'), true);
@@ -1171,6 +1205,7 @@ test('D9 paid to contractors stays off the company figures', () => {
   assert.equal(afterCost, beforeCost);
   assert.equal(Ledger.foremanSummaryToCSV(store.foremen, [], store.entries, {}), csvBefore);
   const overview = UI.accountHtml(UI.modelFor(g.me()), PARTY);
+  assert.equal(overview.includes('الرصيد المستحق'), true);
   assert.equal(overview.includes('المدفوع للمقاولين'), false);
   assert.equal(overview.includes('120,000'), false);
 });
@@ -1217,6 +1252,31 @@ test('D13 one reason field covers both reversal buttons', () => {
     const neither = openContractor(installAll());
     assert.equal(neither.includes('id="cc-reason"'), false);
   });
+  // J-only is unreachable while I is installed. A live settle needs a counting approval, and I paints
+  // #cc-reason for that approval, or for the advance when the settle makes it dependent. The only field
+  // therefore sits in I's HTML, before J's cards. Dropping J's settle-to-issue check cannot add a second field.
+  const settleWorlds = [
+    labor('m', 500000, '2026-11-10').concat([
+      row('adv', { purpose: 'advanceLabor', amount: 100000, txnDate: '2026-11-10' }),
+      row('stl_m_1', { kind: 'stl', purpose: 'settle', amount: 40000, targetId: 'm', settlesId: 'adv', txnDate: '2026-11-18' }),
+    ]),
+    labor('m', 500000, '2026-11-10').concat([
+      row('adv', { purpose: 'advanceLabor', amount: 100000, txnDate: '2026-11-10' }),
+      row('rev_adv', { kind: 'rev', purpose: 'advanceLabor', reversesId: 'adv', createdAtServer: stamp('2026-11-20') }),
+      row('stl_m_1', { kind: 'stl', purpose: 'settle', amount: 40000, targetId: 'm', settlesId: 'adv', txnDate: '2026-11-18' }),
+    ]),
+  ];
+  UI.writeAccountScope({ scope: 'project', projectId: JOB, periodKind: 'week', anchorDate: '2026-11-18' });
+  for (const docs of settleWorlds) {
+    store.accountTxns = docs;
+    withStart('2026-10-01', () => {
+      const html = openContractor(installAll());
+      const reasonAt = html.indexOf('id="cc-reason"');
+      const jAt = html.search(/data-cs-card|data-st-issue-card/);
+      assert.equal(html.split('id="cc-reason"').length - 1, 1);
+      assert.equal(reasonAt >= 0 && jAt >= 0 && reasonAt < jAt, true);
+    });
+  }
 });
 
 function clickAction(button) {
