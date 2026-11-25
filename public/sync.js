@@ -832,6 +832,135 @@
     return out;
   }
 
+  const CAP_COLLECTION = 'advanceCaps';
+  const CAP_TRIES = 3;
+  // Q19, placed on a true over-cap refusal at the final read (Ameer, 2026-11-25).
+  const CAP_OVER = 'المُرجَع والتسوية أكبر من السلفة';
+
+  /**
+   * @param {SyncDoc | null | undefined} doc
+   * @returns {boolean}
+   */
+  function isCapDraw(doc) {
+    if (!doc) return false;
+    return (doc.kind === 'stl' && doc.purpose === 'settle')
+      || (doc.kind === 'body' && doc.purpose === 'returnAdvance');
+  }
+
+  /**
+   * The one op an advance counter moves for, or null. original is the reversed row for a rev_.
+   * @param {SyncDoc | null | undefined} doc
+   * @param {SyncDoc | null} original
+   * @returns {{ opId: string, advanceId: string, delta: number } | null}
+   */
+  function capOpOf(doc, original) {
+    if (!doc || typeof doc.id !== 'string' || !doc.id) return null;
+    if (doc.kind === 'stl' && doc.purpose === 'settle' && typeof doc.settlesId === 'string' && doc.settlesId) {
+      if (!Number.isInteger(doc.amount) || /** @type {number} */ (doc.amount) < 1) return null;
+      return { opId: doc.id, advanceId: doc.settlesId, delta: /** @type {number} */ (doc.amount) };
+    }
+    if (doc.kind === 'body' && doc.purpose === 'returnAdvance' && typeof doc.targetId === 'string' && doc.targetId) {
+      if (!Number.isInteger(doc.amount) || /** @type {number} */ (doc.amount) < 1) return null;
+      return { opId: doc.id, advanceId: doc.targetId, delta: /** @type {number} */ (doc.amount) };
+    }
+    if (doc.kind === 'rev' && isCapDraw(original)) {
+      const advanceId = original && original.kind === 'stl' ? original.settlesId : original && original.targetId;
+      const fromDoc = Number.isInteger(doc.amount) ? /** @type {number} */ (doc.amount) : null;
+      const fromOriginal = original && Number.isInteger(original.amount) ? /** @type {number} */ (original.amount) : null;
+      const amount = fromDoc == null ? fromOriginal : fromDoc;
+      if (typeof advanceId !== 'string' || !advanceId) return null;
+      if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 1) return null;
+      return { opId: doc.id, advanceId, delta: -amount };
+    }
+    return null;
+  }
+
+  /**
+   * Sum of live draws on advanceId. reversedIds are draw ids whose rev_ exists.
+   * @param {string} advanceId
+   * @param {readonly SyncDoc[]} draws
+   * @param {ReadonlySet<string>} reversedIds
+   * @returns {number}
+   */
+  function capSeed(advanceId, draws, reversedIds) {
+    let sum = 0;
+    for (let i = 0; i < draws.length; i++) {
+      const doc = draws[i];
+      if (!doc || typeof doc.id !== 'string' || reversedIds.has(doc.id)) continue;
+      const op = capOpOf(doc, null);
+      if (!op || op.advanceId !== advanceId || op.delta <= 0) continue;
+      sum += op.delta;
+    }
+    return sum;
+  }
+
+  /**
+   * Mirror of capWrite. prev null creates from the advance plus seed.
+   * A positive delta is refused when it passes the cap or the advance is reversed.
+   * A negative delta clamps at 0 and is never refused.
+   * @param {{
+   *   op: { opId: string, advanceId: string, delta: number },
+   *   prev: { advanceId?: string, partyId?: string, projectId?: string, currency?: string, cap?: number, drawn?: number, lastOpId?: string } | null,
+   *   advance: SyncDoc | null,
+   *   advanceLive: boolean,
+   *   seed: number,
+   * }} input
+   * @returns {{ ok: true, cap: { advanceId: string, partyId: string, projectId: string, currency: string, cap: number, drawn: number, lastOpId: string } } | { ok: false, reason: 'over' | 'dead' | 'advance' }}
+   */
+  function capStep(input) {
+    const op = input && input.op;
+    const prev = input ? input.prev : null;
+    const advance = input ? input.advance : null;
+    if (!op || !Number.isInteger(op.delta) || op.delta === 0 || typeof op.advanceId !== 'string' || typeof op.opId !== 'string') {
+      return { ok: false, reason: 'advance' };
+    }
+    if (!advance || advance.kind !== 'body' || advance.purpose !== 'advanceLabor' || !Number.isInteger(advance.amount)) {
+      return { ok: false, reason: 'advance' };
+    }
+    const seed = Number.isInteger(input.seed) && input.seed > 0 ? input.seed : 0;
+    const baseRaw = prev ? prev.drawn : seed;
+    if (typeof baseRaw !== 'number' || !Number.isInteger(baseRaw) || baseRaw < 0) return { ok: false, reason: 'advance' };
+    const base = /** @type {number} */ (baseRaw);
+    /** @type {string | undefined} */
+    const partyId = prev ? prev.partyId : (typeof advance.partyId === 'string' ? advance.partyId : undefined);
+    /** @type {string | undefined} */
+    const projectId = prev ? prev.projectId : (typeof advance.projectId === 'string' ? advance.projectId : undefined);
+    /** @type {string | undefined} */
+    const currency = prev ? prev.currency : (typeof advance.currency === 'string' ? advance.currency : undefined);
+    const capRaw = prev ? prev.cap : advance.amount;
+    if (typeof partyId !== 'string' || !partyId || typeof projectId !== 'string' || !projectId || typeof currency !== 'string' || !currency) {
+      return { ok: false, reason: 'advance' };
+    }
+    if (typeof capRaw !== 'number' || !Number.isInteger(capRaw) || capRaw < 1) return { ok: false, reason: 'advance' };
+    const cap = /** @type {number} */ (capRaw);
+    /** @type {number} */
+    let drawn;
+    if (op.delta > 0) {
+      if (!input.advanceLive) return { ok: false, reason: 'dead' };
+      drawn = base + op.delta;
+      if (drawn > cap) return { ok: false, reason: 'over' };
+    } else {
+      const next = base + op.delta;
+      drawn = next < 0 ? 0 : next;
+    }
+    return {
+      ok: true,
+      cap: { advanceId: op.advanceId, partyId, projectId, currency, cap, drawn, lastOpId: op.opId },
+    };
+  }
+
+  /**
+   * Same counter snapshot? The stale-retry loop retries only when this is true.
+   * @param {{ exists: boolean, lastOpId: string | null }} read
+   * @param {{ exists: boolean, lastOpId: string | null }} now
+   * @returns {boolean}
+   */
+  function capChanged(read, now) {
+    if (!read || !now) return true;
+    if (!!read.exists !== !!now.exists) return true;
+    return (read.lastOpId || null) !== (now.lastOpId || null);
+  }
+
   /**
    * Earlier rev_/rej_ of the previous deduct position. Not a parent pointer.
    * @param {SyncDoc | null | undefined} doc
@@ -909,10 +1038,12 @@
     const failId = (id, message) => { failed.push({ id, message }); failedSet.add(id); };
     /**
      * @param {SyncDoc} local
+     * @param {SyncFailure | null | undefined} [failure]
      * @returns {Promise<'auth' | 'failed'>}
      */
-    async function failAccount(local) {
-      let message = Status ? Status.REJECTED : 'رُفض الإرسال';
+    async function failAccount(local, failure) {
+      const capOver = !!(failure && /** @type {{ capOver?: boolean }} */ (failure).capOver === true);
+      let message = capOver ? CAP_OVER : (Status ? Status.REJECTED : 'رُفض الإرسال');
       if (local.projectId && Status && typeof projectProbe === 'function') {
         /** @type {ProjectProbe | null | undefined} */
         let probe;
@@ -1065,7 +1196,7 @@
         if (!Status || Status.isTransient(failure)) { keepId(id); continue; }
         if (isAccountDoc(local)) {
           if (isClientRefusal(failure) || typeof readDependency !== 'function') {
-            if (await failAccount(local) === 'auth') return pack(true);
+            if (await failAccount(local, failure) === 'auth') return pack(true);
             continue;
           }
           /** @type {DependencyRead | undefined} */
@@ -1157,7 +1288,8 @@
     return pack(false);
   }
 
-  return {
+  /** @type {SyncApi} */
+  const api = {
     isSeed, collectionFor, toRemote, withServerTime, fromRemote, mergeById, siteReads, pullChanges, flushOutbox,
     FOREMEN, FOREMAN_MOVES, usesPutIfMissing, foremanReads, pullForemen,
     contractAmountOf, withoutContractAmount, splitProjectSave, projectsForClient, financeReads, personInput,
@@ -1165,4 +1297,7 @@
     exactProjectName, projectDeleteDocs, projectDeleteBatches, missingRequestedIds, dropProjectLocal,
     queueRefusal, localDoc, accountReads, pullAccounts, ACCOUNTS_MARK, slotLoserKey, slotLoserViews, linkRefusalViews,
   };
+  return Object.assign(api, {
+    capOpOf, capSeed, capStep, capChanged, CAP_COLLECTION, CAP_TRIES, CAP_OVER,
+  });
 });

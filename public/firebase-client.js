@@ -121,6 +121,7 @@ async function createFirebaseClient(mods, generation) {
   // The ledger's offline store is aj-u- (entries, projects, outbox). Firestore's
   // persistentLocalCache is a second store, and it is what replays a failed watch
   // stream (ca9, then b815) after the auth user changes — including on the next launch.
+  /** @type {any} */
   let fdb;
   try {
     fdb = fsMod.initializeFirestore(app, { localCache: fsMod.memoryLocalCache() });
@@ -151,6 +152,129 @@ async function createFirebaseClient(mods, generation) {
     if (signed) clearSignOutPending(marked);
   }
   const S = window.Sync;
+  /**
+   * @typedef {{ opId: string, advanceId: string, delta: number }} CapOp
+   * @typedef {SyncApi & {
+   *   CAP_COLLECTION: string,
+   *   CAP_TRIES: number,
+   *   CAP_OVER: string,
+   *   capOpOf(doc: SyncDoc, original: SyncDoc | null): CapOp | null,
+   *   capSeed(advanceId: string, draws: readonly SyncDoc[], reversedIds: ReadonlySet<string>): number,
+   *   capStep(input: {
+   *     op: CapOp,
+   *     prev: { advanceId?: string, partyId?: string, projectId?: string, currency?: string, cap?: number, drawn?: number, lastOpId?: string } | null,
+   *     advance: SyncDoc | null,
+   *     advanceLive: boolean,
+   *     seed: number,
+   *   }): { ok: true, cap: { advanceId: string, partyId: string, projectId: string, currency: string, cap: number, drawn: number, lastOpId: string } } | { ok: false, reason: 'over' | 'dead' | 'advance' },
+   *   capChanged(read: { exists: boolean, lastOpId: string | null }, now: { exists: boolean, lastOpId: string | null }): boolean,
+   * }} CapSync
+   */
+  function capSync() {
+    return /** @type {CapSync} */ (/** @type {unknown} */ (S));
+  }
+  /**
+   * @param {{ exists(): boolean, data(): any }} snap
+   * @returns {{ exists: boolean, lastOpId: string | null, data: any }}
+   */
+  function capView(snap) {
+    const data = snap && snap.exists() ? snap.data() : null;
+    return {
+      exists: !!(snap && snap.exists()),
+      lastOpId: data && typeof data.lastOpId === 'string' ? data.lastOpId : null,
+      data,
+    };
+  }
+  /**
+   * @param {string} advanceId
+   * @returns {Promise<number>}
+   */
+  async function readCapSeed(advanceId) {
+    const caps = capSync();
+    const col = fsMod.collection(fdb, 'accountTxns');
+    const pair = await Promise.all([
+      fsMod.getDocsFromServer(fsMod.query(col, fsMod.where('settlesId', '==', advanceId))),
+      fsMod.getDocsFromServer(fsMod.query(col, fsMod.where('targetId', '==', advanceId))),
+    ]);
+    /** @type {SyncDoc[]} */
+    const draws = [];
+    pair.forEach(/** @param {{ docs: { id: string, data(): SyncDoc }[] }} snap */ snap => {
+      (snap.docs || []).forEach(item => {
+        const data = Object.assign({ id: item.id }, item.data() || {});
+        draws.push(data);
+      });
+    });
+    const revs = await Promise.all(draws.map(item => fsMod.getDocFromServer(fsMod.doc(fdb, 'accountTxns', 'rev_' + item.id))));
+    /** @type {Set<string>} */
+    const reversed = new Set();
+    draws.forEach((item, index) => {
+      if (revs[index] && revs[index].exists()) reversed.add(String(item.id));
+    });
+    return caps.capSeed(advanceId, draws, reversed);
+  }
+  /**
+   * One CAP_TRIES loop pass is one runTransaction call. Thrown values are plain objects.
+   * @param {SyncDoc} clean
+   * @param {CapOp} op
+   * @returns {Promise<void>}
+   */
+  async function writeCapped(clean, op) {
+    const caps = capSync();
+    const uid = auth.currentUser && auth.currentUser.uid ? auth.currentUser.uid : '';
+    const capRef = fsMod.doc(fdb, caps.CAP_COLLECTION, op.advanceId);
+    const opRef = fsMod.doc(fdb, 'accountTxns', String(clean.id));
+    const advRef = fsMod.doc(fdb, 'accountTxns', op.advanceId);
+    const advRevRef = fsMod.doc(fdb, 'accountTxns', 'rev_' + op.advanceId);
+    const pre = capView(await fsMod.getDocFromServer(capRef));
+    let seed = pre.exists ? 0 : await readCapSeed(op.advanceId);
+    const tries = caps.CAP_TRIES;
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      /** @type {{ exists: boolean, lastOpId: string | null }} */
+      let attemptRead = { exists: false, lastOpId: null };
+      try {
+        await fsMod.runTransaction(fdb, async (/** @type {{ get(ref: unknown): Promise<any>, set(ref: unknown, data: unknown): unknown }} */ tx) => {
+          const opSnap = await tx.get(opRef);
+          if (opSnap.exists()) throw { code: 'already-exists' };
+          const capSnap = capView(await tx.get(capRef));
+          const advSnap = await tx.get(advRef);
+          const advRevSnap = await tx.get(advRevRef);
+          attemptRead = { exists: capSnap.exists, lastOpId: capSnap.lastOpId };
+          const step = caps.capStep({
+            op,
+            prev: capSnap.exists ? capSnap.data : null,
+            advance: advSnap.exists() ? advSnap.data() : null,
+            advanceLive: !advRevSnap.exists(),
+            seed: capSnap.exists ? 0 : seed,
+          });
+          if (!step.ok) throw { capRefused: /** @type {{ reason: string }} */ (step).reason };
+          tx.set(opRef, caps.withServerTime(clean, fsMod.serverTimestamp()));
+          tx.set(capRef, Object.assign({}, step.cap, {
+            updatedBy: uid,
+            updatedAtServer: fsMod.serverTimestamp(),
+          }));
+        });
+        return;
+      } catch (err) {
+        const failure = /** @type {{ code?: string, capRefused?: string, timeout?: boolean }} */ (err);
+        if (failure && failure.code === 'already-exists') throw { code: 'already-exists' };
+        const code = failure && failure.code ? String(failure.code) : '';
+        if (failure && (failure.timeout || code === 'unavailable' || code === 'deadline-exceeded' || code === 'aborted')) throw err;
+        const denied = code === 'permission-denied' || !!(failure && failure.capRefused);
+        if (!denied) throw err;
+        const now = capView(await fsMod.getDocFromServer(capRef));
+        if (caps.capChanged(attemptRead, now)) {
+          if (!attemptRead.exists && now.exists) seed = 0;
+          if (attempt === tries) throw { code: 'aborted' };
+          continue;
+        }
+        if (failure && failure.capRefused) {
+          if (failure.capRefused === 'over') throw { client: true, capOver: true };
+          throw { client: true };
+        }
+        throw err;
+      }
+    }
+  }
   return {
     auth, db: fdb,
     /** @param {string} email @param {string} password */
@@ -266,6 +390,33 @@ async function createFirebaseClient(mods, generation) {
       if (S.usesPutIfMissing(col)) {
         await this.putIfMissing(col, clean.id, S.withServerTime(clean, fsMod.serverTimestamp()));
         return;
+      }
+      if (col === 'accountTxns') {
+        /** @type {SyncDoc | null} */
+        let original = null;
+        if (clean.kind === 'rev' && typeof clean.reversesId === 'string' && clean.reversesId) {
+          original = S.localDoc(clean.reversesId, {
+            entries: get(K.entries, []),
+            projects: get(K.projects, []),
+            subcontracts: get(K.subcontracts, []),
+            amendments: get(K.amendments, []),
+            foremen: get(K.foremen, []),
+            foremanMoves: get(K.foremanMoves, []),
+            parties: get(K.parties, []),
+            agreements: get(K.agreements, []),
+            accountTxns: get(K.accountTxns, []),
+            statementApprovals: get(K.statementApprovals, []),
+          });
+          if (!original) {
+            const found = await fsMod.getDocFromServer(fsMod.doc(fdb, 'accountTxns', clean.reversesId));
+            if (found.exists()) original = /** @type {SyncDoc} */ (found.data() || null);
+          }
+        }
+        const op = capSync().capOpOf(clean, original);
+        if (op) {
+          await writeCapped(clean, op);
+          return;
+        }
       }
       await fsMod.setDoc(fsMod.doc(fdb, col, clean.id), S.withServerTime(clean, fsMod.serverTimestamp()));
       if (col !== 'projects') return;

@@ -1,10 +1,14 @@
 // Two-phone adopt path. Emulator only. Never production, never u-ameer.
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, setDoc, deleteDoc, serverTimestamp } = require('firebase/firestore');
+const {
+  doc, getDoc, setDoc, deleteDoc, serverTimestamp, writeBatch,
+  getDocFromServer, getDocsFromServer, collection, query, where, runTransaction,
+} = require('firebase/firestore');
 const Sync = require('../../public/sync.js');
 const Status = require('../../public/sync-status.js');
 const Ledger = require('../../public/ledger.js');
@@ -82,6 +86,84 @@ function row(uid, fields) {
 }
 function send(uid, col, id, fields) {
   return setDoc(doc(db(uid), col, id), row(uid, Object.assign({ id }, fields)));
+}
+function sendCapped(uid, op, advance, drawn) {
+  const fsdb = db(uid);
+  const batch = writeBatch(fsdb);
+  batch.set(doc(fsdb, 'accountTxns', op.id), row(uid, Object.assign({ id: op.id }, op)));
+  batch.set(doc(fsdb, 'advanceCaps', advance.id), {
+    advanceId: advance.id, partyId: advance.partyId, projectId: advance.projectId,
+    currency: advance.currency, cap: advance.amount, drawn, lastOpId: op.id,
+    updatedBy: uid, updatedAtServer: serverTimestamp(),
+  });
+  return batch.commit();
+}
+function capClient() {
+  const context = {
+    console, setTimeout, clearTimeout, Map, Object, Array, String, Number, Promise, Error, TypeError, URL, URLSearchParams,
+    navigator: { onLine: true },
+    sessionEpoch: 1,
+    syncNotice: '',
+    demoRole() { return ''; },
+    $(sel) { return { hidden: sel === '#shell', textContent: '' }; },
+    render() {},
+    paintBell() {},
+    holdSession() { return Promise.resolve(); },
+    signOutPending() { return ''; },
+    clearSignOutPending() {},
+    withTimeout(p) { return Promise.resolve(p); },
+    MISSING_PROFILE_MSG: 'missing',
+    SUSPENDED_MSG: 'suspended',
+    SESSION_DEAD_MSG: 'dead',
+    cache: {},
+    K: {
+      projects: 'projects', entries: 'entries', outbox: 'outbox', finance: 'projectFinance',
+      terms: 'subcontractTerms', subcontracts: 'subcontracts', amendments: 'subcontractAmendments',
+      foremen: 'foremen', foremanMoves: 'foremanMoves', parties: 'parties', agreements: 'agreements',
+      accountTxns: 'accountTxns', statementApprovals: 'statementApprovals', syncErrors: 'syncErrors',
+      sessionUser: 'sessionUser', statusPending: 'statusPending', pullWatermark: 'pullWatermark',
+    },
+  };
+  context.window = context;
+  context.globalThis = context;
+  context.location = { href: 'http://127.0.0.1/index.html', search: '' };
+  context.FIREBASE_CONFIG = { apiKey: 'demo', projectId: PROJECT_ID, authDomain: 'localhost' };
+  context.get = (k, d) => (context.cache[k] === undefined ? d : JSON.parse(JSON.stringify(context.cache[k])));
+  context.set = (k, v) => { context.cache[k] = JSON.parse(JSON.stringify(v)); };
+  vm.createContext(context);
+  for (const file of ['ledger.js', 'sync.js', 'sync-status.js', 'firebase-client.js']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../../public', file), 'utf8'), context, { filename: file });
+  }
+  return context;
+}
+async function writeThroughCap(uid, local) {
+  const context = capClient();
+  context.set(context.K.sessionUser, { uid, role: 'owner', active: true, displayName: 'Owner' });
+  const firestore = db(uid);
+  const real = await context.createFirebaseClient({
+    initializeApp() { return { name: 'cap-' + uid }; },
+    deleteApp() { return Promise.resolve(); },
+    getApps() { return []; },
+    authMod: {
+      getAuth() { return { authStateReady() { return Promise.resolve(); }, currentUser: { uid } }; },
+      connectAuthEmulator() {},
+      signOut() { return Promise.resolve(); },
+      signInWithEmailAndPassword() { return Promise.resolve({}); },
+    },
+    fsMod: {
+      memoryLocalCache() { return {}; },
+      initializeFirestore() { return firestore; },
+      getFirestore() { return firestore; },
+      connectFirestoreEmulator() {},
+      clearIndexedDbPersistence() { return Promise.resolve(); },
+      terminate() { return Promise.resolve(); },
+      serverTimestamp, doc, getDoc, getDocFromServer, getDocsFromServer, collection, query, where, runTransaction, setDoc,
+      updateDoc() { return Promise.resolve(); },
+      Timestamp: { fromMillis(n) { return n; } },
+    },
+  }, context.fbGeneration);
+  if (!real || !real.writeLocal) throw new Error('capped writer was not created');
+  await real.writeLocal(local);
 }
 const allow = p => assertSucceeds(p);
 const deny = p => assertFails(p);
@@ -328,14 +410,14 @@ testSeq('E27 two phones, emulator', async () => {
   await allow(send(OWNER_A, 'accountTxns', advance.id, advance));
   const stl = settle(body.id, advance.id, 600000);
   const stlLoser = Object.assign({}, stl, { amount: 500000, settlesId: uuid(22) });
-  await allow(send(OWNER_A, 'accountTxns', stl.id, stl));
+  await allow(sendCapped(OWNER_A, stl, advance, 600000));
   await deny(send(OWNER_B, 'accountTxns', stl.id, stlLoser));
   const stlLocal = Object.assign({ docType: 'accountTxn', createdBy: OWNER_B, deviceId: 'device-' + OWNER_B, createdAtServer: 1 }, stlLoser);
   let minted = '';
   const stlResult = await Sync.flushOutbox({
     ids: [stl.id],
     load: () => /** @type {SyncDoc} */ (stlLocal),
-    write: async () => { await send(OWNER_B, 'accountTxns', stl.id, stlLoser); },
+    write: async () => { await writeThroughCap(OWNER_B, stlLocal); },
     readDependency: async () => ({ status: 'found', doc: (await getDoc(doc(db(OWNER_B), 'accountTxns', stl.id))).data() }),
     mintId: () => { minted = 'minted-stl'; return minted; },
   });
