@@ -1386,6 +1386,29 @@ async function drive(run, featureId) {
     });
     return;
   }
+  const statementIds = ['settle', 'statement-approval'];
+  if (statementIds.includes(featureId)) {
+    const statement = require('./verify-drives/accounts-statement');
+    await statement.drive(featureId, run, {
+      connectCdp,
+      evaluate,
+      waitUntil,
+      shoot,
+      finishSession,
+      readCollection,
+      kvText,
+      fail: message => {
+        throw new VerifyError(message);
+      },
+      EMAIL,
+      PASSWORD,
+      DISPLAY,
+      PROJECT_ID,
+      PROJECT_NAME,
+      PROJECT,
+    });
+    return;
+  }
   const correctIds = ['supersede', 'reject', 'deduct', 'approve-deduct', 'reverse'];
   if (correctIds.includes(featureId)) {
     const correct = require('./verify-drives/accounts-correct');

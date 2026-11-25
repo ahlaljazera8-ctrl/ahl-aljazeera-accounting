@@ -142,7 +142,7 @@ test('a net above 0 shows مستحق له and no action button', () => {
     save: () => ({ doc: null, errors: [] }),
   }));
   const html = UI.accountHtml(model, 'p1');
-  assert.equal(kvAmount(html, 'مستحق له'), '400,000 د.ع');
+  assert.equal(kvAmount(html, 'الرصيد المستحق'), 'مستحق له 400,000 د.ع');
   assert.equal(kv(html, 'مستحق عليه'), '');
   assert.equal(html.includes('act-'), false);
   model.screen.tab = 'movements';
@@ -211,7 +211,7 @@ test('the 480000 fixture shows 480,000 under مستحق له, not 550,000', () =
   const model = ownerModel();
   model.screen.tab = 'overview';
   const html = UI.accountHtml(model, 'person');
-  assert.equal(kvAmount(html, 'مستحق له'), '480,000 د.ع');
+  assert.equal(kvAmount(html, 'الرصيد المستحق'), 'مستحق له 480,000 د.ع');
   assert.equal(html.includes('550,000'), false);
   assert.equal(kv(html, 'مستحق عليه'), '');
   assert.equal(html.includes('المتبقي سلفة'), false);
@@ -226,7 +226,7 @@ test('an advance-only person shows مستحق عليه 100,000', () => {
   const model = ownerModel();
   model.screen.tab = 'overview';
   const html = UI.accountHtml(model, 'p1');
-  assert.equal(kvAmount(html, 'مستحق عليه'), '100,000 د.ع');
+  assert.equal(kvAmount(html, 'الرصيد المستحق'), 'مستحق عليه 100,000 د.ع');
   assert.equal(kv(html, 'مستحق له'), '');
   assert.equal(html.includes('المتبقي سلفة'), false);
   assert.equal(html.includes('(سلفة)'), false);
@@ -242,7 +242,7 @@ test('a net of 0 shows مستحق له 0 and no remaining-advance figure', () =>
   const model = ownerModel();
   model.screen.tab = 'overview';
   const html = UI.accountHtml(model, 'p1');
-  assert.equal(kvAmount(html, 'مستحق له'), '0 د.ع');
+  assert.equal(kvAmount(html, 'الرصيد المستحق'), '0 د.ع');
   assert.equal(kv(html, 'مستحق عليه'), '');
   assert.equal(html.includes('المتبقي سلفة'), false);
   assert.equal(kvAmount(html, 'سلف قائمة عليه'), '100,000 د.ع');
@@ -257,7 +257,7 @@ test('an overpayment shows مستحق عليه 100,000 and سلف قائمة ع�
   const model = ownerModel();
   model.screen.tab = 'overview';
   const html = UI.accountHtml(model, 'p1');
-  assert.equal(kvAmount(html, 'مستحق عليه'), '100,000 د.ع');
+  assert.equal(kvAmount(html, 'الرصيد المستحق'), 'مستحق عليه 100,000 د.ع');
   assert.equal(kv(html, 'مستحق له'), '');
   assert.equal(html.includes('المتبقي سلفة'), false);
   assert.equal(html.includes('(سلفة)'), false);
