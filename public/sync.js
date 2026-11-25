@@ -16,7 +16,7 @@
 
   /** @param {string | null | undefined} col */
   function usesPutIfMissing(col) {
-    return col === 'subcontracts' || col === 'subcontractAmendments' || col === FOREMEN || col === FOREMAN_MOVES;
+    return col === 'subcontracts' || col === 'subcontractAmendments' || col === FOREMEN || col === FOREMAN_MOVES || col === 'laborReviews';
   }
 
   /** @param {SyncDoc | null | undefined} doc @returns {string | null} */
@@ -28,6 +28,7 @@
     if (doc.docType === 'agreement') return 'agreements';
     if (doc.docType === 'accountTxn') return 'accountTxns';
     if (doc.docType === 'statementApproval') return 'statementApprovals';
+    if (doc.docType === 'laborReview') return 'laborReviews';
     if (typeof doc.docType === 'string' && doc.docType) return null;
     if (doc.entryType) return 'ledgerEntries';
     if (typeof doc.name === 'string' && doc.currency) return 'projects';
@@ -58,6 +59,7 @@
 
   const PARTY_REMOTE = ['id', 'name', 'note', 'createdBy', 'createdAtServer', 'deviceId'];
   const STATEMENT_REMOTE = ['id', 'partyId', 'projectId', 'periodKind', 'periodStart', 'periodEnd', 'createdBy', 'createdAtServer'];
+  const LABOR_REVIEW_REMOTE = ['id', 'entryId', 'projectId', 'decision', 'reviewedOn', 'createdBy', 'createdByName', 'createdAtServer', 'deviceId'];
   const AGREEMENT_REMOTE = {
     lump: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'lumpAmount'],
     unit: ['id', 'partyId', 'projectId', 'method', 'description', 'currency', 'createdBy', 'createdAtServer', 'deviceId', 'unitRate', 'unitQty', 'unitName'],
@@ -121,6 +123,7 @@
     if (doc.docType === 'agreement') return copyFields(doc, agreementRemoteKeys(doc));
     if (doc.docType === 'accountTxn') return copyFields(doc, txnRemoteKeys(doc));
     if (doc.docType === 'statementApproval') return copyFields(doc, STATEMENT_REMOTE);
+    if (doc.docType === 'laborReview') return copyFields(doc, LABOR_REVIEW_REMOTE);
     if (doc.docType === 'foreman') return blankNote(copyFields(doc, ['id', 'name', 'note', 'projectId', 'createdBy']));
     if (doc.docType === 'foremanMove') return blankNote(copyFields(doc, ['id', 'foremanId', 'kind', 'amount', 'date', 'note', 'isReversal', 'reversesMoveId', 'reversalReason', 'createdAtDevice', 'createdBy', 'deviceId']));
     if (doc.entryType) {
@@ -669,6 +672,7 @@
     const agreements = rowsForProject(src.agreements);
     const accountTxns = rowsForProject(src.accountTxns);
     const statementApprovals = rowsForProject(src.statementApprovals);
+    const laborReviews = rowsForProject(src.laborReviews);
     /** @type {Record<string, unknown>} */
     const syncErrors = Object.assign({}, src.syncErrors || {});
     removed.forEach(id => { delete syncErrors[id]; });
@@ -697,7 +701,7 @@
     const linkRefusals = filterMap(src.linkRefusals);
     return {
       entries, projects, subcontracts, amendments, finance, terms, outbox, syncErrors, statusPending, foremen, foremanMoves, goneProjectNames,
-      parties, agreements, accountTxns, statementApprovals, slotLosers, linkRefusals,
+      parties, agreements, accountTxns, statementApprovals, laborReviews, slotLosers, linkRefusals,
       removed: { projectIds: removedProjectIds, entryIds: removedEntryIds },
     };
   }
@@ -705,7 +709,7 @@
   const ACCOUNTS_MARK = 'accounts';
   const SLOT_ID = /^000[0-9a-f]{32}[1-9]$/;
   /** @type {Record<string, 1>} */
-  const ACCOUNT_TYPES = { foreman: 1, foremanMove: 1, party: 1, agreement: 1, accountTxn: 1, statementApproval: 1 };
+  const ACCOUNT_TYPES = { foreman: 1, foremanMove: 1, party: 1, agreement: 1, accountTxn: 1, statementApproval: 1, laborReview: 1 };
 
   /**
    * @param {SyncDoc | null | undefined} doc
@@ -725,7 +729,7 @@
    */
   function localDoc(id, stores) {
     if (!id || !stores) return null;
-    const names = ['entries', 'projects', 'subcontracts', 'amendments', 'foremen', 'foremanMoves', 'parties', 'agreements', 'accountTxns', 'statementApprovals'];
+    const names = ['entries', 'projects', 'subcontracts', 'amendments', 'foremen', 'foremanMoves', 'parties', 'agreements', 'accountTxns', 'statementApprovals', 'laborReviews'];
     for (let i = 0; i < names.length; i++) {
       const rows = stores[names[i]];
       if (!rows) continue;
@@ -749,13 +753,14 @@
       { collection: 'agreements', where: [] },
       { collection: 'accountTxns', where: [] },
       { collection: 'statementApprovals', where: [] },
+      { collection: 'laborReviews', where: [] },
     ], since);
   }
 
   /** @param {SubPull} opts */
   async function pullAccounts(opts) {
     const specs = accountReads(opts.user, opts.since);
-    const empty = { parties: /** @type {SyncDoc[]} */ ([]), agreements: /** @type {SyncDoc[]} */ ([]), accountTxns: /** @type {SyncDoc[]} */ ([]), statementApprovals: /** @type {SyncDoc[]} */ ([]), watermark: finiteMillis(opts.since) };
+    const empty = { parties: /** @type {SyncDoc[]} */ ([]), agreements: /** @type {SyncDoc[]} */ ([]), accountTxns: /** @type {SyncDoc[]} */ ([]), statementApprovals: /** @type {SyncDoc[]} */ ([]), laborReviews: /** @type {SyncDoc[]} */ ([]), watermark: finiteMillis(opts.since) };
     if (!specs.length) return empty;
     /** @type {SyncDoc[]} */
     const parties = [];
@@ -765,6 +770,8 @@
     const accountTxns = [];
     /** @type {SyncDoc[]} */
     const statementApprovals = [];
+    /** @type {SyncDoc[]} */
+    const laborReviews = [];
     for (let i = 0; i < specs.length; i++) {
       const spec = specs[i];
       const rows = await readSpecs([spec], opts.read);
@@ -774,12 +781,13 @@
         if (spec.collection === 'parties') { tagged.docType = 'party'; parties.push(tagged); }
         else if (spec.collection === 'agreements') { tagged.docType = 'agreement'; agreements.push(tagged); }
         else if (spec.collection === 'accountTxns') { tagged.docType = 'accountTxn'; accountTxns.push(tagged); }
+        else if (spec.collection === 'laborReviews') { tagged.docType = 'laborReview'; laborReviews.push(tagged); }
         else { tagged.docType = 'statementApproval'; statementApprovals.push(tagged); }
       });
     }
     return {
-      parties, agreements, accountTxns, statementApprovals,
-      watermark: nextWatermark(opts.since, parties.concat(agreements, accountTxns, statementApprovals)),
+      parties, agreements, accountTxns, statementApprovals, laborReviews,
+      watermark: nextWatermark(opts.since, parties.concat(agreements, accountTxns, statementApprovals, laborReviews)),
     };
   }
 
@@ -806,7 +814,7 @@
 
   /** @param {SyncDoc | null | undefined} doc */
   function isAccountDoc(doc) {
-    return !!(doc && (doc.docType === 'party' || doc.docType === 'agreement' || doc.docType === 'accountTxn' || doc.docType === 'statementApproval'));
+    return !!(doc && (doc.docType === 'party' || doc.docType === 'agreement' || doc.docType === 'accountTxn' || doc.docType === 'statementApproval' || doc.docType === 'laborReview'));
   }
 
   /** @param {SyncDoc | null | undefined} doc */
@@ -1112,7 +1120,11 @@
      * @returns {'adopted' | 'queued' | 'refused'}
      */
     function adoptFound(local, remote) {
-      if (Status && Status.sameContent(local, remote)) { syncId(/** @type {string} */ (local.id)); return 'adopted'; }
+      if (Status && Status.sameContent(local, remote)) {
+        if (local.docType === 'laborReview') adoptServer(local, remote);
+        else syncId(/** @type {string} */ (local.id));
+        return 'adopted';
+      }
       if (isSlotBody(local) && remote.kind === 'body') {
         const differs = Status && Status.payloadDiffers(local, remote);
         adoptServer(local, remote);
@@ -1223,7 +1235,7 @@
             const outcome = adoptFound(local, found.doc || {});
             if (outcome === 'queued') { keepId(id); continue; }
             if (outcome === 'refused') {
-              if (local.docType === 'statementApproval') {
+              if (local.docType === 'statementApproval' || local.docType === 'laborReview') {
                 failId(/** @type {string} */ (local.id), Status.failureMessage(failure, local, found.doc, false));
                 continue;
               }

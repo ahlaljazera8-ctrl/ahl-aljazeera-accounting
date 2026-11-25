@@ -53,7 +53,7 @@ interface SyncRow {
   createdByName?: unknown;
   subcontractId?: unknown;
   reversesEntryId?: unknown;
-  docType?: 'foreman' | 'foremanMove' | 'party' | 'agreement' | 'accountTxn' | 'statementApproval';
+  docType?: 'foreman' | 'foremanMove' | 'party' | 'agreement' | 'accountTxn' | 'statementApproval' | 'laborReview';
   foremanId?: string;
   kind?: string;
   reversesMoveId?: string;
@@ -567,7 +567,7 @@ interface SyncDoc {
   createdBy?: string;
   amount?: number;
   note?: string;
-  docType?: 'foreman' | 'foremanMove' | 'party' | 'agreement' | 'accountTxn' | 'statementApproval';
+  docType?: 'foreman' | 'foremanMove' | 'party' | 'agreement' | 'accountTxn' | 'statementApproval' | 'laborReview';
   foremanId?: string;
   kind?: string;
   reversesMoveId?: string;
@@ -633,6 +633,7 @@ interface LocalStore {
   agreements?: readonly SyncDoc[] | null;
   accountTxns?: readonly SyncDoc[] | null;
   statementApprovals?: readonly SyncDoc[] | null;
+  laborReviews?: readonly SyncDoc[] | null;
   slotLosers?: Readonly<Record<string, SyncDoc>> | null;
   linkRefusals?: Readonly<Record<string, SyncDoc>> | null;
   goneProjectNames?: GoneProjectNames | null;
@@ -651,6 +652,7 @@ interface QueueStores {
   agreements?: readonly SyncDoc[] | null;
   accountTxns?: readonly SyncDoc[] | null;
   statementApprovals?: readonly SyncDoc[] | null;
+  laborReviews?: readonly SyncDoc[] | null;
   [key: string]: readonly SyncDoc[] | null | undefined;
 }
 
@@ -724,6 +726,7 @@ interface DroppedProject {
   agreements: SyncDoc[];
   accountTxns: SyncDoc[];
   statementApprovals: SyncDoc[];
+  laborReviews: SyncDoc[];
   slotLosers: Record<string, SyncDoc>;
   linkRefusals: Record<string, SyncDoc>;
   goneProjectNames: GoneProjectNames;
@@ -768,6 +771,7 @@ interface SyncApi {
     agreements: SyncDoc[];
     accountTxns: SyncDoc[];
     statementApprovals: SyncDoc[];
+    laborReviews: SyncDoc[];
     watermark: number | null;
   }>;
   ACCOUNTS_MARK: string;

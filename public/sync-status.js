@@ -117,6 +117,7 @@
     if (local.docType === 'statementApproval') {
       return keysEqual(['id', 'partyId', 'projectId', 'periodKind', 'periodStart', 'periodEnd', 'createdBy'], local, remote);
     }
+    if (local.docType === 'laborReview') return keysEqual(['id', 'entryId', 'projectId', 'decision'], local, remote);
     if (local.docType !== 'accountTxn') return false;
     const keys = accountKeys(typeof local.kind === 'string' ? local.kind : '');
     if (!keys) return false;
@@ -130,7 +131,7 @@
    */
   function sameContent(local, remote) {
     if (!local || !remote) return false;
-    if (local.docType === 'party' || local.docType === 'agreement' || local.docType === 'accountTxn' || local.docType === 'statementApproval') {
+    if (local.docType === 'party' || local.docType === 'agreement' || local.docType === 'accountTxn' || local.docType === 'statementApproval' || local.docType === 'laborReview') {
       return accountSame(local, remote);
     }
     if (local.docType === 'foreman') {
