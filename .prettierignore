@@ -9,3 +9,5 @@ firestore.indexes.json
 package-lock.json
 shots
 .firebase
+# PLAN-J r11 is committed verbatim. Prettier would reflow its tables and change the bytes.
+docs/plans/contractor-pr-j-sketch.md
