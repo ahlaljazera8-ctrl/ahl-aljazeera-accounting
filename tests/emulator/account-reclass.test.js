@@ -147,6 +147,120 @@ async function seed(extra) {
 }
 
 const E80 = { id: 'e80', projectId: JOB, direction: 'expense', entryType: 'labour', amount: 80000 };
+const ADV = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
+const ARABIC = 'أ';
+
+function cutDesc(text) {
+  if (text.length <= 500) return text;
+  let out = '';
+  const chars = Array.from(text);
+  for (let i = 0; i < chars.length; i++) {
+    const next = out + chars[i];
+    if (next.length > 500) break;
+    out = next;
+  }
+  return out;
+}
+
+function cashBody(id, description) {
+  return {
+    id, kind: 'body', purpose: 'advanceLabor', projectId: JOB, partyId: 'p1', ledger: 'labor',
+    currency: 'IQD', fxRate: 1, amount: 80000, txnDate: '2026-11-25', description,
+    createdByName: 'أمير',
+  };
+}
+
+function advRev(advanceId, reason) {
+  return {
+    id: 'rev_' + advanceId, kind: 'rev', purpose: 'advanceLabor', ledger: 'labor',
+    projectId: JOB, partyId: 'p1', currency: 'IQD', fxRate: 1, amount: 80000,
+    reversesId: advanceId, reversalReason: reason, createdByName: 'أمير',
+  };
+}
+
+testSeq('E1 a 500-letter L reversal description is allowed', async () => {
+  await seed();
+  const description = 'L:e80;' + ARABIC.repeat(494);
+  assert.equal(description.length, 500);
+  assert.equal(description.startsWith('L:e80;'), true);
+  await allow(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { description })));
+});
+
+testSeq('E2 a 501-letter L reversal description is denied', async () => {
+  await seed();
+  const description = 'L:e80;' + ARABIC.repeat(495);
+  assert.equal(description.length, 501);
+  await deny(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { description })));
+});
+
+testSeq('E3 an empty reversal reason is denied and no advance is written', async () => {
+  await seed();
+  await deny(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { reversalReason: '' })));
+  const advance = await getDoc(doc(db(OWNER), 'accountTxns', ADV));
+  assert.equal(advance.exists(), false);
+});
+
+testSeq('E4 a 500-letter advanceLabor description is allowed', async () => {
+  await seed();
+  const description = 'L:e80;' + ARABIC.repeat(494);
+  assert.equal(description.length, 500);
+  await allow(send(OWNER, 'accountTxns', ADV, cashBody(ADV, description)));
+});
+
+testSeq('E5 a 501-letter advanceLabor description is denied', async () => {
+  await seed();
+  const description = 'L:e80;' + ARABIC.repeat(495);
+  assert.equal(description.length, 501);
+  await deny(send(OWNER, 'accountTxns', ADV, cashBody(ADV, description)));
+});
+
+testSeq('E6 an advance on an archived project is denied and the reversal remains', async () => {
+  await seed();
+  await allow(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { description: 'L:e80;' + ARABIC.repeat(494) })));
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), 'projects', JOB), projectDoc(JOB, 'archived'));
+  });
+  await deny(send(OWNER, 'accountTxns', ADV, cashBody(ADV, 'L:e80;2026-03-04 e80')));
+  const rev = await getDoc(doc(db(OWNER), 'ledgerEntries', 'rev_e80'));
+  assert.equal(rev.exists(), true);
+});
+
+testSeq('E7 a second create of rev_e80 is denied', async () => {
+  await seed();
+  await allow(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { reversalReason: 'أول' })));
+  await deny(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { reversalReason: 'ثان' })));
+});
+
+testSeq('E8 a reversal of the advance needs a reason', async () => {
+  await seed();
+  await allow(send(OWNER, 'accountTxns', ADV, cashBody(ADV, 'L:e80;2026-03-04 e80')));
+  await deny(send(OWNER, 'accountTxns', 'rev_' + ADV, advRev(ADV, '')));
+  await allow(send(OWNER, 'accountTxns', 'rev_' + ADV, advRev(ADV, 'سبب')));
+});
+
+testSeq('E9 the code-point cut is accepted and a 501-point string with an emoji is denied', async () => {
+  await seed();
+  const raw = 'L:e80;تصحيح: ' + ARABIC.repeat(497) + '😀' + ARABIC.repeat(10);
+  const cut = cutDesc(raw);
+  assert.equal(cut.length <= 500, true);
+  assert.equal(cut.startsWith('L:e80;'), true);
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(cut), false);
+  console.log('E9 cut utf16=' + cut.length + ' codePoints=' + Array.from(cut).length);
+  await allow(send(OWNER, 'ledgerEntries', 'rev_e80', revBody(E80, { description: cut })));
+  await allow(send(OWNER, 'accountTxns', ADV, cashBody(ADV, cut)));
+  const tooLong = ARABIC.repeat(500) + '😀';
+  console.log('E9 raw501 codePoints=' + Array.from(tooLong).length + ' utf16=' + tooLong.length);
+  await deny(send(OWNER, 'ledgerEntries', 'rev_e1', revBody(
+    { id: 'e1', projectId: JOB, direction: 'expense', entryType: 'labour', amount: 1000 },
+    { description: tooLong, amount: 1000 },
+  )));
+  const probe = ARABIC.repeat(499) + '😀';
+  console.log('E9 size probe codePoints=' + Array.from(probe).length + ' utf16=' + probe.length);
+  await deny(send(OWNER, 'ledgerEntries', 'rev_e10', revBody(
+    { id: 'e10', projectId: JOB, direction: 'expense', entryType: 'labour', amount: 1000 },
+    { description: probe, amount: 1000 },
+  )));
+});
 
 testSeq('E10 owner creates laborReviews/lrv_e80', async () => {
   await seed();
