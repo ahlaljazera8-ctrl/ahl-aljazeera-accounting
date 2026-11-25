@@ -1006,6 +1006,87 @@ interface ContractorTotals {
   newCash: number;
   reclassAdvance: 0;
 }
+
+/** One «انخصم» answer (ameer:10, ameer:11). Synced doc in collection laborReviews, id 'lrv_' + entryId (§4.4). */
+interface LaborReview {
+  id: string;
+  docType: 'laborReview';
+  entryId: string;
+  projectId: string;
+  decision: 'deducted';
+  reviewedOn: string;
+  createdBy: string;
+  createdByName: string;
+  createdAtServer: number | null;
+  deviceId: string;
+}
+
+interface ReclassCtx {
+  entries: readonly LedgerEntry[];
+  txns: readonly FoldDoc[];
+  syncErrors: Readonly<Record<string, unknown>>;
+  outbox: readonly string[];
+  reviews: readonly LaborReview[];
+  index: RowIndex;
+  activeProjectIds: ReadonlySet<string>;
+}
+
+type ReclassState =
+  | { kind: 'bothFacts'; expense: LedgerEntry; review: LaborReview; revId: string; advanceIds: readonly string[] }
+  | { kind: 'open'; expense: LedgerEntry; canCancel: boolean }
+  | { kind: 'reviewed'; expense: LedgerEntry; review: LaborReview }
+  | { kind: 'reviewRefused'; expense: LedgerEntry; reviewId: string }
+  | { kind: 'revRefused'; expense: LedgerEntry; revId: string }
+  | { kind: 'other'; expense: LedgerEntry }
+  | { kind: 'revQueued'; expense: LedgerEntry; revId: string }
+  | { kind: 'owed'; expense: LedgerEntry; revId: string; refusedAdvanceIds: readonly string[] }
+  | { kind: 'advQueued'; expense: LedgerEntry; advanceId: string }
+  | { kind: 'done'; expense: LedgerEntry; advanceId: string }
+  | { kind: 'duplicate'; expense: LedgerEntry; plan: DuplicatePlan };
+
+interface DuplicatePlan {
+  mode: 'oldest' | 'ownerPicks';
+  keepId: string;
+  reverseIds: readonly string[];
+  blockedIds: readonly string[];
+}
+
+interface StillOwedInput {
+  entry: LedgerEntry;
+  reversalReason: string;
+  user: LedgerUser;
+  deviceId: string;
+  entryDate: string;
+  now: number;
+}
+
+interface AdvanceAfterInput {
+  expenseId: string;
+  partyId: string;
+  projectId: string;
+  amount: number;
+  advanceId: string;
+  createdBy: string;
+  createdByName: string;
+  deviceId: string;
+  originalDate: string;
+}
+
+interface AccountReclassApi extends AccountModule {
+  token(expenseId: string): string;
+  tokenOf(description: unknown): string;
+  misbookedCandidates(entries: readonly LedgerEntry[], syncErrors: Readonly<Record<string, unknown>>): readonly LedgerEntry[];
+  rowState(expense: LedgerEntry, ctx: ReclassCtx): ReclassState;
+  stillOwedReversal(input: StillOwedInput): { doc: LedgerEntry | null; errors: string[] };
+  advanceAfterReversal(input: AdvanceAfterInput): { doc: object | null; errors: string[] };
+  advanceStillOwed(entries: readonly LedgerEntry[], txns: readonly FoldDoc[], syncErrors: Readonly<Record<string, unknown>>): readonly LedgerEntry[];
+  coveringAdvances(expenseId: string, txns: readonly FoldDoc[], index: RowIndex): readonly FoldDoc[];
+  duplicatePlan(covering: readonly FoldDoc[], index: RowIndex): DuplicatePlan;
+  hasLiveDraw(advanceId: string, index: RowIndex): boolean;
+  refusedAdvanceIds(expenseId: string, txns: readonly FoldDoc[], syncErrors: Readonly<Record<string, unknown>>): readonly string[];
+  reclassTotal(entries: readonly LedgerEntry[], txns: readonly FoldDoc[], syncErrors: Readonly<Record<string, unknown>>, projectId: string): number;
+  reviewDoc(input: { entry: LedgerEntry; user: LedgerUser; deviceId: string; day: string }): { doc: LaborReview | null; errors: string[] };
+}
 type IssueGateError = 'offline' | 'queued' | 'pull' | 'changed' | 'review' | 'period' | 'open' | 'inactive' | 'epoch';
 interface IssueGateResult {
   ok: boolean;
@@ -1413,6 +1494,7 @@ interface Window {
   AccountPayment?: AccountPaymentApi;
   AccountCorrect?: AccountCorrectApi;
   AccountStatement?: AccountStatementApi;
+  AccountReclass?: AccountReclassApi;
   AccountShare?: AccountModule;
   AccountActions?: AccountAction[];
   __loginSeen?: boolean;
