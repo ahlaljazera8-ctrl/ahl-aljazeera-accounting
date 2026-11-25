@@ -11,9 +11,8 @@
 
   /**
    * A wording swap edits this object only.
-   * q19ReturnOverAdvance is بانتظار أمير. The screen does not paint it.
-   * advanceNoteComma and advanceNotePlain both stay under سلفة. Whether they
-   * show together is [OPEN] for Ameer via EA.
+   * q19ReturnOverAdvance is approved and painted on refundLabor's sibling
+   * returnAdvance over-advance errors. Only the comma note is kept (EA-relayed).
    * @type {Record<string, string>}
    */
   const SENTENCE = {
@@ -25,7 +24,6 @@
     returnHeading: 'إرجاع سلفة لم تُصرف',
     refundHeading: 'استرداد نقدي من العامل',
     advanceNoteComma: 'سلفة، ليست مصروفاً.',
-    advanceNotePlain: 'السلفة ليست مصروفاً',
     before: 'قبل هذه الدفعة',
     showsOnStatement: 'تظهر الدفعة في الكشف',
     untilOwnerReviews: 'حتى يدقّقها المالك.',
@@ -286,6 +284,7 @@
     for (const code of errors) {
       if (code === 'range' || code === 'amount' || code === 'overflow' || code === 'inexact') return SENTENCE.range;
       if ((code === 'cap' || code === 'cumulative') && purpose === 'refundLabor') return SENTENCE.refundOverPay;
+      if ((code === 'cap' || code === 'cumulative') && purpose === 'returnAdvance') return SENTENCE.q19ReturnOverAdvance;
     }
     return '';
   }
@@ -912,7 +911,6 @@
     if (split.advanceLabor > 0) {
       preview += '<div class="kv"><span>' + SENTENCE.advance + '</span><b>' + moneyText(split.advanceLabor) + '</b></div>';
       preview += '<div class="note">' + SENTENCE.advanceNoteComma + '</div>';
-      preview += '<div class="note">' + SENTENCE.advanceNotePlain + '</div>';
     }
     return preview;
   }
