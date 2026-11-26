@@ -1479,6 +1479,12 @@ interface AccountsApi {
     syncErrors: Readonly<Record<string, unknown>> | null | undefined,
     start: string | null,
   ): number;
+  projectDue(
+    projectId: string,
+    txns: readonly FoldDoc[] | null | undefined,
+    syncErrors: Readonly<Record<string, unknown>> | null | undefined,
+    start: string | null,
+  ): number;
   rowIndex(docs: readonly FoldDoc[], syncErrors?: Readonly<Record<string, unknown>> | null): RowIndex;
   rowLive(row: FoldDoc | null | undefined, index: RowIndex): boolean;
   rowCounts(row: FoldDoc | null | undefined, index: RowIndex): boolean;

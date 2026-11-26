@@ -7,8 +7,10 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const Ledger = require('../public/ledger.js');
 const Accounts = require('../public/accounts.js');
+const SHIPPED = Accounts.CONTRACTOR_COST_START;
 const DomSafe = require('../public/dom-safe.js');
 const Sync = require('../public/sync.js');
+const SyncStatus = require('../public/sync-status.js');
 
 /** @type {any} */
 const g = globalThis;
@@ -223,6 +225,7 @@ function page() {
     Accounts,
     DomSafe,
     Sync,
+    SyncStatus,
     AccountWork: Work,
     K: g.K,
     get: (key, fallback) => g.get(key, fallback),
@@ -286,6 +289,7 @@ function loadShell() {
     Accounts,
     DomSafe,
     Sync,
+    SyncStatus,
     AccountWork: Work,
     AccountsView: UI,
     K: g.K,
@@ -1099,11 +1103,11 @@ test('renderScreen calls AccountWork.syncTab from the nav wiring', () => {
   assert.equal(Accounts.CONTRACTOR_COST_START, null);
 });
 
-test('the source binding stays null', () => {
-  reset();
+test('the source binding is the shipped start', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/accounts.js'), 'utf8');
-  assert.match(src, /const CONTRACTOR_COST_START = null;/);
-  assert.equal(Accounts.CONTRACTOR_COST_START, null);
+  assert.equal(SHIPPED, '2026-11-27');
+  assert.match(src, /const CONTRACTOR_COST_START = '2026-11-27';/);
+  assert.equal(src.includes('const CONTRACTOR_COST_START = null;'), false);
   assert.equal(Work.pendingAmeer.unitByProgress, 'حسب الإنجاز (الكمية × سعر الوحدة)');
   assert.equal(Work.pendingAmeer.newContract, 'العقد الجديد من شاشة مقاول');
 });
@@ -1289,6 +1293,7 @@ const QTY_ACCEPTED = [
   { input: '٢٥', stored: 25, boxes: ['qty', 'days', 'per'] },
   { input: '١,٠٠٠', stored: 1000, boxes: ['qty', 'days', 'per'] },
   { input: '١٬٠٠٠', stored: 1000, boxes: ['qty', 'days', 'per'] },
+  { input: '100000000', stored: 100000000, boxes: ['qty', 'days'] },
 ];
 
 /** @type {Array<{ input: string, boxes: Array<'qty' | 'days' | 'per'>, label?: string }>} */
@@ -1351,3 +1356,376 @@ for (const box of /** @type {Array<'qty' | 'days' | 'per'>} */ (['qty', 'days', 
     });
   }
 }
+
+const COST_MINUS = '\u2212';
+const N1 = 'المستحق للمقاولين';
+const N2 = 'الكلفة الكلية';
+const N3 = 'الربح = المقبوض ' + COST_MINUS + ' الكلفة الكلية (المصروف + المستحق للمقاولين)';
+const N4 = 'سلف زايدة على المقاولين';
+const OLD_PROFIT_NOTE = 'الربح = المقبوض ' + COST_MINUS + ' المصروف';
+
+/**
+ * @param {number} n
+ */
+function moneyHtml(n) {
+  const sign = n < 0 ? COST_MINUS : '';
+  return '<b class="num">' + sign + Math.abs(n).toLocaleString('en-US') + ' د.ع</b>';
+}
+
+/**
+ * @param {string} id
+ * @param {'income' | 'expense'} direction
+ * @param {string} entryType
+ * @param {number} amount
+ */
+function ledgerRow(id, direction, entryType, amount) {
+  return {
+    id,
+    projectId: 'job',
+    direction,
+    entryType,
+    amount,
+    entryDate: '2026-11-01',
+    isReversal: false,
+    currency: 'IQD',
+    description: 'قيد',
+    createdBy: 'u-ameer',
+  };
+}
+
+/**
+ * @param {number} amount
+ * @param {string} [day]
+ * @returns {any[]}
+ */
+function screenApproval(amount, day) {
+  const when = day || '2026-11-27';
+  return [
+    { id: 'm', purpose: 'laborQty', kind: 'body', projectId: 'job', partyId: 'party-1', txnDate: when, ledger: 'labor' },
+    {
+      id: 'appr', purpose: 'approveLabor', kind: 'appr', targetId: 'm', amount,
+      projectId: 'job', partyId: 'party-1', txnDate: when, currency: 'IQD', ledger: 'labor',
+    },
+  ];
+}
+
+/**
+ * @param {string} iso
+ */
+function baghdadDay(iso) {
+  const ms = Date.parse(iso);
+  class FakeDate extends Date {
+    /**
+     * @param {...*} args
+     */
+    constructor(...args) {
+      super(args.length ? /** @type {number} */ (args[0]) : ms);
+    }
+    static now() { return ms; }
+  }
+  const context = {
+    console,
+    URLSearchParams,
+    queueMicrotask,
+    indexedDB: { open() { throw new Error('not used'); } },
+    location: { search: '' },
+    document: { querySelector() { return null; }, body: { dataset: {} } },
+    navigator: { onLine: true },
+    crypto: { randomUUID: () => 'uuid-from-test' },
+    Ledger: { can() { return false; } },
+    HTMLFormElement: function HTMLFormElement() {},
+    HTMLInputElement: function HTMLInputElement() {},
+    disposeFirebase() { return Promise.resolve(); },
+    render() {},
+    flushRemote() {},
+    Date: FakeDate,
+    Intl,
+  };
+  context.window = context;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/session.js'), 'utf8'), context, { filename: 'session.js' });
+  return context.today();
+}
+
+/** @type {(() => { disabled: boolean }) | null} */
+let fireSaveSub = null;
+
+function clickSaveSub() {
+  if (fireSaveSub) return fireSaveSub();
+  /** @type {Array<{ type: string, fn: (ev: any) => void }>} */
+  const listeners = [];
+  const values = {
+    login: { hidden: true, value: '' },
+    'sub-name': { value: 'مقاول' },
+    'sub-work': { value: 'بناء' },
+    'sub-amount': { value: '1500000' },
+    shell: { hidden: true, value: '' },
+  };
+  const sandbox = {
+    console,
+    Ledger,
+    Accounts,
+    DomSafe,
+    Sync,
+    SyncStatus,
+    K: g.K,
+    get: (key, fallback) => g.get(key, fallback),
+    set: (key, value) => g.set(key, value),
+    me: () => g.me(),
+    uuid: () => g.uuid(),
+    today: () => g.today(),
+    demoRole: () => '',
+    queueDoc: (id) => g.queueDoc(id),
+    deviceId: 'phone',
+    flushRemote() {},
+    prompt() { return null; },
+    location: { hash: '#subnew/job' },
+    document: {
+      addEventListener(type, fn) { listeners.push({ type, fn }); },
+      querySelector() { return null; },
+      documentElement: { dir: 'rtl' },
+      body: { dataset: {} },
+    },
+    navigator: { onLine: true },
+    PeopleDir: { createLoader() { return {}; }, TIMEOUT_MS: 1, RENDER_ERROR: '' },
+    withTimeout: (p) => p,
+    ensureFirebase: () => Promise.resolve({ listUsers: () => Promise.resolve([]) }),
+    $(sel) {
+      const id = String(sel || '').replace(/^#/, '');
+      return values[id] || { addEventListener() {}, hidden: true, value: '', textContent: '', classList: { toggle() {} } };
+    },
+    addEventListener() {},
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/render.js'), 'utf8'), sandbox, { filename: 'render.js' });
+  const click = listeners.find(item => item.type === 'click');
+  if (!click) throw new Error('missing click listener');
+  fireSaveSub = () => {
+    const button = {
+      id: 'save-sub',
+      disabled: false,
+      dataset: {},
+      closest(sel) { return sel === 'button' ? button : null; },
+    };
+    click.fn({ target: button, preventDefault() {} });
+    return button;
+  };
+  return fireSaveSub();
+}
+
+test('SHIPPED hides the old form the day before and allows a save on the start day and the day after', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  for (const day of ['2026-11-26', '2026-11-27', '2026-11-28']) {
+    reset();
+    g.today = () => day;
+    withStart(SHIPPED, () => {
+      const open = day >= SHIPPED;
+      assert.equal(page().project('job').includes('+ عقد مقاول'), false);
+      const form = page().subnew('job');
+      assert.equal(form.includes('العقد الجديد من شاشة مقاول'), true);
+      assert.equal(form.includes('id="sub-name"'), false);
+      const tabs = useTabs();
+      Work.syncTab(g.me());
+      assert.equal(tabs.children.some(el => el.dataset.tab === 'contractor'), open);
+      store.parties = [{ id: 'party-1', name: 'حسن' }];
+      const view = install();
+      view.views.contractor('new');
+      UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cparty: 'party-1' } }));
+      UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cproj: 'job' } }));
+      setFields({ 'cw-desc': 'طابوق', 'cw-rate': '300000', 'cw-per': '4000', 'cw-unit': 'طوبة' });
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      assert.equal(store.agreements.length, open ? 1 : 0);
+      if (!open) {
+        store.agreements = [brick()];
+        store.accountTxns = [{
+          id: '11111111-2222-3333-4444-555555555555', purpose: 'laborQty', agreementId: brick().id,
+          qty: 8000, projectId: 'job', partyId: 'party-1',
+        }];
+        const before = store.accountTxns.length;
+        view.views.contractor(brick().id);
+        setFields({ 'cw-qty': '8' });
+        UI.onClick(/** @type {any} */ ({ id: 'act-labor-qty', disabled: false, dataset: {} }));
+        UI.onClick(/** @type {any} */ ({ id: 'act-approve-labor', disabled: false, dataset: {} }));
+        assert.equal(store.agreements.length, 1);
+        assert.equal(store.accountTxns.length, before);
+        assert.deepEqual(queued, []);
+      }
+    });
+  }
+});
+
+test('the Baghdad clock opens مقاول at 21:00Z on 26 Nov and stays closed at 20:59Z', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  const closed = baghdadDay('2026-11-26T20:59:00Z');
+  const opened = baghdadDay('2026-11-26T21:00:00Z');
+  assert.equal(closed, '2026-11-26');
+  assert.equal(opened, '2026-11-27');
+  reset();
+  withStart(SHIPPED, () => {
+    g.today = () => closed;
+    const shut = useTabs();
+    Work.syncTab(g.me());
+    assert.equal(shut.children.some(el => el.dataset.tab === 'contractor'), false);
+    g.today = () => opened;
+    const live = useTabs();
+    Work.syncTab(g.me());
+    assert.equal(live.children.some(el => el.dataset.tab === 'contractor'), true);
+  });
+});
+
+test('a forced save-sub click appends nothing once the start is a date', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  reset();
+  withStart(SHIPPED, () => {
+    clickSaveSub();
+    assert.equal(store.subcontracts.length, 0);
+    assert.deepEqual(store.subcontractTerms, {});
+    assert.deepEqual(store.outbox, []);
+  });
+});
+
+test('T-C7 the two lines are on the owner project screen only', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  reset();
+  store.entries = [ledgerRow('leg', 'expense', 'materials', 100000)];
+  store.accountTxns = screenApproval(600000);
+  const prev = g.me;
+  try {
+    withStart(SHIPPED, () => {
+      const owner = page().project('job');
+      assert.equal(owner.includes('<span>' + N1 + '</span>' + moneyHtml(600000)), true);
+      assert.equal(owner.includes('<span>' + N2 + '</span>' + moneyHtml(700000)), true);
+      g.me = () => ({ uid: 'u-site', role: 'site', active: true, displayName: 'أحمد', assignedProjectIds: ['job'] });
+      const site = page().project('job');
+      assert.equal(site.includes(N1), false);
+      assert.equal(site.includes(N2), false);
+      assert.equal(site.includes(N4), false);
+      g.me = () => ({ uid: 'u-fore', role: 'foreman', active: true, displayName: 'فورمن' });
+      const foreman = page().project('job');
+      assert.equal(foreman.includes(N1), false);
+      assert.equal(foreman.includes(N2), false);
+      g.me = () => ({ uid: 'u-clerk', role: 'clerk', active: true, displayName: 'كاتب' });
+      const clerk = page().project('job');
+      assert.equal(clerk.includes(N1), false);
+      assert.equal(clerk.includes(N2), false);
+      g.me = prev;
+      const home = page().home();
+      const list = page().projects();
+      assert.equal(home.includes(N1), false);
+      assert.equal(home.includes(N2), false);
+      assert.equal(home.includes(N4), false);
+      assert.equal(list.includes(N1), false);
+      assert.equal(list.includes(N2), false);
+      assert.equal(list.includes(N4), false);
+    });
+  } finally {
+    g.me = prev;
+  }
+});
+
+test('T-C9 a negative due uses the advance label and a positive total', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  reset();
+  store.accountTxns = screenApproval(300000).concat([{
+    id: 'adv', purpose: 'advanceLabor', amount: 400000, projectId: 'job', partyId: 'party-1',
+    txnDate: '2026-11-27', currency: 'IQD', ledger: 'labor',
+  }]);
+  withStart(SHIPPED, () => {
+    const html = page().project('job');
+    assert.equal(html.includes('<span>' + N4 + '</span>' + moneyHtml(100000)), true);
+    assert.equal(html.includes(COST_MINUS + '100,000'), false);
+    assert.equal(html.includes('<span>' + N1 + '</span>'), false);
+    assert.equal(html.includes('<span>' + N2 + '</span>' + moneyHtml(300000)), true);
+    store.accountTxns = screenApproval(500000).concat([{
+      id: 'adv', purpose: 'advanceLabor', amount: 400000, projectId: 'job', partyId: 'party-1',
+      txnDate: '2026-11-27', currency: 'IQD', ledger: 'labor',
+    }]);
+    const owed = page().project('job');
+    assert.equal(owed.includes('<span>' + N1 + '</span>' + moneyHtml(100000)), true);
+    assert.equal(owed.includes(N4), false);
+    store.accountTxns = screenApproval(400000).concat([{
+      id: 'adv', purpose: 'advanceLabor', amount: 400000, projectId: 'job', partyId: 'party-1',
+      txnDate: '2026-11-27', currency: 'IQD', ledger: 'labor',
+    }]);
+    const zero = page().project('job');
+    assert.equal(zero.includes('<span>' + N1 + '</span>' + moneyHtml(0)), true);
+    assert.equal(zero.includes(N4), false);
+  });
+});
+
+test('T-C10 the owner project screen uses the shipped cash basis', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  reset();
+  g.today = () => '2026-11-27';
+  store.entries = [ledgerRow('leg', 'expense', 'materials', 100000)];
+  store.accountTxns = screenApproval(600000).concat([{
+    id: 'pay', purpose: 'payLabor', amount: 250000, projectId: 'job', partyId: 'party-1',
+    txnDate: '2026-11-27', currency: 'IQD', ledger: 'labor',
+  }]);
+  withStart(SHIPPED, () => {
+    const html = page().project('job');
+    assert.equal(html.includes('<span>المصروف</span>' + moneyHtml(350000)), true);
+    assert.equal(html.includes('<span>' + N1 + '</span>' + moneyHtml(350000)), true);
+    assert.equal(html.includes('<span>' + N2 + '</span>' + moneyHtml(700000)), true);
+  });
+});
+
+test('T-C12 profit on the three owner screens uses الكلفة الكلية and the project note is N3', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  reset();
+  store.entries = [
+    ledgerRow('in', 'income', 'clientPayment', 1000000),
+    ledgerRow('leg', 'expense', 'materials', 100000),
+  ];
+  store.accountTxns = screenApproval(600000).concat([{
+    id: 'pay', purpose: 'payLabor', amount: 250000, projectId: 'job', partyId: 'party-1',
+    txnDate: '2026-11-27', currency: 'IQD', ledger: 'labor',
+  }]);
+  withStart(SHIPPED, () => {
+    const project = page().project('job');
+    assert.equal(project.includes('<span>المصروف</span>' + moneyHtml(350000)), true);
+    assert.equal(project.includes('<span>' + N1 + '</span>' + moneyHtml(350000)), true);
+    assert.equal(project.includes('<span>' + N2 + '</span>' + moneyHtml(700000)), true);
+    assert.equal(project.includes('<span>الربح</span><span class="ok">' + moneyHtml(300000) + '</span>'), true);
+    assert.equal(project.includes(N3), true);
+    assert.equal(project.includes(OLD_PROFIT_NOTE), false);
+    assert.equal(project.split(N3).length - 1, 1);
+    const list = page().projects();
+    assert.equal(list.includes('<span>ربح</span><span class="ok">' + moneyHtml(300000) + '</span>'), true);
+    const home = page().home();
+    assert.equal(home.includes('<span>إجمالي المصروف</span>' + moneyHtml(350000)), true);
+    assert.equal(home.includes('<span>صافي الربح</span><span class="ok">' + moneyHtml(300000) + '</span>'), true);
+    store.entries = [
+      ledgerRow('in', 'income', 'clientPayment', 600000),
+      ledgerRow('leg', 'expense', 'materials', 100000),
+    ];
+    const lossProject = page().project('job');
+    assert.equal(lossProject.includes('<span>الربح</span><span class="bad">' + moneyHtml(-100000) + '</span>'), true);
+    const lossList = page().projects();
+    assert.equal(lossList.includes('<span>خسارة</span><span class="bad">' + moneyHtml(100000) + '</span>'), true);
+  });
+});
+
+test('T-C12n home and the projects list do not show the profit note', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  reset();
+  store.entries = [
+    ledgerRow('in', 'income', 'clientPayment', 1000000),
+    ledgerRow('leg', 'expense', 'materials', 100000),
+  ];
+  store.accountTxns = screenApproval(600000).concat([{
+    id: 'pay', purpose: 'payLabor', amount: 250000, projectId: 'job', partyId: 'party-1',
+    txnDate: '2026-11-27', currency: 'IQD', ledger: 'labor',
+  }]);
+  withStart(SHIPPED, () => {
+    const home = page().home();
+    const at = home.indexOf('صافي الربح');
+    assert.ok(at >= 0);
+    assert.equal(home.includes(N3), false);
+    assert.equal(home.slice(at).includes('<div class="note">'), false);
+    assert.equal(page().projects().includes(N3), false);
+    assert.equal(page().project('job').split(N3).length - 1, 1);
+  });
+});

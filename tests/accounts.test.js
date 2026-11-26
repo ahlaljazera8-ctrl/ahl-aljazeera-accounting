@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const Accounts = require('../public/accounts.js');
+const Ledger = require('../public/ledger.js');
+const SHIPPED = Accounts.CONTRACTOR_COST_START;
 
 const bricks = { method: 'unit', unitRate: 300000, unitQty: 4000, unitName: 'طابوقة' };
 
@@ -170,17 +172,10 @@ test('the nine purposes are labor, and a cash pointer targets only an effective 
 });
 
 test('while the start date is null, approved work does not change project cost', () => {
-  assert.equal(Accounts.CONTRACTOR_COST_START, null);
-  assert.equal(
-    Accounts.projectCost(
-      'p',
-      0,
-      [{ id: 'appr', projectId: 'p', purpose: 'approveLabor', amount: 600000, txnDate: '2026-12-01' }],
-      null,
-      null,
-    ),
-    0,
-  );
+  assert.equal(SHIPPED, '2026-11-27');
+  const row = { id: 'appr', projectId: 'p', purpose: 'approveLabor', amount: 600000, txnDate: '2026-12-01' };
+  assert.equal(Accounts.projectCost('p', 0, [row], null, null), 0);
+  assert.equal(Accounts.projectDue('p', [row], null, null), 0);
 });
 
 function measure(id) {
@@ -268,80 +263,125 @@ function kApproval(fields) {
   }, fields));
 }
 
-test('k equality: legacySpent 100000 and approveLabor 600000 with start null is 100000', () => {
-  assert.equal(Accounts.CONTRACTOR_COST_START, null);
-  assert.equal(Accounts.projectCost('p', 100000, [kApproval()], null, Accounts.CONTRACTOR_COST_START), 100000);
+function kCash(fields) {
+  return doc(Object.assign({
+    id: 'pay',
+    purpose: 'payLabor',
+    amount: 250000,
+    projectId: 'p',
+    txnDate: '2026-12-01',
+  }, fields));
+}
+
+test('k equality: a null start keeps legacy cost and zero due', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  const rows = [kApproval(), kCash()];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, null), 100000);
+  assert.equal(Accounts.projectDue('p', rows, null, null), 0);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, SHIPPED), 350000);
+  assert.equal(Accounts.projectDue('p', [kApproval()], null, SHIPPED), 600000);
 });
 
-test('k equality: the same rows with start on or before the approval date is 700000', () => {
-  const rows = [
-    kApproval(),
-    doc({ id: 'pay', purpose: 'payLabor', amount: 600000, projectId: 'p', txnDate: '2026-12-01' }),
-  ];
-  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 700000);
+test('k equality: cash is not the approval', () => {
+  const rows = [kApproval(), kCash()];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 350000);
+  assert.equal(Accounts.projectDue('p', rows, null, '2026-12-01'), 350000);
 });
 
-test('k equality: a deduct of 50000 does not change 100000 or 700000', () => {
+test('k equality: a deduct of 50000 lowers due and the total, not cost', () => {
   const rows = [
     kApproval(),
+    kCash(),
     doc({ id: 'ded', purpose: 'deduct', amount: 50000, targetId: 'appr', projectId: 'p', txnDate: '2026-12-01' }),
     doc({ id: 'ad', purpose: 'approveDeduct', targetId: 'ded' }),
   ];
   assert.equal(Accounts.projectCost('p', 100000, rows, null, null), 100000);
-  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 700000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 350000);
+  assert.equal(Accounts.projectDue('p', rows, null, '2026-12-01'), 300000);
+  assert.equal(
+    Accounts.projectCost('p', 100000, rows, null, '2026-12-01') + Accounts.projectDue('p', rows, null, '2026-12-01'),
+    100000 + 600000 - 50000,
+  );
 });
 
-test('k equality: a materials row of 50000 inside legacySpent is 150000 when start is null and 750000 when start is set', () => {
+test('k equality: materials inside legacy stay in cost, and the approval is due', () => {
   assert.equal(Accounts.projectCost('p', 150000, [kApproval()], null, null), 150000);
-  assert.equal(Accounts.projectCost('p', 150000, [kApproval()], null, '2026-12-01'), 750000);
+  assert.equal(Accounts.projectCost('p', 150000, [kApproval()], null, '2026-12-01'), 150000);
+  assert.equal(Accounts.projectDue('p', [kApproval()], null, '2026-12-01'), 600000);
+  assert.equal(150000 + Accounts.projectDue('p', [kApproval()], null, '2026-12-01'), 750000);
 });
 
-test('k equality: approval id in syncErrors stays 100000', () => {
-  assert.equal(Accounts.projectCost('p', 100000, [kApproval()], { appr: 'رُفض الإرسال' }, '2026-12-01'), 100000);
+test('k equality: a sync error excludes the cash row from cost and the approval from due', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kCash()], { pay: 'رُفض الإرسال' }, '2026-12-01'), 100000);
+  assert.equal(Accounts.projectDue('p', [kApproval()], { appr: 'رُفض الإرسال' }, '2026-12-01'), 0);
 });
 
-test('k equality: a live reversal of the approval stays 100000', () => {
-  const rows = [kApproval(), doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' })];
-  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 100000);
+test('k equality: a live reversal excludes the cash row from cost and the approval from due', () => {
+  assert.equal(
+    Accounts.projectCost('p', 100000, [kCash(), doc({ id: 'rev_pay', kind: 'rev', reversesId: 'pay' })], null, '2026-12-01'),
+    100000,
+  );
+  assert.equal(
+    Accounts.projectDue('p', [kApproval(), doc({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' })], null, '2026-12-01'),
+    0,
+  );
 });
 
-test('k equality: one approval id counted once is 700000', () => {
-  assert.equal(Accounts.projectCost('p', 100000, [kApproval(), kApproval()], null, '2026-12-01'), 700000);
+test('k equality: one id is counted once', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kCash(), kCash()], null, '2026-12-01'), 350000);
+  assert.equal(Accounts.projectDue('p', [kApproval(), kApproval()], null, '2026-12-01'), 600000);
 });
 
 test('k equality: txnDate before the start stays 100000', () => {
   assert.equal(Accounts.projectCost('p', 100000, [kApproval({ txnDate: '2026-11-30' })], null, '2026-12-01'), 100000);
+  assert.equal(Accounts.projectDue('p', [kApproval({ txnDate: '2026-11-30' })], null, '2026-12-01'), 0);
 });
 
-test('k equality: a non-date start stays 100000', () => {
-  assert.equal(Accounts.projectCost('p', 100000, [kApproval()], null, 'soon'), 100000);
+test('k equality: cash before the start still counts', () => {
+  assert.equal(Accounts.projectCost('p', 100000, [kCash({ txnDate: '2026-11-30' })], null, '2026-12-01'), 350000);
+  assert.equal(Accounts.projectDue('p', [kCash({ txnDate: '2026-11-30' })], null, '2026-12-01'), -250000);
 });
 
-test('k equality: an empty start and a year-only start stay 100000', () => {
-  const rows = [kApproval()];
+test('k equality: a non-date start stays at legacy and zero due', () => {
+  const rows = [kApproval(), kCash()];
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, 'soon'), 100000);
+  assert.equal(Accounts.projectDue('p', rows, null, 'soon'), 0);
+});
+
+test('k equality: an empty start and a year-only start stay at legacy and zero due', () => {
+  const rows = [kApproval(), kCash()];
   assert.equal(Accounts.projectCost('p', 100000, rows, null, ''), 100000);
   assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026'), 100000);
+  assert.equal(Accounts.projectDue('p', rows, null, ''), 0);
+  assert.equal(Accounts.projectDue('p', rows, null, '2026'), 0);
 });
 
 test('k equality: a non-date txnDate and a missing txnDate add nothing', () => {
-  // Rules allow an approveLabor with no txnDate. K skips it once start is set, so G must write the approval date.
-  assert.equal(Accounts.projectCost('p', 100000, [kApproval({ txnDate: 'soon' })], null, '2026-12-01'), 100000);
+  // Rules allow an approveLabor with no txnDate. Due skips it once start is set. Cash still counts at any date.
+  assert.equal(Accounts.projectDue('p', [kApproval({ txnDate: 'soon' })], null, '2026-12-01'), 0);
   const bare = kApproval();
   delete bare.txnDate;
-  assert.equal(Accounts.projectCost('p', 100000, [bare], null, '2026-12-01'), 100000);
+  assert.equal(Accounts.projectDue('p', [bare], null, '2026-12-01'), 0);
+  assert.equal(Accounts.projectCost('p', 100000, [kCash({ txnDate: 'soon' })], null, '2026-12-01'), 350000);
+  const bareCash = kCash({ id: 'pay2' });
+  delete bareCash.txnDate;
+  assert.equal(Accounts.projectCost('p', 100000, [bareCash], null, '2026-12-01'), 350000);
 });
 
 test('k equality: an approval on another project stays 100000', () => {
-  assert.equal(Accounts.projectCost('p', 100000, [kApproval({ projectId: 'q' })], null, '2026-12-01'), 100000);
+  assert.equal(Accounts.projectCost('p', 100000, [kCash({ projectId: 'q' })], null, '2026-12-01'), 100000);
+  assert.equal(Accounts.projectDue('p', [kApproval({ projectId: 'q' })], null, '2026-12-01'), 0);
 });
 
 test('k equality: a rejected approval (rej_) stays 100000', () => {
-  const rows = [
+  const approval = [
     doc({ id: 'm', purpose: 'laborQty', projectId: 'p', txnDate: '2026-12-01' }),
     kApproval({ targetId: 'm' }),
     doc({ id: 'rej_m', kind: 'rej', targetId: 'm' }),
   ];
-  assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 100000);
+  const cash = [kCash(), doc({ id: 'rej_pay', kind: 'rej', targetId: 'pay' })];
+  assert.equal(Accounts.projectDue('p', approval, null, '2026-12-01'), 0);
+  assert.equal(Accounts.projectCost('p', 100000, cash, null, '2026-12-01'), 100000);
 });
 
 test('k equality: an approval reversed after a deduct stays 100000', () => {
@@ -353,6 +393,17 @@ test('k equality: an approval reversed after a deduct stays 100000', () => {
   ];
   assert.equal(Accounts.projectCost('p', 100000, rows, null, null), 100000);
   assert.equal(Accounts.projectCost('p', 100000, rows, null, '2026-12-01'), 100000);
+  assert.equal(Accounts.projectDue('p', rows, null, '2026-12-01'), 0);
+});
+
+test('SHIPPED cash counts on 26, 27 and 28, and an approval is due only on 27 and 28', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  for (const day of ['2026-11-26', '2026-11-27', '2026-11-28']) {
+    assert.equal(Accounts.projectCost('p', 100000, [kCash({ txnDate: day })], null, SHIPPED), 350000, day);
+  }
+  assert.equal(Accounts.projectDue('p', [kApproval({ txnDate: '2026-11-26' })], null, SHIPPED), 0);
+  assert.equal(Accounts.projectDue('p', [kApproval({ txnDate: '2026-11-27' })], null, SHIPPED), 600000);
+  assert.equal(Accounts.projectDue('p', [kApproval({ txnDate: '2026-11-28' })], null, SHIPPED), 600000);
 });
 
 test('settle has a zero effect and cannot pass the named advance', () => {
@@ -1430,4 +1481,181 @@ test('L-e: a reversal inside the period of an earlier approval', () => {
   const shut = Accounts.statementLines(refused, Object.assign({ syncErrors: { appr: 'رُفض الإرسال' } }, filter));
   assert.equal(shut.opening, 0);
   assert.equal(shut.closing, 0);
+});
+
+/**
+ * @param {Record<string, unknown>} fields
+ */
+function tcRow(fields) {
+  return doc(Object.assign({ projectId: 'p', partyId: 'person', txnDate: '2026-11-27', currency: 'IQD' }, fields));
+}
+
+/**
+ * @param {number} amount
+ * @param {string} [day]
+ */
+function tcApproved(amount, day) {
+  const when = day || '2026-11-27';
+  return [
+    tcRow({ id: 'm', purpose: 'laborQty', kind: 'body', txnDate: when }),
+    tcRow({ id: 'appr', purpose: 'approveLabor', kind: 'appr', targetId: 'm', amount, txnDate: when }),
+  ];
+}
+
+/**
+ * @param {number} amount
+ * @param {string} [day]
+ */
+function tcDeduct(amount, day) {
+  const when = day || '2026-11-27';
+  return [
+    tcRow({ id: 'ded', purpose: 'deduct', kind: 'body', targetId: 'appr', amount, txnDate: when }),
+    tcRow({ id: 'ad', purpose: 'approveDeduct', kind: 'appr', targetId: 'ded' }),
+  ];
+}
+
+test('T-C1 approveLabor is not in المصروف', () => {
+  const rows = tcApproved(600000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, SHIPPED), 100000);
+  assert.equal(Accounts.projectDue('p', rows, null, SHIPPED), 600000);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, SHIPPED) + Accounts.projectDue('p', rows, null, SHIPPED), 700000);
+});
+
+test('T-C2 cash rows add and returns subtract', () => {
+  const rows = [
+    tcRow({ id: 'pay', purpose: 'payLabor', amount: 250000 }),
+    tcRow({ id: 'adv', purpose: 'advanceLabor', amount: 100000 }),
+    tcRow({ id: 'ret', purpose: 'returnAdvance', amount: 30000, targetId: 'adv' }),
+    tcRow({ id: 'rf', purpose: 'refundLabor', amount: 20000, targetId: 'pay' }),
+  ];
+  const before = Accounts.projectDue('p', tcApproved(600000), null, SHIPPED);
+  const mixed = tcApproved(600000).concat(rows);
+  assert.equal(Accounts.projectCost('p', 100000, rows, null, SHIPPED), 400000);
+  assert.equal(Accounts.projectDue('p', mixed, null, SHIPPED), before - 300000);
+});
+
+test('T-C3 cash counts on 26 Nov and approvals and deducts do not', () => {
+  const earlyCash = [
+    tcRow({ id: 'pay', purpose: 'payLabor', amount: 250000, txnDate: '2026-11-26' }),
+    tcRow({ id: 'adv', purpose: 'advanceLabor', amount: 100000, txnDate: '2026-11-26' }),
+    tcRow({ id: 'ret', purpose: 'returnAdvance', amount: 30000, targetId: 'adv', txnDate: '2026-11-26' }),
+    tcRow({ id: 'rf', purpose: 'refundLabor', amount: 20000, targetId: 'pay', txnDate: '2026-11-26' }),
+  ];
+  assert.equal(Accounts.projectCost('p', 0, earlyCash, null, SHIPPED), 300000);
+  assert.equal(Accounts.projectDue('p', earlyCash, null, SHIPPED), -300000);
+  const earlyWork = tcApproved(600000, '2026-11-26').concat(tcDeduct(50000, '2026-11-26'));
+  assert.equal(Accounts.projectDue('p', earlyWork, null, SHIPPED), 0);
+  assert.equal(Accounts.projectCost('p', 100000, earlyWork, null, SHIPPED), 100000);
+  for (const day of ['2026-11-27', '2026-11-28']) {
+    const cash = [
+      tcRow({ id: 'pay', purpose: 'payLabor', amount: 250000, txnDate: day }),
+      tcRow({ id: 'adv', purpose: 'advanceLabor', amount: 100000, txnDate: day }),
+      tcRow({ id: 'ret', purpose: 'returnAdvance', amount: 30000, targetId: 'adv', txnDate: day }),
+      tcRow({ id: 'rf', purpose: 'refundLabor', amount: 20000, targetId: 'pay', txnDate: day }),
+    ];
+    const work = tcApproved(600000, day).concat(tcDeduct(50000, day)).concat(cash);
+    assert.equal(Accounts.projectCost('p', 0, cash, null, SHIPPED), 300000, day);
+    assert.equal(Accounts.projectDue('p', work, null, SHIPPED), 600000 - 50000 - 300000, day);
+  }
+});
+
+test('T-C4 a deduct reduces المستحق and الكلفة الكلية', () => {
+  const counted = tcApproved(600000).concat(tcDeduct(50000));
+  assert.equal(Accounts.projectDue('p', counted, null, SHIPPED), 550000);
+  assert.equal(Accounts.projectCost('p', 100000, counted, null, SHIPPED), 100000);
+  assert.equal(
+    Accounts.projectCost('p', 100000, counted, null, SHIPPED) + Accounts.projectDue('p', counted, null, SHIPPED),
+    100000 + 550000,
+  );
+  const bare = tcApproved(600000).concat([
+    tcRow({ id: 'ded', purpose: 'deduct', kind: 'body', targetId: 'appr', amount: 50000 }),
+  ]);
+  assert.equal(Accounts.projectDue('p', bare, null, SHIPPED), 600000);
+});
+
+test('T-C5 identity: paying moves due to cost and leaves the total', () => {
+  const base = tcApproved(600000).concat(tcDeduct(50000));
+  const paid = base.concat([tcRow({ id: 'pay', purpose: 'payLabor', amount: 200000 })]);
+  const cost = (rows) => Accounts.projectCost('p', 100000, rows, null, SHIPPED);
+  const due = (rows) => Accounts.projectDue('p', rows, null, SHIPPED);
+  assert.equal(cost(base) + due(base), 100000 + 600000 - 50000);
+  assert.equal(cost(paid), cost(base) + 200000);
+  assert.equal(due(paid), due(base) - 200000);
+  assert.equal(cost(paid) + due(paid), cost(base) + due(base));
+});
+
+test('T-C6 guards exclude a row that would otherwise count', () => {
+  const cash = [tcRow({ id: 'pay', purpose: 'payLabor', amount: 250000 })];
+  const work = tcApproved(600000).concat(tcDeduct(50000));
+  assert.equal(Accounts.projectCost('p', 100000, cash, { pay: 'رُفض الإرسال' }, SHIPPED), 100000);
+  assert.equal(Accounts.projectDue('p', work, { appr: 'رُفض الإرسال' }, SHIPPED), 0);
+  assert.equal(
+    Accounts.projectCost('p', 100000, cash.concat([tcRow({ id: 'rev_pay', kind: 'rev', reversesId: 'pay' })]), null, SHIPPED),
+    100000,
+  );
+  assert.equal(
+    Accounts.projectDue('p', work.concat([tcRow({ id: 'rev_appr', kind: 'rev', reversesId: 'appr' })]), null, SHIPPED),
+    0,
+  );
+  const rejected = [
+    tcRow({ id: 'm', purpose: 'laborQty', kind: 'body' }),
+    tcRow({ id: 'appr', purpose: 'approveLabor', kind: 'appr', targetId: 'm', amount: 600000 }),
+    tcRow({ id: 'rej_m', kind: 'rej', targetId: 'm' }),
+  ];
+  assert.equal(Accounts.projectDue('p', rejected, null, SHIPPED), 0);
+  assert.equal(
+    Accounts.projectCost('p', 100000, cash.concat([tcRow({ id: 'rej_pay', kind: 'rej', targetId: 'pay' })]), null, SHIPPED),
+    100000,
+  );
+  const unapproved = tcApproved(600000).concat([
+    tcRow({ id: 'ded', purpose: 'deduct', kind: 'body', targetId: 'appr', amount: 50000 }),
+  ]);
+  assert.equal(Accounts.projectDue('p', unapproved, null, SHIPPED), 600000);
+  assert.equal(Accounts.projectCost('p', 100000, [tcRow({ id: 'pay', purpose: 'payLabor', amount: 250000, projectId: 'q' })], null, SHIPPED), 100000);
+  assert.equal(Accounts.projectDue('p', [tcRow({ id: 'appr', purpose: 'approveLabor', kind: 'appr', targetId: 'm', amount: 600000, projectId: 'q' }), tcRow({ id: 'm', purpose: 'laborQty', kind: 'body', projectId: 'q' })], null, SHIPPED), 0);
+  assert.equal(Accounts.projectCost('p', 100000, [tcRow({ id: 'pay', purpose: 'payLabor', amount: 250000, currency: 'USD' })], null, SHIPPED), 100000);
+  assert.equal(Accounts.projectDue('p', [tcRow({ id: 'm', purpose: 'laborQty', kind: 'body' }), tcRow({ id: 'appr', purpose: 'approveLabor', kind: 'appr', targetId: 'm', amount: 600000, currency: 'USD' })], null, SHIPPED), 0);
+  const undated = tcApproved(600000, 'soon');
+  delete undated[1].txnDate;
+  assert.equal(Accounts.projectDue('p', undated, null, SHIPPED), 0);
+  assert.equal(Accounts.projectDue('p', tcApproved(600000, 'soon'), null, SHIPPED), 0);
+  assert.equal(Accounts.projectCost('p', 100000, cash, null, null), 100000);
+  assert.equal(Accounts.projectDue('p', work, null, null), 0);
+  assert.equal(Accounts.projectCost('p', 100000, cash, null, 'soon'), 100000);
+  assert.equal(Accounts.projectDue('p', work, null, 'soon'), 0);
+});
+
+test('T-C8 a pre-27 advance deducted from the first statement is counted once', () => {
+  const settled = tcApproved(1000000).concat(tcDeduct(300000));
+  assert.equal(Accounts.projectCost('p', 300000, settled, null, SHIPPED), 300000);
+  assert.equal(Accounts.projectDue('p', settled, null, SHIPPED), 700000);
+  assert.equal(
+    Accounts.projectCost('p', 300000, settled, null, SHIPPED) + Accounts.projectDue('p', settled, null, SHIPPED),
+    1000000,
+  );
+  const doubled = tcApproved(1000000).concat([tcRow({ id: 'adv', purpose: 'advanceLabor', amount: 300000 })]);
+  assert.equal(Accounts.projectCost('p', 300000, doubled, null, SHIPPED), 600000);
+  assert.equal(
+    Accounts.projectCost('p', 300000, doubled, null, SHIPPED) + Accounts.projectDue('p', doubled, null, SHIPPED),
+    1300000,
+  );
+});
+
+test('T-C11 a ملغى advance before the start counts once, and a later return does not make المصروف negative', () => {
+  const ledger = [
+    { id: 'e1', projectId: 'p', direction: 'expense', entryType: 'labour', amount: 80000, entryDate: '2026-11-25', isReversal: false },
+    { id: 'rev_e1', projectId: 'p', direction: 'expense', entryType: 'labour', amount: 80000, entryDate: '2026-11-25', isReversal: true, reversesId: 'e1' },
+  ];
+  const legacy = Ledger.totals(Ledger.countedEntries(ledger, {})).spent;
+  assert.equal(legacy, 0);
+  const advance = [tcRow({ id: 'adv', purpose: 'advanceLabor', amount: 80000, txnDate: '2026-11-25' })];
+  assert.equal(Accounts.projectCost('p', legacy, advance, null, SHIPPED), 80000);
+  assert.equal(Accounts.projectDue('p', advance, null, SHIPPED), -80000);
+  assert.equal(Accounts.balances(advance, { partyId: 'person', projectId: 'p' }).net, Accounts.projectDue('p', advance, null, SHIPPED));
+  const returned = advance.concat([tcRow({ id: 'ret', purpose: 'returnAdvance', amount: 30000, targetId: 'adv', txnDate: '2026-11-28' })]);
+  assert.equal(Accounts.projectCost('p', legacy, returned, null, SHIPPED), 50000);
+  assert.ok(Accounts.projectCost('p', legacy, returned, null, SHIPPED) >= 0);
+  const stillLive = Ledger.totals(Ledger.countedEntries([ledger[0]], {})).spent;
+  assert.equal(stillLive, 80000);
+  assert.equal(Accounts.projectCost('p', stillLive, advance, null, SHIPPED), 160000);
 });

@@ -111,7 +111,7 @@ async function drive(featureId, run, tools) {
   const session = await tools.connectCdp(run.port, run.page);
   await signIn(session, tools);
   const constant = await tools.evaluate(session, 'Accounts.CONTRACTOR_COST_START');
-  if (constant !== null) tools.fail('STOP: CONTRACTOR_COST_START is ' + String(constant));
+  if (constant !== '2026-11-27') tools.fail('STOP: CONTRACTOR_COST_START is ' + String(constant));
   const parties = await readRows(run, tools, 'parties');
   if (!parties.some(row => row && row.name === 'حسن التحقق')) {
     await clickOk(

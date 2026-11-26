@@ -7,6 +7,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const Ledger = require('../public/ledger.js');
 const Accounts = require('../public/accounts.js');
+const SHIPPED = Accounts.CONTRACTOR_COST_START;
 const DomSafe = require('../public/dom-safe.js');
 const Sync = require('../public/sync.js');
 
@@ -1724,4 +1725,28 @@ test('an opened contract paints the grouped integer and keeps 0', () => {
   const zero = box('0');
   Pay.applyGroupedAmount(zero);
   assert.equal(zero.value, '0');
+});
+
+test('SHIPPED payment writes stay closed the day before and open on the start day and the day after', () => {
+  assert.equal(SHIPPED, '2026-11-27');
+  for (const day of ['2026-11-26', '2026-11-27', '2026-11-28']) {
+    reset();
+    g.today = () => day;
+    withStart(SHIPPED, () => {
+      seedApproval(600000);
+      const view = installBoth();
+      view.views.contractor(AG);
+      const before = store.accountTxns.length;
+      setFields({ 'cp-amount': '10000' });
+      click('act-pay-labor');
+      const saved = store.accountTxns.filter(row => row.purpose === 'payLabor' && row.amount === 10000);
+      if (day < SHIPPED) {
+        assert.equal(saved.length, 0);
+        assert.equal(store.accountTxns.length, before);
+        assert.deepEqual(queued, []);
+      } else {
+        assert.equal(saved.length, 1);
+      }
+    });
+  }
 });

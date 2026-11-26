@@ -160,6 +160,7 @@ function refusalDocs() {
 }
 /** @param {any} u @param {any} | null | undefined} button */
 function saveSubcontract(u, button) {
+  if (contractorCostDated()) return;
   if (!L.can(u, 'owner')) return;
   const projectId = (location.hash.slice(1).split('/')[1]) || '';
   const project = get(K.projects, []).find(/** @param {any} p */ p => p.id === projectId);
@@ -651,7 +652,8 @@ function rejectedExportText(u) {
  * Owner spent for one project. Owned by public/render.js. Not exported.
  * legacy is Ledger.totals of the counted entries for this project.
  * The last argument is Accounts.CONTRACTOR_COST_START.
- * While that constant is null, the return is legacy.
+ * While that constant is not a date, the return is legacy.
+ * When it is a date, the return is legacy plus contract cash paid at any date.
  * @param {string} projectId
  * @param {readonly object[]} entries
  * @returns {number}
@@ -664,6 +666,18 @@ function ownerSpent(projectId, entries) {
   const txns = get(K.accountTxns, []);
   return Accounts.projectCost(projectId, legacy, txns, errs, Accounts.CONTRACTOR_COST_START);
 }
+/**
+ * Owner amount still owed to contractors for one project. Same reads as ownerSpent.
+ * Returns 0 when projectDue is missing.
+ * @param {string} projectId
+ * @returns {number}
+ */
+function ownerDue(projectId) {
+  if (!window.Accounts || typeof Accounts.projectDue !== 'function') return 0;
+  const errs = get(K.syncErrors, {}) || {};
+  const txns = get(K.accountTxns, []);
+  return Accounts.projectDue(projectId, txns, errs, Accounts.CONTRACTOR_COST_START);
+}
 const views = {
   home() {
     const { u, projects, entries } = data();
@@ -672,7 +686,8 @@ const views = {
     if (L.can(u, 'owner')) {
       const t = L.totals(counts(entries));
       const spent = projects.reduce((sum, p) => sum + (typeof p.id === 'string' ? ownerSpent(p.id, entries) : 0), 0);
-      const profit = /** @type {number} */ (t.received) - spent;
+      const due = projects.reduce((sum, p) => sum + (typeof p.id === 'string' ? ownerDue(p.id) : 0), 0);
+      const profit = /** @type {number} */ (t.received) - (spent + due);
       return ex + sync + `<div class="card"><h2>ملخص كل المشاريع</h2>
         <div class="kv"><span>إجمالي المقبوض</span>${money(t.received)}</div>
         <div class="kv"><span>إجمالي المصروف</span>${money(spent)}</div>
@@ -750,7 +765,7 @@ const views = {
         const s = L.projectSummary(u, counts(entries.filter(e => e.projectId === p.id)));
         let line = `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>`;
         if (L.can(u, 'owner')) {
-          const profit = /** @type {number} */ (s.received) - ownerSpent(/** @type {string} */ (p.id), entries);
+          const profit = /** @type {number} */ (s.received) - (ownerSpent(/** @type {string} */ (p.id), entries) + ownerDue(/** @type {string} */ (p.id)));
           line = `<div class="kv"><span>${profit < 0 ? 'خسارة' : 'ربح'}</span><span class="${profit < 0 ? 'bad' : 'ok'}">${money(Math.abs(profit))}</span></div>`;
         }
         return `<a class="card proj" href="${window.DomSafe ? DomSafe.projectHref('project', p.id) : '#projects'}"><div class="kv"><h2>${esc(p.name)}</h2><span>‹</span></div>${line}</a>`;
@@ -766,9 +781,15 @@ const views = {
     let card = `<div class="kv"><span>المصروف</span>${money(s.spent)}</div>${Object.entries(s.byType).map(([k, v]) => `<div class="kv"><span>${L.ENTRY_TYPES[k].label}</span><b class="num">${L.fmt(v)}</b></div>`).join('')}`;
     if (L.can(u, 'owner')) {
       const spent = ownerSpent(id, entries);
-      const profit = /** @type {number} */ (s.received) - spent;
+      const due = ownerDue(id);
+      const total = spent + due;
+      const profit = /** @type {number} */ (s.received) - total;
+      const dueLabel = due < 0 ? 'سلف زايدة على المقاولين' : 'المستحق للمقاولين';
+      const dueShown = due < 0 ? Math.abs(due) : due;
       card = `${contractFields(p)}<div class="kv"><span>المقبوض</span>${money(s.received)}</div><div class="kv"><span>المصروف</span>${money(spent)}</div>
-         <div class="kv"><span>الربح</span><span class="${profit < 0 ? 'bad' : 'ok'}">${money(profit)}</span></div><div class="note">الربح = المقبوض − المصروف</div>`;
+         <div class="kv"><span>${dueLabel}</span>${money(dueShown)}</div>
+         <div class="kv"><span>الكلفة الكلية</span>${money(total)}</div>
+         <div class="kv"><span>الربح</span><span class="${profit < 0 ? 'bad' : 'ok'}">${money(profit)}</span></div><div class="note">الربح = المقبوض − الكلفة الكلية (المصروف + المستحق للمقاولين)</div>`;
     }
     const allHref = window.DomSafe ? DomSafe.projectHref('entries', p.id) : '#projects';
     const subs = L.can(u, 'owner') ? subcontractSection(p, counts(es)) : '';
