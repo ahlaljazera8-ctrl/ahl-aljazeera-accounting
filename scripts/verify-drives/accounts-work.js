@@ -269,12 +269,15 @@ async function closeProject(run, tools) {
  * @param {DriveTools} tools
  */
 async function restoreNull(session, tools) {
+  const src = fs.readFileSync(path.join(__dirname, '../../public/accounts.js'), 'utf8');
+  const marker = "const CONTRACTOR_COST_START = '2026-11-27';";
+  if (!src.includes(marker)) tools.fail('STOP: source binding is not 2026-11-27');
   await tools.evaluate(
     session,
-    `Accounts.CONTRACTOR_COST_START = null; dispatchEvent(new HashChangeEvent('hashchange')); true`,
+    `Accounts.CONTRACTOR_COST_START = '2026-11-27'; dispatchEvent(new HashChangeEvent('hashchange')); true`,
   );
   const value = await tools.evaluate(session, 'Accounts.CONTRACTOR_COST_START');
-  if (value !== null) tools.fail('STOP: export was left as ' + String(value));
+  if (value !== '2026-11-27') tools.fail('STOP: export was left as ' + String(value));
 }
 
 /**
@@ -372,18 +375,17 @@ async function drive(featureId, run, tools) {
     );
     const homeAfter = await tools.kvText(session, 'إجمالي المصروف');
     if (homeAfter !== homeBefore) tools.fail('STOP: home المصروف changed from ' + homeBefore + ' to ' + homeAfter);
-    if (homeAfter.includes(AMOUNT_TEXT))
-      tools.fail('STOP: home المصروف included the approval while the export is null');
+    if (homeAfter.includes(AMOUNT_TEXT)) tools.fail('STOP: home المصروف included the approval');
     await tools.shoot(session, path.join(dir, 'home.png'));
     const left = await tools.evaluate(session, 'Accounts.CONTRACTOR_COST_START');
-    if (left !== null) tools.fail('STOP: fixture was left in place');
+    if (left !== '2026-11-27') tools.fail('STOP: fixture was left in place');
     console.log(featureId + ' proved');
   } catch (err) {
     failure = err;
     throw err;
   } finally {
     try {
-      await tools.evaluate(session, 'Accounts.CONTRACTOR_COST_START = null; true');
+      await tools.evaluate(session, `Accounts.CONTRACTOR_COST_START = '2026-11-27'; true`);
     } catch (err) {
       if (!failure) failure = err;
     }

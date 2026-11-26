@@ -660,20 +660,25 @@ test('T-I14 a counting deduct changes the due, not project cost', () => {
   seedUnit();
   const start = '2026-11-01';
   const cost = () => Accounts.projectCost('p-school', 0, store.accountTxns, store.syncErrors, start);
+  const due = () => Accounts.projectDue('p-school', store.accountTxns, store.syncErrors, start);
   const before = cost();
+  const beforeDue = due();
   const beforeNet = balances().net;
   store.accountTxns = store.accountTxns.concat([
     deduct('d1appr_m1', 'appr_m1', 50000, 50000),
     { id: 'appr_d1appr_m1', docType: 'accountTxn', kind: 'appr', purpose: 'approveDeduct', ledger: 'labor', targetId: 'd1appr_m1', partyId: 'party-1', projectId: 'p-school', currency: 'IQD', fxRate: 1 },
   ]);
   assert.equal(cost(), before);
+  assert.equal(due(), beforeDue - 50000);
+  const afterDeduct = due();
   assert.equal(balances().deductions, 50000);
   assert.equal(balances().net, beforeNet - 50000);
   store.accountTxns = store.accountTxns.concat([{
     id: 'rev_appr_m1', docType: 'accountTxn', kind: 'rev', purpose: 'approveLabor', ledger: 'labor',
     reversesId: 'appr_m1', reversalReason: 'سبب', partyId: 'party-1', projectId: 'p-school', currency: 'IQD', fxRate: 1,
   }]);
-  assert.equal(cost(), before - 600000);
+  assert.equal(cost(), before);
+  assert.equal(due(), afterDeduct - 550000);
 });
 
 test('T-I15 a payment with a live refund explains instead of reversing', () => {
@@ -784,6 +789,7 @@ test('T-I19 one approval reversal ends the measurement', () => {
   const view = installAll();
   withStart('2026-11-01', () => {
     const beforeCost = Accounts.projectCost('p-school', 0, store.accountTxns, store.syncErrors, '2026-11-01');
+    const beforeDue = Accounts.projectDue('p-school', store.accountTxns, store.syncErrors, '2026-11-01');
     setFields({ 'cc-reason': 'سبب' });
     open(view);
     click('act-reverse-appr_' + M2, { ccRev: 'appr_' + M2 });
@@ -793,7 +799,8 @@ test('T-I19 one approval reversal ends the measurement', () => {
     assert.equal(added[1].reversalReason, 'سبب');
     assert.deepEqual(pendingIds(), []);
     assert.equal(balances().approvedLabor, 0);
-    assert.equal(Accounts.projectCost('p-school', 0, store.accountTxns, store.syncErrors, '2026-11-01'), beforeCost - 100000);
+    assert.equal(Accounts.projectCost('p-school', 0, store.accountTxns, store.syncErrors, '2026-11-01'), beforeCost);
+    assert.equal(Accounts.projectDue('p-school', store.accountTxns, store.syncErrors, '2026-11-01'), beforeDue - 100000);
     const accounts = accountPage(view, 'statement');
     assert.equal(accounts.includes('بانتظار الاعتماد'), false);
     const detail = open(view);

@@ -6,9 +6,9 @@
 })(typeof self !== 'undefined' ? self : /** @type {Window} */ (/** @type {unknown} */ (this)), function () {
   'use strict';
 
-  /** null until an engineer changes this file and deploys, after Ameer says go. */
+  /** Ameer named this date: 2026-11-27. */
   /** @type {string | null} */
-  const CONTRACTOR_COST_START = null;
+  const CONTRACTOR_COST_START = '2026-11-27';
   const MAX_AMOUNT = 10000000000;
   const MAX_QTY = 100000000;
   const MAX_UNIT_QTY = 1000000;
@@ -1023,16 +1023,80 @@
   }
 
   /**
-   * Owner project cost. Owned by public/accounts.js.
-   * legacySpent is the ledger spent for this project. The screen passes
-   * Ledger.totals(counted entries for the project).spent.
-   * start is CONTRACTOR_COST_START on the screen. Tests pass a date or null.
-   * When start is not YYYY-MM-DD, the return is legacySpent and the new half is 0.
-   * When start is a date, the return is legacySpent plus live approveLabor
-   * amounts on this project whose txnDate is YYYY-MM-DD and on or after start.
-   * Which row is live is rowCounts(row, rowIndex(txns, syncErrors)).
-   * A deduct does not reduce the sum. effect.cost is not applied.
-   * Does not read entryDate. Does not write. Does not read slotLosers or linkRefusals.
+   * @param {string | null} start
+   * @returns {start is string}
+   */
+  function isCostDate(start) {
+    return typeof start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(start);
+  }
+
+  /**
+   * @param {FoldDoc} row
+   * @returns {boolean}
+   */
+  function iqdRow(row) {
+    return !row.currency || row.currency === 'IQD';
+  }
+
+  /**
+   * @param {FoldDoc} row
+   * @param {string} start
+   * @returns {boolean}
+   */
+  function onOrAfterStart(row, start) {
+    return typeof row.txnDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.txnDate) && row.txnDate >= start;
+  }
+
+  /**
+   * Counted contract rows for one project.
+   * Cash (payLabor, advanceLabor, returnAdvance, refundLabor) counts at any txnDate.
+   * approveLabor and deduct count only when txnDate is YYYY-MM-DD and on or after start.
+   * The row filters (project, rowCounts, IQD, and the date rule) are written here.
+   * Does not read entryDate. Does not write. Does not read slotLosers, linkRefusals, or laborReviews.
+   * @param {string} projectId
+   * @param {readonly FoldDoc[] | null | undefined} txns
+   * @param {Readonly<Record<string, unknown>> | null | undefined} syncErrors
+   * @param {string} start
+   * @returns {{ approved: number, paid: number, advances: number, returned: number, refunded: number, deducts: number }}
+   */
+  function projectContract(projectId, txns, syncErrors, start) {
+    const index = rowIndex(txns, syncErrors);
+    const out = { approved: 0, paid: 0, advances: 0, returned: 0, refunded: 0, deducts: 0 };
+    for (const row of Object.values(index.byId)) {
+      const amount = countedAmount(row.amount);
+      const cashPurpose =
+        row.purpose === 'payLabor' ||
+        row.purpose === 'advanceLabor' ||
+        row.purpose === 'returnAdvance' ||
+        row.purpose === 'refundLabor';
+      if (cashPurpose && row.projectId === projectId && rowCounts(row, index) && iqdRow(row)) {
+        if (row.purpose === 'payLabor') out.paid += amount;
+        else if (row.purpose === 'advanceLabor') out.advances += amount;
+        else if (row.purpose === 'returnAdvance') out.returned += amount;
+        else out.refunded += amount;
+      }
+      const datedPurpose = row.purpose === 'approveLabor' || row.purpose === 'deduct';
+      if (
+        datedPurpose &&
+        row.projectId === projectId &&
+        rowCounts(row, index) &&
+        iqdRow(row) &&
+        onOrAfterStart(row, start)
+      ) {
+        if (row.purpose === 'approveLabor') out.approved += amount;
+        else out.deducts += amount;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Owner spent. legacySpent is the ledger spent for this project.
+   * When start is not YYYY-MM-DD, the return is legacySpent.
+   * When start is a date, the return is legacySpent plus contract cash paid at any txnDate:
+   * payLabor + advanceLabor − returnAdvance − refundLabor.
+   * Approvals and deducts are not in this sum. effect.cost is not applied.
+   * Does not read entryDate. Does not write. Does not read slotLosers, linkRefusals, or laborReviews.
    * @param {string} projectId
    * @param {number} legacySpent
    * @param {readonly FoldDoc[] | null | undefined} txns
@@ -1041,15 +1105,27 @@
    * @returns {number}
    */
   function projectCost(projectId, legacySpent, txns, syncErrors, start) {
-    if (typeof start !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return legacySpent;
-    const index = rowIndex(txns, syncErrors);
-    let added = 0;
-    for (const row of Object.values(index.byId)) {
-      if (row.projectId !== projectId || row.purpose !== 'approveLabor' || !rowCounts(row, index)) continue;
-      if (typeof row.txnDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(row.txnDate) || row.txnDate < start) continue;
-      added += countedAmount(row.amount);
-    }
-    return legacySpent + added;
+    if (!isCostDate(start)) return legacySpent;
+    const figures = projectContract(projectId, txns, syncErrors, start);
+    return legacySpent + figures.paid + figures.advances - figures.returned - figures.refunded;
+  }
+
+  /**
+   * Owner amount still owed to contractors for one project.
+   * When start is not YYYY-MM-DD, the return is 0.
+   * When start is a date: approveLabor − deduct, with txnDate on or after start,
+   * minus contract cash at any txnDate (payLabor + advanceLabor − returnAdvance − refundLabor).
+   * Does not read entryDate. Does not write. Does not read slotLosers, linkRefusals, or laborReviews.
+   * @param {string} projectId
+   * @param {readonly FoldDoc[] | null | undefined} txns
+   * @param {Readonly<Record<string, unknown>> | null | undefined} syncErrors
+   * @param {string | null} start
+   * @returns {number}
+   */
+  function projectDue(projectId, txns, syncErrors, start) {
+    if (!isCostDate(start)) return 0;
+    const figures = projectContract(projectId, txns, syncErrors, start);
+    return figures.approved - figures.paid - figures.advances + figures.returned + figures.refunded - figures.deducts;
   }
 
   return {
@@ -1061,6 +1137,7 @@
     personBalance,
     cashPointerErrors,
     projectCost,
+    projectDue,
     rowIndex,
     rowLive,
     rowCounts,

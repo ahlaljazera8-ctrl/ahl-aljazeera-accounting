@@ -270,8 +270,9 @@ async function openGuardPage(browser, port, url) {
 async function runSeparatorGuard(port, check) {
   const sourcePath = process.env.AJ_GUARD_SOURCE || path.join(__dirname, '..', 'public', 'accounts.js');
   const source = fs.readFileSync(sourcePath, 'utf8');
-  const costNullInSource = /const CONTRACTOR_COST_START = null;/.test(source);
-  check('separator guard: public/accounts.js keeps CONTRACTOR_COST_START null', costNullInSource);
+  const costShippedInSource = /const CONTRACTOR_COST_START = '2026-11-27';/.test(source)
+    && !/const CONTRACTOR_COST_START = null;/.test(source);
+  check('separator guard: public/accounts.js sets CONTRACTOR_COST_START to 2026-11-27', costShippedInSource);
   const version = await guardDebuggerJson(port, '/json/version');
   const browserWs = await openCdpSocket(version.webSocketDebuggerUrl);
   const browser = createCdpSession(browserWs);
@@ -283,7 +284,7 @@ async function runSeparatorGuard(port, check) {
       try {
         guardPage = await openGuardPage(browser, port, BASE + 'index.html?role=' + role + '#home');
         const report = await crawlSeparatorGuard(guardPage, role, check);
-        report.costNullInSource = costNullInSource;
+        report.costShippedInSource = costShippedInSource;
         reports.push(report);
         const pass = !report.findings.length && !report.unvisited.length && !report.unmapped.length && !report.routeMiss.length && !report.empty.length && !report.missing.length && !report.remote.length && !report.errors.length && report.idsEqual;
         check('separator guard ' + role + ' amount ids deep-equal the app list', report.idsEqual);
@@ -411,6 +412,7 @@ async function crawlSeparatorGuard(guardPage, role, check) {
   const probeOk = tokenProbes && tokenProbes['1500000'] > 0 && tokenProbes['١٥٠٠٠٠٠'] > 0 && tokenProbes['۱۵۰۰۰۰۰'] > 0 && tokenProbes['1,50000'] > 0 && tokenProbes['15,0000'] > 0 && tokenProbes['1٬500٬000'] > 0 && tokenProbes['1,500,000'] === 0 && tokenProbes['0'] === 0 && tokenProbes['999'] === 0;
   check('separator guard ' + role + ' token rules', !!probeOk);
   if (role === 'owner') {
+    await ev(`Accounts.CONTRACTOR_COST_START = null`);
     await nav('#entry/p-school');
     await click('[data-type="materials"]');
     const entryShown = await fill('#amt', '١٥٠٠٠٠٠');
@@ -484,6 +486,7 @@ async function crawlSeparatorGuard(guardPage, role, check) {
   await ev(`window.__seedLocal()`);
   for (const phase of ['cost-null', 'cost-open']) {
     if (phase === 'cost-open') await ev(`Accounts.CONTRACTOR_COST_START = '2026-10-01'`);
+    else await ev(`Accounts.CONTRACTOR_COST_START = null`);
     const scanned = new Set();
     for (const key of listed.keys) {
       let args = [];
@@ -891,6 +894,10 @@ let chrome;
   await go(`${BASE}index.html?role=owner#project/p-school`);
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
   await sleep(300);
+  const shippedStart = await ev(`Accounts.CONTRACTOR_COST_START`);
+  check('the loaded page ships CONTRACTOR_COST_START 2026-11-27', shippedStart === '2026-11-27');
+  await ev(`Accounts.CONTRACTOR_COST_START = null; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
   const subScreen = await ev(`(()=>{
     const text = document.querySelector('#main').innerText;
     const bars = [...document.querySelectorAll('[data-bar]')].map(el => ({ id: el.getAttribute('data-bar'), over: el.classList.contains('over'), width: (el.querySelector('i') || {}).style.width }));
@@ -967,6 +974,8 @@ let chrome;
   check('subcontracts: another project does not offer this project\'s names', await ev(`(()=>{const sel=document.querySelector('#subcontract'); const names=sel?[...sel.options].map(o=>o.textContent):['missing']; return names.length===0 || !names.includes('مقاول الكهرباء');})()`));
   await go(`${BASE}index.html?role=owner#subnew/p-school`);
   await ev('dispatchEvent(new HashChangeEvent("hashchange"))');
+  await sleep(200);
+  await ev(`Accounts.CONTRACTOR_COST_START = null; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(200);
   const addSub = await ev(`(()=>{
     return { name: (document.querySelector('#sub-name')||{}).value, amount: (document.querySelector('#sub-amount')||{}).value, work: (document.querySelector('#sub-work')||{}).value, text: document.querySelector('#main').innerText, rtl: document.documentElement.dir, width: window.innerWidth, hz: document.documentElement.scrollWidth > window.innerWidth };
@@ -1462,6 +1471,8 @@ let chrome;
   check('entry save button stays above the bar', saveClear && saveClear.ok === true);
   await ev(`location.hash='#home'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
   await sleep(200);
+  await ev(`Accounts.CONTRACTOR_COST_START = null; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
   const tabs = await ev(`(()=>{
     const links = [...document.querySelectorAll('.tabs a')];
     const bar = document.querySelector('.tabs');
@@ -1515,6 +1526,21 @@ let chrome;
   })()`);
   console.log('entry tap ' + JSON.stringify({ entryBox, tapped }));
   check('entry tab is a 44px target and shows the new entry screen', entryBox && entryBox.tab === 'entry' && entryBox.w >= 44 && entryBox.h >= 44 && tapped && tapped.hash === '#entry' && tapped.on === 'entry' && tapped.bg === green && tapped.homeBg !== green);
+  check('the loaded page ships CONTRACTOR_COST_START 2026-11-27', shippedStart === '2026-11-27');
+  await ev(`Accounts.CONTRACTOR_COST_START = '2026-10-01'; location.hash = '#project/p-school'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(250);
+  const datedProject = await ev(`(document.querySelector('#main') && document.querySelector('#main').innerText) || ''`);
+  check('dated owner project hides + عقد مقاول', typeof datedProject === 'string' && !datedProject.includes('+ عقد مقاول'));
+  await ev(`location.hash = '#subnew/p-school'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(250);
+  const datedForm = await ev(`({ amount: !!document.querySelector('#sub-amount'), text: (document.querySelector('#main') && document.querySelector('#main').innerText) || '' })`);
+  check('dated subnew shows the contractor-screen note', !!(datedForm && datedForm.amount === false && datedForm.text.includes('العقد الجديد من شاشة مقاول')));
+  await ev(`Accounts.CONTRACTOR_COST_START = '2026-10-01'; location.hash = '#home'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(250);
+  const datedTabs = await ev(`([...document.querySelectorAll('.tabs a')].map(a => a.dataset.tab)).join(',')`);
+  check('dated owner home has seven tabs including مقاول', datedTabs === 'home,entry,projects,people,foremen,accounts,contractor');
+  await ev(`Accounts.CONTRACTOR_COST_START = null; location.hash = '#entry'; dispatchEvent(new HashChangeEvent('hashchange')); 1`);
+  await sleep(200);
   const beforeSafe = await ev(`({bottom:parseFloat(getComputedStyle(document.querySelector('.tabs')).bottom), pad:parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom)})`);
   const safeCall = await send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, left: 0, right: 0, bottom: 50 } });
   await sleep(150);

@@ -105,14 +105,15 @@ async function typeKeys(session, tools, selector, text) {
  * @param {DriveTools} tools
  */
 async function restoreNull(session, tools) {
+  const src = fs.readFileSync(path.join(__dirname, '../../public/accounts.js'), 'utf8');
+  const marker = "const CONTRACTOR_COST_START = '2026-11-27';";
+  if (!src.includes(marker)) tools.fail('STOP: source binding is not 2026-11-27');
   await tools.evaluate(
     session,
-    `Accounts.CONTRACTOR_COST_START = null; dispatchEvent(new HashChangeEvent('hashchange')); true`,
+    `Accounts.CONTRACTOR_COST_START = '2026-11-27'; dispatchEvent(new HashChangeEvent('hashchange')); true`,
   );
   const value = await tools.evaluate(session, 'Accounts.CONTRACTOR_COST_START');
-  if (value !== null) tools.fail('STOP: export was left as ' + String(value));
-  const src = fs.readFileSync(path.join(__dirname, '../../public/accounts.js'), 'utf8');
-  if (!src.includes('const CONTRACTOR_COST_START = null;')) tools.fail('STOP: source binding is not null');
+  if (value !== '2026-11-27') tools.fail('STOP: export was left as ' + String(value));
 }
 
 /**
@@ -416,7 +417,7 @@ async function drive(featureId, run, tools) {
     throw err;
   } finally {
     try {
-      await tools.evaluate(session, 'Accounts.CONTRACTOR_COST_START = null; true');
+      await tools.evaluate(session, `Accounts.CONTRACTOR_COST_START = '2026-11-27'; true`);
     } catch (err) {
       if (!failure) failure = err;
     }
