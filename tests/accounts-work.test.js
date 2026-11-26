@@ -1018,7 +1018,8 @@ test('an empty measurement tap queues nothing and a cleared second tap does not 
     UI.onClick(/** @type {any} */ (save));
     assert.equal(store.accountTxns.length, 0);
     assert.deepEqual(queued, []);
-    assert.equal(view.views.contractor(id).includes('المبلغ ليس عدداً صحيحاً'), true);
+    assert.equal(view.views.contractor(id).includes('الكمية لازم رقم صحيح بدون كسور، مثل 25 أو 1,000'), true);
+    assert.equal(view.views.contractor(id).includes('المبلغ ليس عدداً صحيحاً'), false);
     const missing = Work.laborQtyDoc({
       id: '11111111-2222-3333-4444-555555555555',
       agreement: brick(),
@@ -1037,7 +1038,8 @@ test('an empty measurement tap queues nothing and a cleared second tap does not 
     assert.equal(bodies.length, 1);
     assert.equal(bodies[0].qty, 8000);
     assert.deepEqual(queued, [bodies[0].id]);
-    assert.equal(view.views.contractor(id).includes('المبلغ ليس عدداً صحيحاً'), true);
+    assert.equal(view.views.contractor(id).includes('الكمية لازم رقم صحيح بدون كسور، مثل 25 أو 1,000'), true);
+    assert.equal(view.views.contractor(id).includes('المبلغ ليس عدداً صحيحاً'), false);
   });
 });
 
@@ -1104,6 +1106,11 @@ test('the source binding stays null', () => {
   assert.equal(Accounts.CONTRACTOR_COST_START, null);
   assert.equal(Work.pendingAmeer.unitByProgress, 'حسب الإنجاز (الكمية × سعر الوحدة)');
   assert.equal(Work.pendingAmeer.newContract, 'العقد الجديد من شاشة مقاول');
+});
+
+test('the quantity sentence is the approved wording', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'public/accounts-work.js'), 'utf8');
+  assert.equal(src.includes('الكمية لازم رقم صحيح بدون كسور، مثل 25 أو 1,000'), true);
 });
 
 /**
@@ -1197,12 +1204,150 @@ test('IQD agreement fields group and refuse 2,5', () => {
       UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
       assert.equal(store.agreements.length, held, id);
     }
-    begin('unit');
+    const view = begin('unit');
+    const before = store.agreements.length;
     setFields({ 'cw-desc': 'لكل', 'cw-rate': '1000', 'cw-per': '2,5', 'cw-unit': 'طوبة' });
     group('cw-rate');
-    UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
-    const per = store.agreements[store.agreements.length - 1];
-    assert.equal(per.unitRate, 1000);
-    assert.equal(per.unitQty, 25);
+    const button = { id: 'act-new-agreement', disabled: false, dataset: {} };
+    let paints = 0;
+    view.render = () => {
+      paints += 1;
+    };
+    UI.onClick(/** @type {any} */ (button));
+    assert.equal(store.agreements.length, before);
+    assert.equal(store.agreements.some(row => row.unitQty === 25), false);
+    const html = view.views.contractor('new');
+    assert.equal(html.includes('الكمية لازم رقم صحيح بدون كسور، مثل 25 أو 1,000'), true);
+    assert.equal(html.includes('المبلغ ليس عدداً صحيحاً'), false);
+    assert.equal(button.disabled, false);
+    assert.equal(paints > 0, true);
   });
 });
+
+const QTY_SENTENCE = 'الكمية لازم رقم صحيح بدون كسور، مثل 25 أو 1,000';
+const RANGE_SENTENCE = 'المبلغ ليس عدداً صحيحاً';
+
+/**
+ * @param {'qty' | 'days' | 'per'} box
+ * @param {string} input
+ * @returns {{ html: string, button: { disabled: boolean }, paints: number }}
+ */
+function saveQtyBox(box, input) {
+  const view = install();
+  let paints = 0;
+  view.render = () => {
+    paints += 1;
+  };
+  const id = brick().id;
+  const button = {
+    id: box === 'per' ? 'act-new-agreement' : 'act-labor-qty',
+    disabled: false,
+    dataset: {},
+  };
+  if (box === 'qty') {
+    store.agreements = [Object.assign(brick(), { createdBy: 'u-ameer', deviceId: 'phone' })];
+    view.views.contractor(id);
+    setFields({ 'cw-qty': input });
+  } else if (box === 'days') {
+    store.agreements = [{
+      id,
+      method: 'daily',
+      partyId: 'party-1',
+      projectId: 'job',
+      description: 'يوم',
+      currency: 'IQD',
+      dayRate: 1,
+      createdBy: 'u-ameer',
+      deviceId: 'phone',
+    }];
+    view.views.contractor(id);
+    setFields({ 'cw-days': input });
+  } else {
+    store.parties = [{ id: 'party-1', name: 'حسن' }];
+    view.views.contractor('');
+    UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cparty: 'party-1' } }));
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cproj: 'job' } }));
+    setFields({ 'cw-desc': 'لكل', 'cw-rate': '1000', 'cw-per': input, 'cw-unit': 'طوبة' });
+  }
+  paints = 0;
+  UI.onClick(/** @type {any} */ (button));
+  const html = box === 'per' ? view.views.contractor('new') : view.views.contractor(id);
+  return { html, button, paints };
+}
+
+/** @type {Array<{ input: string, stored: number, boxes: Array<'qty' | 'days' | 'per'>, label?: string }>} */
+const QTY_ACCEPTED = [
+  { input: '25', stored: 25, boxes: ['qty', 'days', 'per'] },
+  { input: '  25  ', stored: 25, boxes: ['qty', 'days', 'per'], label: 'trimmed 25' },
+  { input: '8000', stored: 8000, boxes: ['qty', 'days'] },
+  { input: '4000', stored: 4000, boxes: ['per'] },
+  { input: '1,000', stored: 1000, boxes: ['qty', 'days', 'per'] },
+  { input: '8,000', stored: 8000, boxes: ['qty', 'days', 'per'] },
+  { input: '1,000,000', stored: 1000000, boxes: ['qty', 'days', 'per'] },
+  { input: '2,500', stored: 2500, boxes: ['qty', 'days', 'per'] },
+  { input: '٢٥', stored: 25, boxes: ['qty', 'days', 'per'] },
+  { input: '١,٠٠٠', stored: 1000, boxes: ['qty', 'days', 'per'] },
+  { input: '١٬٠٠٠', stored: 1000, boxes: ['qty', 'days', 'per'] },
+];
+
+/** @type {Array<{ input: string, boxes: Array<'qty' | 'days' | 'per'>, label?: string }>} */
+const QTY_REFUSED = [
+  { input: '2,5', boxes: ['qty', 'days', 'per'] },
+  { input: '1,50000', boxes: ['qty', 'days', 'per'] },
+  { input: '1,00', boxes: ['qty', 'days', 'per'] },
+  { input: '10,00,000', boxes: ['qty', 'days', 'per'] },
+  { input: ',100', boxes: ['qty', 'days', 'per'] },
+  { input: '100,', boxes: ['qty', 'days', 'per'] },
+  { input: '1 000', boxes: ['qty', 'days', 'per'] },
+  { input: '', boxes: ['qty', 'days', 'per'], label: 'empty' },
+  { input: '   ', boxes: ['qty', 'days', 'per'], label: 'spaces' },
+  { input: '2.5', boxes: ['qty', 'days', 'per'] },
+  { input: '2٫5', boxes: ['qty', 'days', 'per'] },
+  { input: '2،5', boxes: ['qty', 'days', 'per'] },
+  { input: '1،000', boxes: ['qty', 'days', 'per'] },
+  { input: '0', boxes: ['qty', 'days', 'per'] },
+  { input: '100000001', boxes: ['qty', 'days'] },
+  { input: '1000001', boxes: ['per'] },
+];
+
+for (const box of /** @type {Array<'qty' | 'days' | 'per'>} */ (['qty', 'days', 'per'])) {
+  for (const row of QTY_ACCEPTED) {
+    if (!row.boxes.includes(box)) continue;
+    const label = row.label || row.input;
+    test('cw-' + box + ' accepts ' + label, () => {
+      reset();
+      withStart('2026-11-22', () => {
+        const saved = saveQtyBox(box, row.input);
+        if (box === 'per') {
+          assert.equal(store.agreements.length, 1);
+          assert.equal(store.agreements[0].unitQty, row.stored);
+        } else {
+          const bodies = store.accountTxns.filter(item => item.purpose === 'laborQty');
+          assert.equal(bodies.length, 1);
+          assert.equal(bodies[0].qty, row.stored);
+        }
+        assert.equal(saved.html.includes(QTY_SENTENCE), false);
+      });
+    });
+  }
+  for (const row of QTY_REFUSED) {
+    if (!row.boxes.includes(box)) continue;
+    const label = row.label || row.input;
+    test('cw-' + box + ' refuses ' + label, () => {
+      reset();
+      withStart('2026-11-22', () => {
+        const saved = saveQtyBox(box, row.input);
+        if (box === 'per') {
+          assert.equal(store.agreements.length, 0);
+          assert.equal(saved.button.disabled, false);
+          assert.equal(saved.paints > 0, true);
+        } else {
+          assert.equal(store.accountTxns.filter(item => item.purpose === 'laborQty').length, 0);
+        }
+        assert.equal(saved.html.includes(QTY_SENTENCE), true);
+        assert.equal(saved.html.includes(RANGE_SENTENCE), false);
+      });
+    });
+  }
+}

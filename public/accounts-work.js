@@ -41,6 +41,7 @@
     lump: 'المبلغ ليس عدداً صحيحاً',
     milestone: 'المبلغ ليس عدداً صحيحاً',
     range: 'المبلغ ليس عدداً صحيحاً',
+    qty: 'الكمية لازم رقم صحيح بدون كسور، مثل 25 أو 1,000',
     amount: 'المبلغ ليس عدداً صحيحاً',
     overflow: 'المبلغ ليس عدداً صحيحاً',
     inexact: 'المبلغ ليس عدداً صحيحاً',
@@ -130,14 +131,16 @@
   }
 
   /**
+   * Whole number for quantity, days, or unit count. Reuses plainAmount:
+   * Arabic-Indic digits are folded, a strict thousands group is kept,
+   * and a short or irregular comma is refused.
    * @param {string} raw
    * @returns {number | null}
    */
   function digits(raw) {
-    const text = String(raw || '').trim().replace(/,/g, '');
-    if (!/^\d+$/.test(text)) return null;
-    const n = Number(text);
-    return Number.isSafeInteger(n) ? n : null;
+    const host = /** @type {typeof globalThis & { AccountPayment?: { plainAmount?: (value: string) => number | null } }} */ (globalThis);
+    if (typeof host.AccountPayment === 'undefined' || !host.AccountPayment || typeof host.AccountPayment.plainAmount !== 'function') return null;
+    return host.AccountPayment.plainAmount(raw);
   }
 
   /**
@@ -486,6 +489,19 @@
   function saveAgreement(button) {
     if (!costOpen()) return;
     if (!screen.formId) screen.formId = uuid();
+    const unitQty = digits(field('cw-per'));
+    if (screen.method === 'unit' && unitQty == null) {
+      screen.msg = sentence(['qty']);
+      button.disabled = false;
+      if (viewApi) viewApi.render();
+      return;
+    }
+    if (screen.method === 'unit' && unitQty != null && (unitQty < 1 || unitQty > 1000000)) {
+      screen.msg = sentence(['qty']);
+      button.disabled = false;
+      if (viewApi) viewApi.render();
+      return;
+    }
     const who = actor();
     const built = agreementDoc({
       id: screen.formId,
@@ -495,7 +511,7 @@
       description: field('cw-desc'),
       lumpAmount: /** @type {number} */ (plainField('cw-lump')),
       unitRate: /** @type {number} */ (plainField('cw-rate')),
-      unitQty: /** @type {number} */ (digits(field('cw-per'))),
+      unitQty: /** @type {number} */ (unitQty),
       unitName: field('cw-unit'),
       dayRate: /** @type {number} */ (plainField('cw-day')),
       milestoneAmount: /** @type {number} */ (plainField('cw-mile')),
@@ -522,8 +538,12 @@
     if (!costOpen() || !agreement) return;
     const needsQty = agreement.method === 'unit' || agreement.method === 'daily';
     const qty = digits(field('cw-qty') || field('cw-days'));
-    if (needsQty && (qty == null || qty < 1 || qty > 100000000)) {
-      screen.msg = sentence(['range']);
+    if (needsQty && qty == null) {
+      screen.msg = sentence(['qty']);
+      return;
+    }
+    if (needsQty && qty != null && (qty < 1 || qty > 100000000)) {
+      screen.msg = sentence(['qty']);
       return;
     }
     const who = actor();

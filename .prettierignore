@@ -13,3 +13,5 @@ shots
 docs/plans/contractor-pr-j-sketch.md
 # PLAN-L r5 is committed verbatim except the header gate line. Prettier would reflow its tables and change the bytes.
 docs/plans/contractor-pr-l-sketch.md
+# PLAN-comma-fix r3 is committed verbatim (sha256 7d8b5f6c90b146ee10d1868022ba4219355c463327aad403d643455cd46ec7c1). Prettier would reflow its tables and change the bytes.
+docs/plans/comma-fix-plan.md
