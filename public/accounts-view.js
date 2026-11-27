@@ -658,6 +658,27 @@
   }
 
   /**
+   * @param {string} value
+   */
+  function fullDay(value) {
+    return typeof Accounts !== 'undefined' && typeof Accounts.periodBounds === 'function' && Accounts.periodBounds('week', value) != null;
+  }
+
+  /**
+   * @param {string} id
+   * @param {number | null} caret
+   */
+  function paintField(id, caret) {
+    if (!api) return;
+    api.render();
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    const next = /** @type {HTMLInputElement | null} */ (document.querySelector('#' + id));
+    if (!next || typeof next.focus !== 'function') return;
+    next.focus();
+    if (typeof caret === 'number' && typeof next.setSelectionRange === 'function') next.setSelectionRange(caret, caret);
+  }
+
+  /**
    * @param {HTMLElement} el
    */
   function onInput(el) {
@@ -665,6 +686,7 @@
     const input = /** @type {HTMLInputElement} */ (el);
     const flag = readAccountScope();
     writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: input.value });
+    if (fullDay(input.value)) paintField('statement-from', input.selectionStart);
     return true;
   }
 

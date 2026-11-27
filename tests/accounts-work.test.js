@@ -1729,3 +1729,111 @@ test('T-C12n home and the projects list do not show the profit note', () => {
     assert.equal(page().project('job').split(N3).length - 1, 1);
   });
 });
+
+/**
+ * @param {ReturnType<typeof install>} view
+ */
+function followHash(view) {
+  const prev = g.location;
+  g.location = { hash: '#contractor' };
+  /** @type {string} */
+  let html = '';
+  view.render = () => {
+    const parts = String(g.location.hash || '').replace(/^#/, '').split('/');
+    if (parts[0] === 'contractor') html = view.views.contractor(parts[1] || '');
+  };
+  return {
+    html: () => html,
+    restore() {
+      if (prev === undefined) delete g.location;
+      else g.location = prev;
+    },
+  };
+}
+
+function pillLit(html, attr, value) {
+  return html.includes('class="pill on" ' + attr + '="' + value + '"');
+}
+
+function fillAgreement(desc) {
+  UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cparty: 'party-1' } }));
+  UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cproj: 'job' } }));
+  setFields({ 'cw-desc': desc, 'cw-rate': '300000', 'cw-per': '4000', 'cw-unit': 'طوبة' });
+}
+
+test('a new agreement drops the previous party and project', () => {
+  reset();
+  withStart('2026-11-01', () => {
+    store.parties = [{ id: 'party-1', name: 'حسن' }, { id: 'party-2', name: 'علي' }];
+    const view = install();
+    const nav = followHash(view);
+    try {
+      view.views.contractor('');
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      fillAgreement('طابوق');
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      UI.onClick(/** @type {any} */ ({ id: 'back-contractor', disabled: false, dataset: {} }));
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      const html = nav.html();
+      assert.equal(pillLit(html, 'data-cparty', 'party-1'), false);
+      assert.equal(pillLit(html, 'data-cparty', 'party-2'), false);
+      assert.equal(pillLit(html, 'data-cproj', 'job'), false);
+      assert.equal(pillLit(html, 'data-cmethod', 'unit'), true);
+      assert.equal(pillLit(html, 'data-cmethod', 'lump'), false);
+    } finally {
+      nav.restore();
+    }
+  });
+});
+
+test('رجوع clears a picked party and project', () => {
+  reset();
+  withStart('2026-11-01', () => {
+    store.parties = [{ id: 'party-1', name: 'حسن' }];
+    const view = install();
+    const nav = followHash(view);
+    try {
+      view.views.contractor('');
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cparty: 'party-1' } }));
+      UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { cproj: 'job' } }));
+      assert.equal(pillLit(nav.html(), 'data-cparty', 'party-1'), true);
+      assert.equal(pillLit(nav.html(), 'data-cproj', 'job'), true);
+      UI.onClick(/** @type {any} */ ({ id: 'back-contractor', disabled: false, dataset: {} }));
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      const html = nav.html();
+      assert.equal(pillLit(html, 'data-cparty', 'party-1'), false);
+      assert.equal(pillLit(html, 'data-cproj', 'job'), false);
+      assert.equal(pillLit(html, 'data-cmethod', 'unit'), true);
+    } finally {
+      nav.restore();
+    }
+  });
+});
+
+test('opening #contractor/new after a save queues a second agreement', () => {
+  reset();
+  withStart('2026-11-01', () => {
+    store.parties = [{ id: 'party-1', name: 'حسن' }];
+    const view = install();
+    const nav = followHash(view);
+    try {
+      view.views.contractor('');
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      fillAgreement('طابوق');
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      assert.equal(store.agreements.length, 1);
+      g.location.hash = '#contractor/new';
+      view.render();
+      fillAgreement('رمل');
+      UI.onClick(/** @type {any} */ ({ id: 'act-new-agreement', disabled: false, dataset: {} }));
+      assert.equal(store.agreements.length, 2);
+      assert.equal(store.agreements[0].id === store.agreements[1].id, false);
+      assert.equal(queued.length, 2);
+      assert.equal(queued.includes(store.agreements[0].id), true);
+      assert.equal(queued.includes(store.agreements[1].id), true);
+    } finally {
+      nav.restore();
+    }
+  });
+});

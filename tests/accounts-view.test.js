@@ -360,3 +360,74 @@ test('install runs when ForemenUI is missing', () => {
   assert.equal(typeof views.accounts, 'function');
   assert.equal(typeof views.account, 'function');
 });
+
+/**
+ * @param {() => void} [onRender]
+ */
+function installView(onRender) {
+  let paints = 0;
+  UI.install({
+    views: {},
+    titles: {},
+    state: {},
+    render() {
+      paints += 1;
+      if (onRender) onRender();
+    },
+    esc: s => String(s ?? ''),
+    money: n => Ledger.fmt(n) + ' د.ع',
+    queueDoc() {},
+    confirmShell: () => '',
+    lastSyncAt: () => 0,
+    formatSyncTime: () => '',
+  });
+  return {
+    paints: () => paints,
+  };
+}
+
+test('a full statement date redraws the week and the month without leaving the tab', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  const prevDoc = g.document;
+  const painted = {
+    id: 'statement-from',
+    focused: false,
+    caret: /** @type {number | null} */ (null),
+    focus() { this.focused = true; },
+    setSelectionRange(start) { this.caret = start; },
+  };
+  g.document = { querySelector: sel => (sel === '#statement-from' ? painted : null) };
+  const view = installView();
+  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  try {
+    const model = ownerModel();
+    model.screen.tab = 'statement';
+    const before = UI.accountHtml(model, 'p1');
+    assert.equal(before.includes('2026-11-14'), true);
+    assert.equal(before.includes('2026-11-20'), true);
+    const partial = { id: 'statement-from', value: '2026-11-2', selectionStart: 8 };
+    UI.onInput(/** @type {any} */ (partial));
+    assert.equal(view.paints(), 0);
+    assert.equal(painted.focused, false);
+    const typed = { id: 'statement-from', value: '2026-11-23', selectionStart: 10 };
+    UI.onInput(/** @type {any} */ (typed));
+    assert.equal(view.paints(), 1);
+    assert.deepEqual(UI.accountPeriod(), Accounts.periodBounds('week', '2026-11-23'));
+    const week = UI.accountHtml(model, 'p1');
+    assert.equal(week.includes('2026-11-21'), true);
+    assert.equal(week.includes('2026-11-27'), true);
+    assert.equal(painted.focused, true);
+    assert.equal(painted.caret, 10);
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'month' } }));
+    const monthTyped = { id: 'statement-from', value: '2026-10-05', selectionStart: 10 };
+    UI.onInput(/** @type {any} */ (monthTyped));
+    assert.deepEqual(UI.accountPeriod(), { periodStart: '2026-10-01', periodEnd: '2026-10-31' });
+    const month = UI.accountHtml(model, 'p1');
+    assert.equal(month.includes('2026-10-01'), true);
+    assert.equal(month.includes('2026-10-31'), true);
+    assert.equal(UI.readAccountScope().periodKind, 'month');
+  } finally {
+    g.document = prevDoc;
+    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  }
+});

@@ -72,6 +72,14 @@
     measureId: '',
   };
 
+  function resetForm() {
+    screen.formId = '';
+    screen.method = 'unit';
+    screen.partyId = '';
+    screen.projectId = '';
+    screen.msg = '';
+  }
+
   /**
    * @param {unknown} value
    */
@@ -526,7 +534,7 @@
     }
     const saved = /** @type {{ id: string }} */ (built.doc);
     commitBuilt(K.agreements, saved.id, built.doc);
-    screen.msg = '';
+    resetForm();
     button.disabled = false;
     go('#contractor/' + saved.id);
   }
@@ -730,6 +738,7 @@
       return true;
     }
     if (id === 'back-contractor') {
+      resetForm();
       screen.creating = false;
       go('#contractor');
       return true;
@@ -738,9 +747,8 @@
       if (!screen.creating) {
         if (!costOpen()) return true;
         screen.creating = true;
+        resetForm();
         screen.formId = uuid();
-        screen.method = 'unit';
-        screen.msg = '';
         go('#contractor/new');
         return true;
       }
@@ -824,12 +832,8 @@
   function install(api) {
     viewApi = api;
     screen.creating = false;
-    screen.formId = '';
-    screen.method = 'unit';
-    screen.partyId = '';
-    screen.projectId = '';
+    resetForm();
     screen.arg = '';
-    screen.msg = '';
     screen.measureId = '';
     api.views.contractor = arg => contractorHtml(arg || '');
     api.titles.contractor = 'مقاول';
@@ -906,7 +910,8 @@
 
   function agreementForm() {
     screen.creating = true;
-    if (!screen.formId) screen.formId = uuid();
+    const taken = rows(K.agreements).some(row => row && row.id === screen.formId);
+    if (!screen.formId || taken) screen.formId = uuid();
     const parties = rows(K.parties)
       .filter(row => row && typeof row.id === 'string')
       .map(row => {
