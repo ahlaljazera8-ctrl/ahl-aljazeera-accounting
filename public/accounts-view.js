@@ -23,6 +23,9 @@
   /** @type {AccountScopeFlag} */
   let scopeFlag = { scope: 'all', projectId: '', periodKind: 'week', anchorDate: '' };
 
+  /** View-only. Week and month approval keep scopeFlag. */
+  const customRange = { on: false, from: '', to: '' };
+
   /** @type {AccountAction[]} */
   const registry = [];
   registry.push = function (action) {
@@ -444,20 +447,71 @@
   }
 
   /**
+   * @param {string} partyId
+   * @param {string} pills
+   */
+  function customStatement(partyId, pills) {
+    const from = customRange.from;
+    const to = customRange.to;
+    const dates =
+      '<label class="field">من<input id="statement-from" value="' + esc(from) + '"></label>' +
+      '<label class="field">إلى<input id="statement-to" value="' + esc(to) + '"></label>';
+    if (!fullDay(from) || !fullDay(to) || from > to) return pills + dates;
+    const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
+    const flag = readAccountScope();
+    if (st && typeof st.periodStatement === 'function') {
+      const filter = balanceFilter(txns(), partyId);
+      const booked = st.periodStatement({
+        docs: txns(),
+        approvals: /** @type {StatementApprovalRow[]} */ (get(K.statementApprovals, []) || []),
+        syncErrors: syncErrors(),
+        outbox: /** @type {string[]} */ (get(K.outbox, []) || []),
+        partyId,
+        projectId: filter.projectId,
+        periodKind: flag.periodKind,
+        periodStart: from,
+        periodEnd: to,
+        today: today(),
+      });
+      if (!booked) return pills + dates;
+      const card = st.statementCardHtml(booked);
+      const projectId = flag.scope === 'project' ? flag.projectId : '';
+      const must = projectId ? st.mustakhlasHtml(booked) : '';
+      return pills + dates + card + must;
+    }
+    const scoped = balanceFilter(txns(), partyId);
+    const doc = Accounts.statementLines(txns(), {
+      partyId: scoped.partyId,
+      projectId: scoped.projectId,
+      syncErrors: scoped.syncErrors,
+      periodStart: from,
+      periodEnd: to,
+    });
+    const lines = doc.lines.map(line => '<div class="kv"><span>' + esc(line.label) + '</span>' + money(line.amount) + '</div>').join('');
+    const pending = doc.pendingIds.length ? '<div class="note">بانتظار الاعتماد</div>' : '';
+    const blocked = doc.unreviewedCashIds.length || doc.overLimitIds.length ? '<div class="note">لا يُعتمد الكشف وفيه مبلغ غير مدقّق</div>' : '';
+    const note = '<div class="note">الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.</div>';
+    return pills + dates + '<div class="card">' + lines + pending + blocked + note + '</div>';
+  }
+
+  /**
    * @param {AccountModel} model
    * @param {string} partyId
    */
   function statementHtml(model, partyId) {
-    const doc = statementFor(model.user, partyId);
     const flag = readAccountScope();
-    const weekOn = flag.periodKind === 'week' ? ' on' : '';
-    const monthOn = flag.periodKind === 'month' ? ' on' : '';
+    const customOn = customRange.on;
+    const weekOn = !customOn && flag.periodKind === 'week' ? ' on' : '';
+    const monthOn = !customOn && flag.periodKind === 'month' ? ' on' : '';
+    const customClass = customOn ? ' on' : '';
+    const pills =
+      '<div class="pills"><button type="button" class="pill' + weekOn + '" data-acperiod="week">أسبوعي</button><button type="button" class="pill' + monthOn + '" data-acperiod="month">شهري</button><button type="button" class="pill' + customClass + '" data-acperiod="custom">مخصص</button></div>';
+    if (customOn) return customStatement(partyId, pills);
+    const doc = statementFor(model.user, partyId);
     const period = accountPeriod();
     const dates = period
       ? '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label><div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
       : '';
-    const pills =
-      '<div class="pills"><button type="button" class="pill' + weekOn + '" data-acperiod="week">أسبوعي</button><button type="button" class="pill' + monthOn + '" data-acperiod="month">شهري</button></div>';
     const booked = period ? bookedStatement(partyId) : null;
     const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
     if (booked && st) {
@@ -612,7 +666,13 @@
       if (api) api.render();
       return true;
     }
+    if (button.dataset.acperiod === 'custom') {
+      customRange.on = true;
+      if (api) api.render();
+      return true;
+    }
     if (button.dataset.acperiod === 'week' || button.dataset.acperiod === 'month') {
+      customRange.on = false;
       const flag = readAccountScope();
       writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: button.dataset.acperiod, anchorDate: flag.anchorDate });
       if (api) api.render();
@@ -682,8 +742,15 @@
    * @param {HTMLElement} el
    */
   function onInput(el) {
-    if (!el || el.id !== 'statement-from') return false;
+    if (!el || (el.id !== 'statement-from' && el.id !== 'statement-to')) return false;
     const input = /** @type {HTMLInputElement} */ (el);
+    if (customRange.on) {
+      if (el.id === 'statement-from') customRange.from = input.value;
+      else customRange.to = input.value;
+      if (fullDay(input.value)) paintField(el.id, input.selectionStart);
+      return true;
+    }
+    if (el.id !== 'statement-from') return false;
     const flag = readAccountScope();
     writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: input.value });
     if (fullDay(input.value)) paintField('statement-from', input.selectionStart);

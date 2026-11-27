@@ -431,3 +431,76 @@ test('a full statement date redraws the week and the month without leaving the t
     UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
   }
 });
+
+test('a custom range shows inclusive lines and does not issue', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  store.accountTxns = [
+    { id: 'before', purpose: 'approveLabor', amount: 100000, targetId: 'm', partyId: 'p1', projectId: 'job', txnDate: '2026-11-10', ledger: 'labor' },
+    { id: 'inside', purpose: 'payLabor', amount: 30000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-18', ledger: 'labor' },
+    { id: 'end', purpose: 'payLabor', amount: 10000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-20', ledger: 'labor' },
+    { id: 'after', purpose: 'payLabor', amount: 70000, partyId: 'p1', projectId: 'job', txnDate: '2026-11-21', ledger: 'labor' },
+  ];
+  store.statementApprovals = [];
+  g.K.statementApprovals = 'statementApprovals';
+  const prevDoc = g.document;
+  const fields = {
+    'statement-from': { id: 'statement-from', focus() {}, setSelectionRange() {} },
+    'statement-to': { id: 'statement-to', focus() {}, setSelectionRange() {} },
+  };
+  g.document = { querySelector: sel => fields[String(sel || '').replace(/^#/, '')] || null };
+  const writes = [];
+  const origSet = g.set;
+  g.set = (key, value) => {
+    writes.push(key);
+    return origSet(key, value);
+  };
+  installView();
+  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  const week = UI.accountPeriod();
+  try {
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'custom' } }));
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-1', selectionStart: 8 }));
+    const model = ownerModel();
+    model.screen.tab = 'statement';
+    const partial = UI.accountHtml(model, 'p1');
+    assert.equal(partial.includes('مخصص'), true);
+    assert.equal(partial.includes('class="pill on" data-acperiod="custom"'), true);
+    assert.equal(partial.includes('رصيد أول المدة'), false);
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-18', selectionStart: 10 }));
+    UI.onInput(/** @type {any} */ ({ id: 'statement-to', value: '2026-11-20', selectionStart: 10 }));
+    const html = UI.accountHtml(model, 'p1');
+    assert.equal(html.includes('رصيد أول المدة'), true);
+    assert.equal(html.includes('100,000'), true);
+    assert.equal(html.includes('مدفوع للعمل'), true);
+    assert.equal(html.includes('40,000'), true);
+    assert.equal(html.includes('رصيد آخر المدة'), true);
+    assert.equal(html.includes('60,000'), true);
+    assert.equal(html.includes('70,000'), false);
+    assert.equal(html.includes('id="act-issue"'), false);
+    assert.equal(html.includes('data-st-issue'), false);
+    assert.equal(html.includes('<label class="field">من<input id="statement-from"'), true);
+    assert.equal(html.includes('<label class="field">إلى<input id="statement-to"'), true);
+    UI.onInput(/** @type {any} */ ({ id: 'statement-to', value: '2026-11-01', selectionStart: 10 }));
+    const bad = UI.accountHtml(model, 'p1');
+    assert.equal(bad.includes('رصيد أول المدة'), false);
+    assert.equal(bad.includes('id="statement-from"'), true);
+    assert.equal(bad.includes('id="statement-to"'), true);
+    assert.equal(bad.includes('id="act-issue"'), false);
+    assert.deepEqual(UI.accountPeriod(), week);
+    assert.equal(UI.readAccountScope().periodKind, 'week');
+    assert.equal(UI.readAccountScope().anchorDate, '2026-11-16');
+    assert.equal(writes.includes('statementApprovals'), false);
+    assert.equal(store.statementApprovals.length, 0);
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'month' } }));
+    assert.equal(UI.readAccountScope().periodKind, 'month');
+    assert.deepEqual(UI.accountPeriod(), Accounts.periodBounds('month', '2026-11-16'));
+    const month = UI.accountHtml(model, 'p1');
+    assert.equal(month.includes('class="pill on" data-acperiod="month"'), true);
+    assert.equal(month.includes('class="pill on" data-acperiod="custom"'), false);
+  } finally {
+    g.set = origSet;
+    g.document = prevDoc;
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
+    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  }
+});
