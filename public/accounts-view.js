@@ -111,11 +111,13 @@
    * @param {AccountScopeFlag} next
    */
   function writeAccountScope(next) {
+    const anchor = dayText(next.anchorDate);
+    const previous = fullDay(scopeFlag.anchorDate) ? scopeFlag.anchorDate : today();
     scopeFlag = {
       scope: next.scope === 'project' ? 'project' : 'all',
       projectId: next.scope === 'project' ? next.projectId || '' : '',
       periodKind: next.periodKind === 'month' ? 'month' : 'week',
-      anchorDate: next.anchorDate || scopeFlag.anchorDate || today(),
+      anchorDate: fullDay(anchor) ? anchor : previous,
     };
   }
 
@@ -509,9 +511,11 @@
     if (customOn) return customStatement(partyId, pills);
     const doc = statementFor(model.user, partyId);
     const period = accountPeriod();
-    const dates = period
-      ? '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label><div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
+    const field = '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label>';
+    const bounds = period
+      ? '<div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
       : '';
+    const dates = field + bounds;
     const booked = period ? bookedStatement(partyId) : null;
     const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
     if (booked && st) {
@@ -718,6 +722,17 @@
   }
 
   /**
+   * groupThousands folds Arabic-Indic digits and leaves a hyphenated day unchanged.
+   * @param {unknown} value
+   */
+  function dayText(value) {
+    const raw = String(value || '');
+    const host = /** @type {typeof globalThis & { AccountPayment?: { groupThousands?: (text: string) => string } }} */ (globalThis);
+    if (host.AccountPayment && typeof host.AccountPayment.groupThousands === 'function') return host.AccountPayment.groupThousands(raw);
+    return raw;
+  }
+
+  /**
    * @param {string} value
    */
   function fullDay(value) {
@@ -744,16 +759,18 @@
   function onInput(el) {
     if (!el || (el.id !== 'statement-from' && el.id !== 'statement-to')) return false;
     const input = /** @type {HTMLInputElement} */ (el);
+    const typed = dayText(input.value);
     if (customRange.on) {
-      if (el.id === 'statement-from') customRange.from = input.value;
-      else customRange.to = input.value;
-      if (fullDay(input.value)) paintField(el.id, input.selectionStart);
+      if (el.id === 'statement-from') customRange.from = typed;
+      else customRange.to = typed;
+      if (fullDay(typed)) paintField(el.id, input.selectionStart);
       return true;
     }
     if (el.id !== 'statement-from') return false;
+    if (!fullDay(typed)) return true;
     const flag = readAccountScope();
-    writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: input.value });
-    if (fullDay(input.value)) paintField('statement-from', input.selectionStart);
+    writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: typed });
+    paintField('statement-from', input.selectionStart);
     return true;
   }
 
