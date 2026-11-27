@@ -23,6 +23,12 @@
   /** @type {AccountScopeFlag} */
   let scopeFlag = { scope: 'all', projectId: '', periodKind: 'week', anchorDate: '' };
 
+  /** View-only. Week and month approval keep scopeFlag. */
+  const customRange = { on: false, from: '', to: '' };
+
+  /** Raw week/month text. Null means show the stored anchor. */
+  let dateDraft = /** @type {string | null} */ (null);
+
   /** @type {AccountAction[]} */
   const registry = [];
   registry.push = function (action) {
@@ -108,11 +114,14 @@
    * @param {AccountScopeFlag} next
    */
   function writeAccountScope(next) {
+    const anchor = Ledger.westernDigits(next.anchorDate);
+    const previous = fullDay(scopeFlag.anchorDate) ? scopeFlag.anchorDate : today();
+    dateDraft = null;
     scopeFlag = {
       scope: next.scope === 'project' ? 'project' : 'all',
       projectId: next.scope === 'project' ? next.projectId || '' : '',
       periodKind: next.periodKind === 'month' ? 'month' : 'week',
-      anchorDate: next.anchorDate || scopeFlag.anchorDate || today(),
+      anchorDate: fullDay(anchor) ? anchor : previous,
     };
   }
 
@@ -444,20 +453,76 @@
   }
 
   /**
+   * @param {string} partyId
+   * @param {string} pills
+   */
+  function customStatement(partyId, pills) {
+    const from = customRange.from;
+    const to = customRange.to;
+    const fromDay = Ledger.westernDigits(from);
+    const toDay = Ledger.westernDigits(to);
+    const dates =
+      '<label class="field">من<input id="statement-from" value="' + esc(from) + '"></label>' +
+      '<label class="field">إلى<input id="statement-to" value="' + esc(to) + '"></label>';
+    if (!fullDay(fromDay) || !fullDay(toDay) || fromDay > toDay) return pills + dates;
+    const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
+    const flag = readAccountScope();
+    if (st && typeof st.periodStatement === 'function') {
+      const filter = balanceFilter(txns(), partyId);
+      const booked = st.periodStatement({
+        docs: txns(),
+        approvals: /** @type {StatementApprovalRow[]} */ (get(K.statementApprovals, []) || []),
+        syncErrors: syncErrors(),
+        outbox: /** @type {string[]} */ (get(K.outbox, []) || []),
+        partyId,
+        projectId: filter.projectId,
+        periodKind: flag.periodKind,
+        periodStart: fromDay,
+        periodEnd: toDay,
+        today: today(),
+      });
+      if (!booked) return pills + dates;
+      const card = st.statementCardHtml(booked);
+      const projectId = flag.scope === 'project' ? flag.projectId : '';
+      const must = projectId ? st.mustakhlasHtml(booked) : '';
+      return pills + dates + card + must;
+    }
+    const scoped = balanceFilter(txns(), partyId);
+    const doc = Accounts.statementLines(txns(), {
+      partyId: scoped.partyId,
+      projectId: scoped.projectId,
+      syncErrors: scoped.syncErrors,
+      periodStart: fromDay,
+      periodEnd: toDay,
+    });
+    const lines = doc.lines.map(line => '<div class="kv"><span>' + esc(line.label) + '</span>' + money(line.amount) + '</div>').join('');
+    const pending = doc.pendingIds.length ? '<div class="note">بانتظار الاعتماد</div>' : '';
+    const blocked = doc.unreviewedCashIds.length || doc.overLimitIds.length ? '<div class="note">لا يُعتمد الكشف وفيه مبلغ غير مدقّق</div>' : '';
+    const note = '<div class="note">الكشف يُعتمد قبل أن يُقفل. الأرقام تُحسب من القيود.</div>';
+    return pills + dates + '<div class="card">' + lines + pending + blocked + note + '</div>';
+  }
+
+  /**
    * @param {AccountModel} model
    * @param {string} partyId
    */
   function statementHtml(model, partyId) {
-    const doc = statementFor(model.user, partyId);
     const flag = readAccountScope();
-    const weekOn = flag.periodKind === 'week' ? ' on' : '';
-    const monthOn = flag.periodKind === 'month' ? ' on' : '';
-    const period = accountPeriod();
-    const dates = period
-      ? '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label><div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
-      : '';
+    const customOn = customRange.on;
+    const weekOn = !customOn && flag.periodKind === 'week' ? ' on' : '';
+    const monthOn = !customOn && flag.periodKind === 'month' ? ' on' : '';
+    const customClass = customOn ? ' on' : '';
     const pills =
-      '<div class="pills"><button type="button" class="pill' + weekOn + '" data-acperiod="week">أسبوعي</button><button type="button" class="pill' + monthOn + '" data-acperiod="month">شهري</button></div>';
+      '<div class="pills"><button type="button" class="pill' + weekOn + '" data-acperiod="week">أسبوعي</button><button type="button" class="pill' + monthOn + '" data-acperiod="month">شهري</button><button type="button" class="pill' + customClass + '" data-acperiod="custom">مخصص</button></div>';
+    if (customOn) return customStatement(partyId, pills);
+    const doc = statementFor(model.user, partyId);
+    const period = accountPeriod();
+    const shown = dateDraft == null ? flag.anchorDate : dateDraft;
+    const field = '<label class="field">من<input id="statement-from" value="' + esc(shown) + '"></label>';
+    const bounds = period
+      ? '<div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
+      : '';
+    const dates = field + bounds;
     const booked = period ? bookedStatement(partyId) : null;
     const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
     if (booked && st) {
@@ -612,7 +677,13 @@
       if (api) api.render();
       return true;
     }
+    if (button.dataset.acperiod === 'custom') {
+      customRange.on = true;
+      if (api) api.render();
+      return true;
+    }
     if (button.dataset.acperiod === 'week' || button.dataset.acperiod === 'month') {
+      customRange.on = false;
       const flag = readAccountScope();
       writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: button.dataset.acperiod, anchorDate: flag.anchorDate });
       if (api) api.render();
@@ -658,14 +729,70 @@
   }
 
   /**
+   * @param {string} value
+   */
+  function fullDay(value) {
+    return typeof Accounts !== 'undefined' && typeof Accounts.periodBounds === 'function' && Accounts.periodBounds('week', value) != null;
+  }
+
+  /**
+   * @param {string} id
+   * @param {number | null} caret
+   */
+  function paintField(id, caret) {
+    if (!api) return;
+    api.render();
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    const next = /** @type {HTMLInputElement | null} */ (document.querySelector('#' + id));
+    if (!next || typeof next.focus !== 'function') return;
+    next.focus();
+    if (typeof caret === 'number' && typeof next.setSelectionRange === 'function') next.setSelectionRange(caret, caret);
+  }
+
+  /**
    * @param {HTMLElement} el
    */
   function onInput(el) {
-    if (!el || el.id !== 'statement-from') return false;
+    if (!el || (el.id !== 'statement-from' && el.id !== 'statement-to')) return false;
     const input = /** @type {HTMLInputElement} */ (el);
+    const raw = String(input.value || '');
+    const parsed = Ledger.westernDigits(raw);
+    if (customRange.on) {
+      if (el.id === 'statement-from') customRange.from = raw;
+      else customRange.to = raw;
+      if (fullDay(parsed)) paintField(el.id, input.selectionStart);
+      return true;
+    }
+    if (el.id !== 'statement-from') return false;
+    if (!fullDay(parsed)) {
+      dateDraft = raw;
+      return true;
+    }
     const flag = readAccountScope();
-    writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: input.value });
+    writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: parsed });
+    dateDraft = raw;
+    paintField('statement-from', input.selectionStart);
     return true;
+  }
+
+  function statementCaret() {
+    if (typeof document === 'undefined' || !document.activeElement) return null;
+    const el = document.activeElement;
+    if (el.id !== 'statement-from' && el.id !== 'statement-to') return null;
+    const input = /** @type {HTMLInputElement} */ (el);
+    return { id: el.id, caret: typeof input.selectionStart === 'number' ? input.selectionStart : null };
+  }
+
+  /**
+   * @param {{ id: string, caret: number | null } | null} previous
+   */
+  function holdStatementFocus(previous) {
+    if (!previous) return;
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    const next = /** @type {HTMLInputElement | null} */ (document.querySelector('#' + previous.id));
+    if (!next || typeof next.focus !== 'function') return;
+    next.focus();
+    if (typeof previous.caret === 'number' && typeof next.setSelectionRange === 'function') next.setSelectionRange(previous.caret, previous.caret);
   }
 
   return {
@@ -683,5 +810,7 @@
     commitDoc,
     partyErrors,
     canCreateParty,
+    statementCaret,
+    holdStatementFocus,
   };
 });

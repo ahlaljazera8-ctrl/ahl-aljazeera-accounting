@@ -1387,3 +1387,77 @@ test('D11 a correction row has no minus sign outside the dates', () => {
   const line = printed(statement)[0];
   assert.match(line, /^مدفوع للعمل \d{1,3}(,\d{3})* د\.ع، (يزيد|ينقص) المستحق، من \d{4}-\d{2}-\d{2} إلى \d{4}-\d{2}-\d{2}$/);
 });
+
+test('a custom range matches statementLines and week issue stays on the week', async () => {
+  reset();
+  store.accountTxns = labor('m', 100000, '2026-11-10').concat([
+    row('inside', { purpose: 'payLabor', amount: 30000, txnDate: '2026-11-18' }),
+    row('end', { purpose: 'payLabor', amount: 10000, txnDate: '2026-11-20' }),
+    row('after', { purpose: 'payLabor', amount: 70000, txnDate: '2026-11-21' }),
+  ]);
+  UI.writeAccountScope({ scope: 'project', projectId: JOB, periodKind: 'week', anchorDate: '2026-11-10' });
+  const week = Accounts.periodBounds('week', '2026-11-10');
+  const prevFlush = g.flushRemote;
+  const prevNav = g.navigator;
+  const view = installAll();
+  let synced = 0;
+  view.lastSyncAt = () => synced;
+  g.flushRemote = () => {
+    synced = Date.now() + 5;
+    return Promise.resolve();
+  };
+  g.navigator = { onLine: true };
+  try {
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'custom' } }));
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-18', selectionStart: 10 }));
+    UI.onInput(/** @type {any} */ ({ id: 'statement-to', value: '2026-11-20', selectionStart: 10 }));
+    const model = UI.modelFor(g.me());
+    model.screen.tab = 'statement';
+    const html = UI.accountHtml(model, PARTY);
+    const pack = Accounts.statementLines(store.accountTxns, {
+      partyId: PARTY, projectId: JOB, periodStart: '2026-11-18', periodEnd: '2026-11-20',
+    });
+    const shown = Statement.periodStatement({
+      docs: store.accountTxns,
+      approvals: [],
+      syncErrors: {},
+      outbox: [],
+      partyId: PARTY,
+      projectId: JOB,
+      periodKind: 'week',
+      periodStart: '2026-11-18',
+      periodEnd: '2026-11-20',
+      today: g.today(),
+    });
+    assert.equal(shown.lines.map(line => line.amount).join(), pack.lines.map(line => line.amount).join());
+    assert.equal(html.includes('40,000'), true);
+    assert.equal(html.includes('70,000'), false);
+    assert.equal(html.includes('data-st-card'), true);
+    assert.equal(html.includes('id="act-issue"'), false);
+    assert.equal(html.includes('data-st-issue'), false);
+    assert.equal(html.includes('data-st-totals'), false);
+    assert.equal(store.statementApprovals.length, 0);
+    assert.deepEqual(UI.accountPeriod(), week);
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-21', selectionStart: 10 }));
+    const bad = UI.accountHtml(model, PARTY);
+    assert.equal(bad.includes('data-st-card'), false);
+    assert.equal(store.statementApprovals.length, 0);
+    withStart('2026-10-01', () => {
+      const card = openContractor(view);
+      assert.equal(card.includes('<span>من</span><b>' + week.periodStart + '</b>'), true);
+      assert.equal(card.includes('<span>إلى</span><b>' + week.periodEnd + '</b>'), true);
+      assert.equal(card.includes('id="act-issue"'), true);
+      clickAction(/** @type {any} */ ({ id: 'act-issue', disabled: false, dataset: { stIssue: '1' } }));
+    });
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(store.statementApprovals.length, 1);
+    assert.equal(store.statementApprovals[0].periodKind, 'week');
+    assert.equal(store.statementApprovals[0].periodStart, week.periodStart);
+    assert.equal(store.statementApprovals[0].periodEnd, week.periodEnd);
+  } finally {
+    g.flushRemote = prevFlush;
+    g.navigator = prevNav;
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
+    UI.writeAccountScope({ scope: 'project', projectId: JOB, periodKind: 'month', anchorDate: '2026-11-16' });
+  }
+});

@@ -536,6 +536,7 @@ interface LedgerApi {
     errors: Record<string, unknown> | null | undefined,
   ): string;
   REJECTED_HEADERS: readonly string[];
+  westernDigits(value: unknown): string;
 }
 
 interface ServerStamp {
@@ -1290,6 +1291,8 @@ interface AccountsViewApi {
   commitDoc(id: string, doc: object, rows: readonly { id: string }[], write: (next: object[]) => void): void;
   partyErrors(name: string): string[];
   canCreateParty(user: { role?: string } | null | undefined): boolean;
+  statementCaret(): { id: string; caret: number | null } | null;
+  holdStatementFocus(previous: { id: string; caret: number | null } | null): void;
 }
 
 interface PeopleRow {

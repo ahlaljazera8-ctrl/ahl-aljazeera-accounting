@@ -2731,6 +2731,201 @@ let chrome;
     'B4 the person page uses the approved work and payment labels',
     !!(reclass && typeof reclass.labels === 'string' && reclass.labels.includes('مجموع العمل المعتمد') && reclass.labels.includes('مجموع المدفوع للعمل')),
   );
+  const dateFocus = await ev(`(() => {
+    function typeDate(id, value, caret) {
+      const el = document.querySelector('#' + id);
+      if (!el) return { missing: id };
+      el.focus();
+      el.value = value;
+      el.setSelectionRange(caret, caret);
+      el.setAttribute('data-probe', 'old');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      const next = document.activeElement;
+      return {
+        id: next && next.id,
+        caret: next && typeof next.selectionStart === 'number' ? next.selectionStart : null,
+        probe: next && next.getAttribute('data-probe'),
+        detached: !document.body.contains(el),
+        text: (document.querySelector('#main') && document.querySelector('#main').innerText) || '',
+        html: (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '',
+      };
+    }
+    try {
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const tab = document.querySelector('[data-acctab="statement"]');
+      if (tab) tab.click();
+      const week = typeDate('statement-from', '2026-11-23', 10);
+      const customBtn = document.querySelector('[data-acperiod="custom"]');
+      if (customBtn) customBtn.click();
+      const from = typeDate('statement-from', '2026-11-18', 10);
+      const to = typeDate('statement-to', '2026-11-20', 8);
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      const back = document.querySelector('[data-acperiod="week"]');
+      if (back) back.click();
+      return { week, from, to };
+    } catch (err) {
+      return { error: String(err && err.message || err) };
+    }
+  })()`);
+  check(
+    'a full statement date redraws and keeps the caret on that field',
+    !!(dateFocus
+      && dateFocus.week && dateFocus.week.id === 'statement-from' && dateFocus.week.caret === 10 && dateFocus.week.probe == null && dateFocus.week.detached === true
+      && typeof dateFocus.week.text === 'string' && dateFocus.week.text.includes('2026-11-21') && dateFocus.week.text.includes('2026-11-27')
+      && dateFocus.from && dateFocus.from.id === 'statement-from' && dateFocus.from.caret === 10 && dateFocus.from.probe == null && dateFocus.from.detached === true
+      && dateFocus.to && dateFocus.to.id === 'statement-to' && dateFocus.to.caret === 8 && dateFocus.to.probe == null && dateFocus.to.detached === true
+      && typeof dateFocus.to.html === 'string' && dateFocus.to.html.includes('data-st-card')),
+  );
+  const dateTrap = await ev(`(() => {
+    const stuck = ['2026-11-2', '2026-11-193', '٢٠٢٦-١١-٢'];
+    function typeDate(id, value) {
+      const el = document.querySelector('#' + id);
+      if (!el) return false;
+      el.focus();
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return !!document.querySelector('#' + id);
+    }
+    function openStatement() {
+      location.hash = '#home';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const tab = document.querySelector('[data-acctab="statement"]');
+      if (tab) tab.click();
+    }
+    function text() {
+      return (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+    }
+    function html() {
+      return (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '';
+    }
+    function tap(kind) {
+      const button = document.querySelector('[data-acperiod="' + kind + '"]');
+      if (button) button.click();
+      return !!button;
+    }
+    try {
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      openStatement();
+      const weekOk = stuck.every(value => {
+        if (!typeDate('statement-from', value)) return false;
+        openStatement();
+        if (!document.querySelector('#statement-from')) return false;
+        tap('month');
+        tap('week');
+        const body = text();
+        return !!document.querySelector('#statement-from') && body.includes('2026-11-14') && body.includes('2026-11-20');
+      });
+      tap('month');
+      const monthOk = stuck.every(value => {
+        if (!typeDate('statement-from', value)) return false;
+        openStatement();
+        tap('month');
+        const body = text();
+        if (!document.querySelector('#statement-from') || !body.includes('2026-11-01') || !body.includes('2026-11-30')) return false;
+        tap('month');
+        tap('week');
+        const weekBody = text();
+        const kept = !!document.querySelector('#statement-from') && weekBody.includes('2026-11-14') && weekBody.includes('2026-11-20');
+        tap('month');
+        return kept;
+      });
+      if (!typeDate('statement-from', '2026-10-05')) return { weekOk, monthOk, error: 'month date' };
+      const monthValid = text().includes('2026-10-01') && text().includes('2026-10-31');
+      if (!typeDate('statement-from', '٢٠٢٦-١١-٢٣')) return { weekOk, monthOk, monthValid, error: 'arabic month' };
+      const arabicMonth = text().includes('2026-11-01') && text().includes('2026-11-30') && html().includes('value="٢٠٢٦-١١-٢٣"');
+      tap('week');
+      if (!typeDate('statement-from', '٢٠٢٦-١١-١٠')) return { weekOk, monthOk, monthValid, arabicMonth, error: 'arabic week' };
+      const arabicWeek = text().includes('2026-11-07') && text().includes('2026-11-13') && html().includes('value="٢٠٢٦-١١-١٠"');
+      tap('custom');
+      if (!typeDate('statement-from', '2026-11-2') || !typeDate('statement-to', '2026-11-193')) return { error: 'custom partial' };
+      openStatement();
+      const customPartial = !!document.querySelector('#statement-from') && !!document.querySelector('#statement-to') && !html().includes('data-st-card');
+      if (!typeDate('statement-from', '٢٠٢٦-١١-٢') || !typeDate('statement-to', '٢٠٢٦-١١-١٩٣')) return { error: 'custom arabic partial' };
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const customArabic = html().includes('value="٢٠٢٦-١١-٢"') && html().includes('value="٢٠٢٦-١١-١٩٣"') && !html().includes('data-st-card');
+      tap('month');
+      tap('week');
+      const back = !!document.querySelector('#statement-from') && text().includes('2026-11-07') && text().includes('2026-11-13');
+      tap('custom');
+      if (!typeDate('statement-from', '٢٠٢٦-١١-١٨') || !typeDate('statement-to', '٢٠٢٦-١١-٢٠')) return { error: 'custom valid' };
+      const customOk = html().includes('data-st-card') && html().includes('value="٢٠٢٦-١١-١٨"') && html().includes('value="٢٠٢٦-١١-٢٠"');
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      tap('week');
+      return { weekOk, monthOk, monthValid, arabicMonth, arabicWeek, customPartial, customArabic, back, customOk };
+    } catch (err) {
+      return { error: String(err && err.message || err) };
+    }
+  })()`);
+  check(
+    'a partial statement date stays on screen after a hashchange and pill taps',
+    !!(dateTrap
+      && dateTrap.weekOk === true
+      && dateTrap.monthOk === true
+      && dateTrap.monthValid === true
+      && dateTrap.arabicMonth === true
+      && dateTrap.arabicWeek === true
+      && dateTrap.customPartial === true
+      && dateTrap.customArabic === true
+      && dateTrap.back === true
+      && dateTrap.customOk === true),
+  );
+  const dateHold = await ev(`(() => {
+    function typeDate(id, value, caret) {
+      const el = document.querySelector('#' + id);
+      if (!el) return false;
+      el.focus();
+      el.value = value;
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(caret, caret);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      const next = document.activeElement;
+      return !!(next && next.id === id);
+    }
+    function held(id, value, caret) {
+      const el = document.activeElement;
+      return !!(el && el.id === id && el.value === value && el.selectionStart === caret);
+    }
+    try {
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const tab = document.querySelector('[data-acctab="statement"]');
+      if (tab) tab.click();
+      if (!typeDate('statement-from', '2026-11-2', 8)) return { error: 'week type' };
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const weekHold = held('statement-from', '2026-11-2', 8);
+      const weekAnchor = AccountsView.readAccountScope().anchorDate === '2026-11-16';
+      if (!typeDate('statement-from', '٢٠٢٦-١١-٢٣', 10)) return { weekHold, weekAnchor, error: 'week arabic' };
+      const weekText = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+      const weekArabic = weekText.includes('2026-11-21') && weekText.includes('2026-11-27') && held('statement-from', '٢٠٢٦-١١-٢٣', 10);
+      const customBtn = document.querySelector('[data-acperiod="custom"]');
+      if (customBtn) customBtn.click();
+      if (!typeDate('statement-from', '2026-11-1', 8)) return { weekHold, weekAnchor, weekArabic, error: 'custom type' };
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const customHold = held('statement-from', '2026-11-1', 8);
+      if (!typeDate('statement-from', '٢٠٢٦-١١-١٨', 10) || !typeDate('statement-to', '٢٠٢٦-١١-٢٠', 8)) return { error: 'custom arabic' };
+      const html = (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '';
+      const customArabic = html.includes('data-st-card') && html.includes('value="٢٠٢٦-١١-١٨"') && html.includes('value="٢٠٢٦-١١-٢٠"') && held('statement-to', '٢٠٢٦-١١-٢٠', 8);
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      const back = document.querySelector('[data-acperiod="week"]');
+      if (back) back.click();
+      return { weekHold, weekAnchor, weekArabic, customHold, customArabic };
+    } catch (err) {
+      return { error: String(err && err.message || err) };
+    }
+  })()`);
+  check(
+    'a half-typed statement date keeps its text and focus, and Arabic digits set the period',
+    !!(dateHold
+      && dateHold.weekHold === true
+      && dateHold.weekAnchor === true
+      && dateHold.weekArabic === true
+      && dateHold.customHold === true
+      && dateHold.customArabic === true),
+  );
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });
