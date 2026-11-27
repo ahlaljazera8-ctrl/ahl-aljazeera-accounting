@@ -1170,5 +1170,5 @@
     projectSummary, validateEntry, parseAmount, recorderName, displayRecorder, reversalId, createLedger, makeReversal, toCSV, CSV_COLS, canExportCSV, canCreateProject, countedEntries, fmt, subcontractBalance,
     baghdadTime, entryExportFields, entryToCSV, projectEntryList, foremanBalance, validateForemanMove, foremanMoveReversal, settleGuard, foremanDeleteBlock, guardedForemanDelete, personProjectDeleteBlock,
     rememberedProjectName, deletedProjectEntries, canExportRejected, rejectedLogoutBlocked, rejectedEntriesToCSV, REJECTED_HEADERS,
-    FOREMAN_CUSTODY_COLS, FOREMAN_SUMMARY_COLS, foremanCustodyToCSV, foremanSummaryToCSV };
+    FOREMAN_CUSTODY_COLS, FOREMAN_SUMMARY_COLS, foremanCustodyToCSV, foremanSummaryToCSV, westernDigits };
 });

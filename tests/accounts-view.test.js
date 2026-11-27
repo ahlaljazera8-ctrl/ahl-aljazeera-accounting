@@ -557,8 +557,6 @@ test('a full custom date redraws and returns the caret to that field', () => {
 
 test('a partial or invalid statement date keeps the field and does not stick', () => {
   store.parties = [{ id: 'p1', name: 'حسن' }];
-  const prevPay = g.AccountPayment;
-  g.AccountPayment = require('../public/accounts-payment.js');
   const stuck = ['2026-11-2', '2026-11-193', '٢٠٢٦-١١-٢'];
   function paint() {
     const model = ownerModel();
@@ -635,8 +633,8 @@ test('a partial or invalid statement date keeps the field and does not stick', (
     const customArabic = paint();
     assert.equal(customArabic.includes('id="statement-from"'), true);
     assert.equal(customArabic.includes('id="statement-to"'), true);
-    assert.equal(customArabic.includes('value="2026-11-2"'), true);
-    assert.equal(customArabic.includes('value="2026-11-193"'), true);
+    assert.equal(customArabic.includes('value="٢٠٢٦-١١-٢"'), true);
+    assert.equal(customArabic.includes('value="٢٠٢٦-١١-١٩٣"'), true);
     assert.equal(customArabic.includes('رصيد أول المدة'), false);
     UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'month' } }));
     UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
@@ -651,14 +649,123 @@ test('a partial or invalid statement date keeps the field and does not stick', (
     const customOk = paint();
     assert.equal(customOk.includes('id="statement-from"'), true);
     assert.equal(customOk.includes('id="statement-to"'), true);
-    assert.equal(customOk.includes('value="2026-11-18"'), true);
-    assert.equal(customOk.includes('value="2026-11-20"'), true);
+    assert.equal(customOk.includes('value="٢٠٢٦-١١-١٨"'), true);
+    assert.equal(customOk.includes('value="٢٠٢٦-١١-٢٠"'), true);
     assert.equal(customOk.includes('رصيد أول المدة'), true);
     assert.equal(UI.readAccountScope().anchorDate, '2026-11-23');
     assert.equal(UI.readAccountScope().periodKind, 'week');
   } finally {
-    if (prevPay === undefined) delete g.AccountPayment;
-    else g.AccountPayment = prevPay;
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
+    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  }
+});
+
+test('a half-typed statement date keeps its text and focus across a redraw', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  const prevDoc = g.document;
+  const active = { id: '' };
+  const field = {
+    id: 'statement-from',
+    selectionStart: 8,
+    caret: /** @type {number | null} */ (null),
+    focus() { active.id = 'statement-from'; },
+    setSelectionRange(start) { this.caret = start; this.selectionStart = start; },
+  };
+  g.document = {
+    activeElement: field,
+    querySelector: sel => (sel === '#statement-from' ? field : null),
+  };
+  installView();
+  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  try {
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-2', selectionStart: 8 }));
+    const model = ownerModel();
+    model.screen.tab = 'statement';
+    const html = UI.accountHtml(model, 'p1');
+    assert.equal(html.includes('value="2026-11-2"'), true);
+    assert.equal(UI.readAccountScope().anchorDate, '2026-11-16');
+    const held = UI.statementCaret();
+    assert.equal(held && held.id, 'statement-from');
+    assert.equal(held && held.caret, 8);
+    UI.holdStatementFocus(held);
+    assert.equal(active.id, 'statement-from');
+    assert.equal(field.caret, 8);
+  } finally {
+    g.document = prevDoc;
+    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  }
+});
+
+test('an Arabic-Indic statement date sets the period', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  try {
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '٢٠٢٦-١١-٢٣', selectionStart: 10 }));
+    assert.equal(UI.readAccountScope().anchorDate, '2026-11-23');
+    assert.deepEqual(UI.accountPeriod(), { periodStart: '2026-11-21', periodEnd: '2026-11-27' });
+    const model = ownerModel();
+    model.screen.tab = 'statement';
+    const html = UI.accountHtml(model, 'p1');
+    assert.equal(html.includes('value="٢٠٢٦-١١-٢٣"'), true);
+    assert.equal(html.includes('2026-11-21'), true);
+    assert.equal(html.includes('2026-11-27'), true);
+  } finally {
+    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  }
+});
+
+test('a custom range keeps a half-typed date and reads Arabic digits', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  const prevDoc = g.document;
+  const active = { id: '' };
+  /** @type {Record<string, { id: string, selectionStart: number | null, caret: number | null, focus: () => void, setSelectionRange: (start: number) => void }>} */
+  const fields = {};
+  for (const id of ['statement-from', 'statement-to']) {
+    fields[id] = {
+      id,
+      selectionStart: null,
+      caret: null,
+      focus() { active.id = id; },
+      setSelectionRange(start) { this.caret = start; this.selectionStart = start; },
+    };
+  }
+  g.document = {
+    activeElement: fields['statement-from'],
+    querySelector: sel => fields[String(sel || '').replace(/^#/, '')] || null,
+  };
+  installView();
+  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  try {
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'custom' } }));
+    fields['statement-from'].selectionStart = 8;
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-1', selectionStart: 8 }));
+    const model = ownerModel();
+    model.screen.tab = 'statement';
+    const partial = UI.accountHtml(model, 'p1');
+    assert.equal(partial.includes('value="2026-11-1"'), true);
+    assert.equal(partial.includes('id="statement-to"'), true);
+    assert.equal(partial.includes('رصيد أول المدة'), false);
+    const held = UI.statementCaret();
+    assert.equal(held && held.id, 'statement-from');
+    assert.equal(held && held.caret, 8);
+    UI.holdStatementFocus(held);
+    assert.equal(active.id, 'statement-from');
+    assert.equal(fields['statement-from'].caret, 8);
+    g.document.activeElement = fields['statement-to'];
+    fields['statement-to'].selectionStart = 10;
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '٢٠٢٦-١١-١٨', selectionStart: 10 }));
+    UI.onInput(/** @type {any} */ ({ id: 'statement-to', value: '٢٠٢٦-١١-٢٠', selectionStart: 10 }));
+    const html = UI.accountHtml(model, 'p1');
+    assert.equal(html.includes('value="٢٠٢٦-١١-١٨"'), true);
+    assert.equal(html.includes('value="٢٠٢٦-١١-٢٠"'), true);
+    assert.equal(html.includes('رصيد أول المدة'), true);
+    assert.equal(UI.readAccountScope().anchorDate, '2026-11-16');
+    const toHeld = UI.statementCaret();
+    UI.holdStatementFocus(toHeld);
+    assert.equal(active.id, 'statement-to');
+    assert.equal(fields['statement-to'].caret, 10);
+  } finally {
+    g.document = prevDoc;
     UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
     UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
   }

@@ -1422,7 +1422,9 @@ function renderScreen() {
   }
   if (v === 'rejected' && !rejectedRows(u).length && !refusalDocs().length) heading = 'لا قيود مرفوضة بسبب حذف مشروع';
   $('#title').textContent = heading;
+  const statementCaret = window.AccountsView && typeof AccountsView.statementCaret === 'function' ? AccountsView.statementCaret() : null;
   $('#main').innerHTML = /** @type {Record<string, (arg?: string) => string>} */ (views)[v](arg) + confirmDialog();
+  if (statementCaret && window.AccountsView && typeof AccountsView.holdStatementFocus === 'function') AccountsView.holdStatementFocus(statementCaret);
   if (!demoRole() && L.can(u, 'owner') && (v === 'people' || v === 'person')) refreshDirectory('render');
 }
 function render() {

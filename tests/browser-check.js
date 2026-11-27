@@ -2786,7 +2786,7 @@ let chrome;
       el.focus();
       el.value = value;
       el.dispatchEvent(new Event('input', { bubbles: true }));
-      return true;
+      return !!document.querySelector('#' + id);
     }
     function openStatement() {
       location.hash = '#home';
@@ -2836,22 +2836,23 @@ let chrome;
       if (!typeDate('statement-from', '2026-10-05')) return { weekOk, monthOk, error: 'month date' };
       const monthValid = text().includes('2026-10-01') && text().includes('2026-10-31');
       if (!typeDate('statement-from', '٢٠٢٦-١١-٢٣')) return { weekOk, monthOk, monthValid, error: 'arabic month' };
-      const arabicMonth = text().includes('2026-11-01') && text().includes('2026-11-30') && html().includes('value="2026-11-23"');
+      const arabicMonth = text().includes('2026-11-01') && text().includes('2026-11-30') && html().includes('value="٢٠٢٦-١١-٢٣"');
       tap('week');
       if (!typeDate('statement-from', '٢٠٢٦-١١-١٠')) return { weekOk, monthOk, monthValid, arabicMonth, error: 'arabic week' };
-      const arabicWeek = text().includes('2026-11-07') && text().includes('2026-11-13') && html().includes('value="2026-11-10"');
+      const arabicWeek = text().includes('2026-11-07') && text().includes('2026-11-13') && html().includes('value="٢٠٢٦-١١-١٠"');
       tap('custom');
       if (!typeDate('statement-from', '2026-11-2') || !typeDate('statement-to', '2026-11-193')) return { error: 'custom partial' };
       openStatement();
       const customPartial = !!document.querySelector('#statement-from') && !!document.querySelector('#statement-to') && !html().includes('data-st-card');
       if (!typeDate('statement-from', '٢٠٢٦-١١-٢') || !typeDate('statement-to', '٢٠٢٦-١١-١٩٣')) return { error: 'custom arabic partial' };
-      const customArabic = html().includes('value="2026-11-2"') && html().includes('value="2026-11-193"') && !html().includes('data-st-card');
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const customArabic = html().includes('value="٢٠٢٦-١١-٢"') && html().includes('value="٢٠٢٦-١١-١٩٣"') && !html().includes('data-st-card');
       tap('month');
       tap('week');
       const back = !!document.querySelector('#statement-from') && text().includes('2026-11-07') && text().includes('2026-11-13');
       tap('custom');
       if (!typeDate('statement-from', '٢٠٢٦-١١-١٨') || !typeDate('statement-to', '٢٠٢٦-١١-٢٠')) return { error: 'custom valid' };
-      const customOk = html().includes('data-st-card') && html().includes('value="2026-11-18"') && html().includes('value="2026-11-20"');
+      const customOk = html().includes('data-st-card') && html().includes('value="٢٠٢٦-١١-١٨"') && html().includes('value="٢٠٢٦-١١-٢٠"');
       AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
       tap('week');
       return { weekOk, monthOk, monthValid, arabicMonth, arabicWeek, customPartial, customArabic, back, customOk };
@@ -2871,6 +2872,59 @@ let chrome;
       && dateTrap.customArabic === true
       && dateTrap.back === true
       && dateTrap.customOk === true),
+  );
+  const dateHold = await ev(`(() => {
+    function typeDate(id, value, caret) {
+      const el = document.querySelector('#' + id);
+      if (!el) return false;
+      el.focus();
+      el.value = value;
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(caret, caret);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      const next = document.activeElement;
+      return !!(next && next.id === id);
+    }
+    function held(id, value, caret) {
+      const el = document.activeElement;
+      return !!(el && el.id === id && el.value === value && el.selectionStart === caret);
+    }
+    try {
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const tab = document.querySelector('[data-acctab="statement"]');
+      if (tab) tab.click();
+      if (!typeDate('statement-from', '2026-11-2', 8)) return { error: 'week type' };
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const weekHold = held('statement-from', '2026-11-2', 8);
+      const weekAnchor = AccountsView.readAccountScope().anchorDate === '2026-11-16';
+      if (!typeDate('statement-from', '٢٠٢٦-١١-٢٣', 10)) return { weekHold, weekAnchor, error: 'week arabic' };
+      const weekText = (document.querySelector('#main') && document.querySelector('#main').innerText) || '';
+      const weekArabic = weekText.includes('2026-11-21') && weekText.includes('2026-11-27') && held('statement-from', '٢٠٢٦-١١-٢٣', 10);
+      const customBtn = document.querySelector('[data-acperiod="custom"]');
+      if (customBtn) customBtn.click();
+      if (!typeDate('statement-from', '2026-11-1', 8)) return { weekHold, weekAnchor, weekArabic, error: 'custom type' };
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const customHold = held('statement-from', '2026-11-1', 8);
+      if (!typeDate('statement-from', '٢٠٢٦-١١-١٨', 10) || !typeDate('statement-to', '٢٠٢٦-١١-٢٠', 8)) return { error: 'custom arabic' };
+      const html = (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '';
+      const customArabic = html.includes('data-st-card') && html.includes('value="٢٠٢٦-١١-١٨"') && html.includes('value="٢٠٢٦-١١-٢٠"') && held('statement-to', '٢٠٢٦-١١-٢٠', 8);
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      const back = document.querySelector('[data-acperiod="week"]');
+      if (back) back.click();
+      return { weekHold, weekAnchor, weekArabic, customHold, customArabic };
+    } catch (err) {
+      return { error: String(err && err.message || err) };
+    }
+  })()`);
+  check(
+    'a half-typed statement date keeps its text and focus, and Arabic digits set the period',
+    !!(dateHold
+      && dateHold.weekHold === true
+      && dateHold.weekAnchor === true
+      && dateHold.weekArabic === true
+      && dateHold.customHold === true
+      && dateHold.customArabic === true),
   );
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);

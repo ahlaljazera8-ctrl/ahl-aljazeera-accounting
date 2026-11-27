@@ -26,6 +26,9 @@
   /** View-only. Week and month approval keep scopeFlag. */
   const customRange = { on: false, from: '', to: '' };
 
+  /** Raw week/month text. Null means show the stored anchor. */
+  let dateDraft = /** @type {string | null} */ (null);
+
   /** @type {AccountAction[]} */
   const registry = [];
   registry.push = function (action) {
@@ -111,8 +114,9 @@
    * @param {AccountScopeFlag} next
    */
   function writeAccountScope(next) {
-    const anchor = dayText(next.anchorDate);
+    const anchor = Ledger.westernDigits(next.anchorDate);
     const previous = fullDay(scopeFlag.anchorDate) ? scopeFlag.anchorDate : today();
+    dateDraft = null;
     scopeFlag = {
       scope: next.scope === 'project' ? 'project' : 'all',
       projectId: next.scope === 'project' ? next.projectId || '' : '',
@@ -455,10 +459,12 @@
   function customStatement(partyId, pills) {
     const from = customRange.from;
     const to = customRange.to;
+    const fromDay = Ledger.westernDigits(from);
+    const toDay = Ledger.westernDigits(to);
     const dates =
       '<label class="field">من<input id="statement-from" value="' + esc(from) + '"></label>' +
       '<label class="field">إلى<input id="statement-to" value="' + esc(to) + '"></label>';
-    if (!fullDay(from) || !fullDay(to) || from > to) return pills + dates;
+    if (!fullDay(fromDay) || !fullDay(toDay) || fromDay > toDay) return pills + dates;
     const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
     const flag = readAccountScope();
     if (st && typeof st.periodStatement === 'function') {
@@ -471,8 +477,8 @@
         partyId,
         projectId: filter.projectId,
         periodKind: flag.periodKind,
-        periodStart: from,
-        periodEnd: to,
+        periodStart: fromDay,
+        periodEnd: toDay,
         today: today(),
       });
       if (!booked) return pills + dates;
@@ -486,8 +492,8 @@
       partyId: scoped.partyId,
       projectId: scoped.projectId,
       syncErrors: scoped.syncErrors,
-      periodStart: from,
-      periodEnd: to,
+      periodStart: fromDay,
+      periodEnd: toDay,
     });
     const lines = doc.lines.map(line => '<div class="kv"><span>' + esc(line.label) + '</span>' + money(line.amount) + '</div>').join('');
     const pending = doc.pendingIds.length ? '<div class="note">بانتظار الاعتماد</div>' : '';
@@ -511,7 +517,8 @@
     if (customOn) return customStatement(partyId, pills);
     const doc = statementFor(model.user, partyId);
     const period = accountPeriod();
-    const field = '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label>';
+    const shown = dateDraft == null ? flag.anchorDate : dateDraft;
+    const field = '<label class="field">من<input id="statement-from" value="' + esc(shown) + '"></label>';
     const bounds = period
       ? '<div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
       : '';
@@ -722,17 +729,6 @@
   }
 
   /**
-   * groupThousands folds Arabic-Indic digits and leaves a hyphenated day unchanged.
-   * @param {unknown} value
-   */
-  function dayText(value) {
-    const raw = String(value || '');
-    const host = /** @type {typeof globalThis & { AccountPayment?: { groupThousands?: (text: string) => string } }} */ (globalThis);
-    if (host.AccountPayment && typeof host.AccountPayment.groupThousands === 'function') return host.AccountPayment.groupThousands(raw);
-    return raw;
-  }
-
-  /**
    * @param {string} value
    */
   function fullDay(value) {
@@ -759,19 +755,44 @@
   function onInput(el) {
     if (!el || (el.id !== 'statement-from' && el.id !== 'statement-to')) return false;
     const input = /** @type {HTMLInputElement} */ (el);
-    const typed = dayText(input.value);
+    const raw = String(input.value || '');
+    const parsed = Ledger.westernDigits(raw);
     if (customRange.on) {
-      if (el.id === 'statement-from') customRange.from = typed;
-      else customRange.to = typed;
-      if (fullDay(typed)) paintField(el.id, input.selectionStart);
+      if (el.id === 'statement-from') customRange.from = raw;
+      else customRange.to = raw;
+      if (fullDay(parsed)) paintField(el.id, input.selectionStart);
       return true;
     }
     if (el.id !== 'statement-from') return false;
-    if (!fullDay(typed)) return true;
+    if (!fullDay(parsed)) {
+      dateDraft = raw;
+      return true;
+    }
     const flag = readAccountScope();
-    writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: typed });
+    writeAccountScope({ scope: flag.scope, projectId: flag.projectId, periodKind: flag.periodKind, anchorDate: parsed });
+    dateDraft = raw;
     paintField('statement-from', input.selectionStart);
     return true;
+  }
+
+  function statementCaret() {
+    if (typeof document === 'undefined' || !document.activeElement) return null;
+    const el = document.activeElement;
+    if (el.id !== 'statement-from' && el.id !== 'statement-to') return null;
+    const input = /** @type {HTMLInputElement} */ (el);
+    return { id: el.id, caret: typeof input.selectionStart === 'number' ? input.selectionStart : null };
+  }
+
+  /**
+   * @param {{ id: string, caret: number | null } | null} previous
+   */
+  function holdStatementFocus(previous) {
+    if (!previous) return;
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    const next = /** @type {HTMLInputElement | null} */ (document.querySelector('#' + previous.id));
+    if (!next || typeof next.focus !== 'function') return;
+    next.focus();
+    if (typeof previous.caret === 'number' && typeof next.setSelectionRange === 'function') next.setSelectionRange(previous.caret, previous.caret);
   }
 
   return {
@@ -789,5 +810,7 @@
     commitDoc,
     partyErrors,
     canCreateParty,
+    statementCaret,
+    holdStatementFocus,
   };
 });
