@@ -504,28 +504,3 @@ test('a custom range shows inclusive lines and does not issue', () => {
     UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
   }
 });
-
-test('week and month date prompts use the pending wording', () => {
-  store.parties = [{ id: 'p1', name: 'حسن' }];
-  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
-  const model = ownerModel();
-  model.screen.tab = 'statement';
-  try {
-    const week = UI.accountHtml(model, 'p1');
-    assert.equal(week.includes('اختار يوم من الأسبوع'), true);
-    assert.equal(week.includes('اختار يوم من الشهر'), false);
-    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'month' } }));
-    const month = UI.accountHtml(model, 'p1');
-    assert.equal(month.includes('اختار يوم من الشهر'), true);
-    assert.equal(month.includes('اختار يوم من الأسبوع'), false);
-    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'custom' } }));
-    const custom = UI.accountHtml(model, 'p1');
-    assert.equal(custom.includes('<label class="field">من<input id="statement-from"'), true);
-    assert.equal(custom.includes('<label class="field">إلى<input id="statement-to"'), true);
-    assert.equal(custom.includes('اختار يوم من الأسبوع'), false);
-    assert.equal(custom.includes('اختار يوم من الشهر'), false);
-  } finally {
-    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
-    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
-  }
-});

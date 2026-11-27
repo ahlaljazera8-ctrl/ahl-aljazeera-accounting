@@ -509,9 +509,8 @@
     if (customOn) return customStatement(partyId, pills);
     const doc = statementFor(model.user, partyId);
     const period = accountPeriod();
-    const fromLabel = flag.periodKind === 'month' ? 'اختار يوم من الشهر' : 'اختار يوم من الأسبوع';
     const dates = period
-      ? '<label class="field">' + fromLabel + '<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label><div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
+      ? '<label class="field">من<input id="statement-from" value="' + esc(flag.anchorDate) + '"></label><div class="kv"><span>من</span><b>' + esc(period.periodStart) + '</b></div><div class="kv"><span>إلى</span><b>' + esc(period.periodEnd) + '</b></div>'
       : '';
     const booked = period ? bookedStatement(partyId) : null;
     const st = (/** @type {Window} */ (/** @type {unknown} */ (globalThis))).AccountStatement;
