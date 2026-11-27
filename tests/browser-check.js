@@ -2731,6 +2731,53 @@ let chrome;
     'B4 the person page uses the approved work and payment labels',
     !!(reclass && typeof reclass.labels === 'string' && reclass.labels.includes('مجموع العمل المعتمد') && reclass.labels.includes('مجموع المدفوع للعمل')),
   );
+  const dateFocus = await ev(`(() => {
+    function typeDate(id, value, caret) {
+      const el = document.querySelector('#' + id);
+      if (!el) return { missing: id };
+      el.focus();
+      el.value = value;
+      el.setSelectionRange(caret, caret);
+      el.setAttribute('data-probe', 'old');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      const next = document.activeElement;
+      return {
+        id: next && next.id,
+        caret: next && typeof next.selectionStart === 'number' ? next.selectionStart : null,
+        probe: next && next.getAttribute('data-probe'),
+        detached: !document.body.contains(el),
+        text: (document.querySelector('#main') && document.querySelector('#main').innerText) || '',
+        html: (document.querySelector('#main') && document.querySelector('#main').innerHTML) || '',
+      };
+    }
+    try {
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      location.hash = '#account/p1';
+      dispatchEvent(new HashChangeEvent('hashchange'));
+      const tab = document.querySelector('[data-acctab="statement"]');
+      if (tab) tab.click();
+      const week = typeDate('statement-from', '2026-11-23', 10);
+      const customBtn = document.querySelector('[data-acperiod="custom"]');
+      if (customBtn) customBtn.click();
+      const from = typeDate('statement-from', '2026-11-18', 10);
+      const to = typeDate('statement-to', '2026-11-20', 8);
+      AccountsView.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+      const back = document.querySelector('[data-acperiod="week"]');
+      if (back) back.click();
+      return { week, from, to };
+    } catch (err) {
+      return { error: String(err && err.message || err) };
+    }
+  })()`);
+  check(
+    'a full statement date redraws and keeps the caret on that field',
+    !!(dateFocus
+      && dateFocus.week && dateFocus.week.id === 'statement-from' && dateFocus.week.caret === 10 && dateFocus.week.probe == null && dateFocus.week.detached === true
+      && typeof dateFocus.week.text === 'string' && dateFocus.week.text.includes('2026-11-21') && dateFocus.week.text.includes('2026-11-27')
+      && dateFocus.from && dateFocus.from.id === 'statement-from' && dateFocus.from.caret === 10 && dateFocus.from.probe == null && dateFocus.from.detached === true
+      && dateFocus.to && dateFocus.to.id === 'statement-to' && dateFocus.to.caret === 8 && dateFocus.to.probe == null && dateFocus.to.detached === true
+      && typeof dateFocus.to.html === 'string' && dateFocus.to.html.includes('data-st-card')),
+  );
   const p = results.filter(r => r[1]).length; console.log(`browser checks: ${p}/${results.length} passed`);
   ws.close(); chrome.kill(); process.exit(p === results.length ? 0 : 1);
 })().catch(e => { console.error(e); if (chrome) chrome.kill(); process.exit(2); });

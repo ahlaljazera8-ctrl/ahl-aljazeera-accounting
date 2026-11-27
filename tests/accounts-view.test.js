@@ -504,3 +504,53 @@ test('a custom range shows inclusive lines and does not issue', () => {
     UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
   }
 });
+
+test('a full custom date redraws and returns the caret to that field', () => {
+  store.parties = [{ id: 'p1', name: 'حسن' }];
+  const prevDoc = g.document;
+  const active = { id: '' };
+  const fields = {
+    'statement-from': {
+      id: 'statement-from',
+      caret: /** @type {number | null} */ (null),
+      focus() { active.id = 'statement-from'; },
+      setSelectionRange(start) { this.caret = start; },
+    },
+    'statement-to': {
+      id: 'statement-to',
+      caret: /** @type {number | null} */ (null),
+      focus() { active.id = 'statement-to'; },
+      setSelectionRange(start) { this.caret = start; },
+    },
+  };
+  g.document = { querySelector: sel => fields[String(sel || '').replace(/^#/, '')] || null };
+  let shot = '';
+  const view = installView(() => {
+    const model = ownerModel();
+    model.screen.tab = 'statement';
+    shot = UI.accountHtml(model, 'p1');
+  });
+  UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  try {
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'custom' } }));
+    const opened = view.paints();
+    UI.onInput(/** @type {any} */ ({ id: 'statement-from', value: '2026-11-18', selectionStart: 10 }));
+    assert.equal(view.paints(), opened + 1);
+    assert.equal(active.id, 'statement-from');
+    assert.equal(fields['statement-from'].caret, 10);
+    assert.equal(fields['statement-to'].caret, null);
+    assert.equal(shot.includes('value="2026-11-18"'), true);
+    assert.equal(shot.includes('رصيد أول المدة'), false);
+    UI.onInput(/** @type {any} */ ({ id: 'statement-to', value: '2026-11-20', selectionStart: 8 }));
+    assert.equal(view.paints(), opened + 2);
+    assert.equal(active.id, 'statement-to');
+    assert.equal(fields['statement-to'].caret, 8);
+    assert.equal(fields['statement-from'].caret, 10);
+    assert.equal(shot.includes('value="2026-11-20"'), true);
+    assert.equal(shot.includes('رصيد أول المدة'), true);
+  } finally {
+    g.document = prevDoc;
+    UI.onClick(/** @type {any} */ ({ id: '', disabled: false, dataset: { acperiod: 'week' } }));
+    UI.writeAccountScope({ scope: 'all', projectId: '', periodKind: 'week', anchorDate: '2026-11-16' });
+  }
+});
